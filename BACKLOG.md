@@ -8,6 +8,12 @@ and open verification items. Newest concerns first.
   runs on **both Windows and Linux** via `electron-builder` (`asarUnpack` the
   native binding; `postinstall: electron-builder install-app-deps` for the ABI
   rebuild). This is the one real packaging risk in the new data tier.
+  - **Status (Task 1):** `@duckdb/node-api@1.5.4` loads + queries fine under
+    **Node 22** (smoke-tested). NOT yet exercised under **Electron** — first real
+    Electron+DuckDB run is Task 6/8. `electron-builder` is not installed yet
+    (packaging is a later phase), so the `postinstall` ABI-rebuild hook is
+    deferred; add it when packaging lands and re-verify the binding against
+    Electron's ABI then.
 - **Ingest progress + cancel granularity** — in-main `read_json` gives coarse
   progress (DuckDB progress callback / byte estimate) and interrupt-based cancel.
   If that feels bad on a multi-GB run, fall back to ingest-in-a-worker with a
