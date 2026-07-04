@@ -5,3 +5,6 @@ out/
 docs/
 *.log
 *.jsonl
+# ...but synthetic test fixtures (placeholder identifiers only) are tracked.
+!tests/fixtures/*.jsonl
+screenshots/

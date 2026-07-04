@@ -1,0 +1,33 @@
+{
+  "name": "ares-desktop",
+  "version": "1.0.0",
+  "description": "Desktop viewer for ARES trace runs - renders the syscall -> native -> Java call-chain mapping.",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "shots": "node scripts/screenshot.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/cytoscape": "^3.21.9",
+    "@types/node": "^26.1.0",
+    "electron": "^42.5.2",
+    "electron-vite": "^5.0.0",
+    "playwright": "^1.61.1",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.9"
+  },
+  "dependencies": {
+    "@duckdb/node-api": "^1.5.4-r.1",
+    "cytoscape": "^3.34.0",
+    "cytoscape-elk": "^2.3.0",
+    "elkjs": "^0.11.1"
+  }
+}
