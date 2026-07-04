@@ -28,7 +28,7 @@ export function parseFrameSymbol(s: string): ParsedFrame {
     body = s.slice(0, off.index)
   }
 
-  // "module!symbol" — split on the first "!".
+  // "module!symbol" - split on the first "!".
   const bang = body.indexOf('!')
   if (bang >= 0) {
     return { module: body.slice(0, bang), symbol: body.slice(bang + 1), offset, raw }

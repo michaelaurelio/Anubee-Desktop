@@ -1,4 +1,4 @@
-// Vendored contract for the ARES JSONL event schema — the coupling surface
+// Vendored contract for the ARES JSONL event schema - the coupling surface
 // (design §4). These are the top-level keys the `syscall` record emits, read
 // from ../ARES/src/syscalls/syscalls.c `json_emit`. The schema-drift test
 // (tests/schema-drift.test.ts) fails when the emitter stops emitting one of

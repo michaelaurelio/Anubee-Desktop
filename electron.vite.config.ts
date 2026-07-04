@@ -8,7 +8,7 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: resolve(__dirname, 'src/main/index.ts'),
-        // Native module — keep it out of the bundle; loaded at runtime.
+        // Native module - keep it out of the bundle; loaded at runtime.
         external: ['@duckdb/node-api'],
       },
     },

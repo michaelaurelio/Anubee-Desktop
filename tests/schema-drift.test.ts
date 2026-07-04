@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { SYSCALL_KEYS, BACKTRACE_KEYS } from '@shared/schema-contract'
 
-// The syscall emitter in the sibling ARES checkout. Not a build dependency —
+// The syscall emitter in the sibling ARES checkout. Not a build dependency -
 // only read here to guard the vendored contract. Absent → skip (CI without the
 // sibling still passes).
 const EMITTER = resolve(__dirname, '../../ARES/src/syscalls/syscalls.c')
@@ -42,5 +42,5 @@ describe('schema drift: vendored contract vs ARES emitter', () => {
 
 if (!present) {
   // Surfaced in the runner output so a skipped guard is visible, not silent.
-  console.warn(`[schema-drift] ../ARES not found at ${EMITTER} — drift checks skipped.`)
+  console.warn(`[schema-drift] ../ARES not found at ${EMITTER} - drift checks skipped.`)
 }

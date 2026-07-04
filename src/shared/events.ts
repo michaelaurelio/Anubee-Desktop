@@ -1,5 +1,5 @@
 // Event-schema types, verified against ../ARES/src/syscalls/syscalls.c json_emit
-// (L603-689). Field names are the contract — the schema-drift test (Task 4)
+// (L603-689). Field names are the contract - the schema-drift test (Task 4)
 // guards them. Do not rename without updating the contract.
 
 export interface BacktraceFrame {

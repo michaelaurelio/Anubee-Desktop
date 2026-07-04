@@ -17,7 +17,7 @@ export interface TableRow {
 
 // Explicit read_json schema so DuckDB never mis-infers the nested/heterogeneous
 // fields. Extends the ARES host store's schema (tools/ares-mcp/trace_store.py)
-// with `type`, `stack_id`, and `java_stack` — the last is the RASP bridge this
+// with `type`, `stack_id`, and `java_stack` - the last is the RASP bridge this
 // app is built around. `type` also lets ingest separate a malformed line
 // (all-null row → type NULL) from a valid non-syscall record (type='lib').
 const COLS =
@@ -32,7 +32,7 @@ function sqlStr(s: string): string {
   return "'" + s.replace(/'/g, "''") + "'"
 }
 
-// The ordered top->bottom chain of node ids for one event, in SQL — the same
+// The ordered top->bottom chain of node ids for one event, in SQL - the same
 // identity rules as graph-shape.chainOf: reversed java_stack, then reversed
 // backtrace (bare-address frames dropped, `+0x<off>` stripped so call sites
 // collapse), then the syscall. Interpolated into the slice CTE.
@@ -145,7 +145,7 @@ export class GraphStore {
   // Aggregated syscall->native->java graph over the filtered events, capped.
   // `filter` is accepted now; the filter->SQL translation is wired in Task 7
   // (today WHERE TRUE). Reconstructs identity + counts in SQL, then assembles
-  // GraphNodes with the shared labelling — matched node-for-node against the
+  // GraphNodes with the shared labelling - matched node-for-node against the
   // foldEvents oracle.
   async slice(_filter: Filter = {}, cap?: number): Promise<GraphSlice> {
     const where = 'TRUE'
