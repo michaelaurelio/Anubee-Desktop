@@ -47,6 +47,9 @@ async function selectRow(row: TableRow): Promise<void> {
   showBanner(slice.truncated)
 }
 
+// Exposed for the screenshot harness / debugging to drive the graph deterministically.
+;(window as unknown as { __cy: typeof cy }).__cy = cy
+
 cy.on('tap', 'node', evt => {
   const nodeId = evt.target.id()
   void window.ares.nodeEvents(nodeId, currentFilter()).then(events => showNodeInspector(nodeId, events))

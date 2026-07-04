@@ -21,6 +21,11 @@ function createWindow(): void {
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(resolve(__dirname, '../renderer/index.html'))
 
+  // Open a run given on launch (ARES_OPEN_FILE). Handy for CLI use and lets the
+  // screenshot harness load a fixture without driving the native file dialog.
+  const preload = process.env.ARES_OPEN_FILE
+  if (preload) win.webContents.once('did-finish-load', () => void loadPath(preload))
+
   const menu = Menu.buildFromTemplate([
     {
       label: 'File',
@@ -33,15 +38,19 @@ function createWindow(): void {
   Menu.setApplicationMenu(menu)
 }
 
+async function loadPath(path: string): Promise<{ eventCount: number; errors: number }> {
+  const summary = await store.ingest(path, pct => win.webContents.send('trace:progress', pct))
+  win.webContents.send('trace:loaded', summary)
+  return summary
+}
+
 async function openViaDialog(): Promise<{ eventCount: number; errors: number } | null> {
   const r = await dialog.showOpenDialog(win, {
     filters: [{ name: 'ARES JSONL', extensions: ['jsonl', 'json'] }],
     properties: ['openFile'],
   })
   if (r.canceled || !r.filePaths[0]) return null
-  const summary = await store.ingest(r.filePaths[0], pct => win.webContents.send('trace:progress', pct))
-  win.webContents.send('trace:loaded', summary)
-  return summary
+  return loadPath(r.filePaths[0])
 }
 
 ipcMain.handle('trace:open', () => openViaDialog())
