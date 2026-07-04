@@ -1,7 +1,7 @@
 import { openSync, readSync, closeSync } from 'node:fs'
-import { DuckDBInstance, type DuckDBConnection } from '@duckdb/node-api'
+import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
 import type { SyscallEvent } from '@shared/events'
-import type { Filter } from '@shared/filter'
+import { filterToSql, type Filter } from '@shared/filter'
 import { parseFrameSymbol } from '@shared/frame-symbol'
 import { capSlice, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
 
@@ -84,13 +84,14 @@ export class GraphStore {
     return this.con
   }
 
-  private async rows(sql: string): Promise<Record<string, unknown>[]> {
-    const r = await this.conn().run(sql)
+  private async rows(sql: string, params: unknown[] = []): Promise<Record<string, unknown>[]> {
+    // filterToSql yields DB-agnostic primitives (strings/numbers), safe as DuckDB values.
+    const r = await this.conn().run(sql, params as DuckDBValue[])
     return (await r.getRowObjects()) as Record<string, unknown>[]
   }
 
-  private async scalar(sql: string): Promise<number> {
-    const rows = await this.rows(sql)
+  private async scalar(sql: string, params: unknown[] = []): Promise<number> {
+    const rows = await this.rows(sql, params)
     return Number((rows[0] as { n: number | bigint }).n)
   }
 
@@ -117,19 +118,20 @@ export class GraphStore {
     return { eventCount, errors }
   }
 
-  // Master-table page. `filter` is accepted now; the filter→SQL translation is
-  // wired in Task 7 (today every row matches).
-  async table(_filter: Filter, page: { limit: number; offset: number }): Promise<TableRow[]> {
+  // Master-table page, filtered in SQL.
+  async table(filter: Filter, page: { limit: number; offset: number }): Promise<TableRow[]> {
     const limit = Math.max(0, Math.trunc(page.limit))
     const offset = Math.max(0, Math.trunc(page.offset))
+    const { where, params } = filterToSql(filter)
     const rows = await this.rows(
       `SELECT id, tid, syscall, retval,
          (java_stack IS NOT NULL AND len(java_stack) > 0) AS hasJava,
          java_stack[1] AS topJava,
          backtrace[1].symbol AS topNative
-       FROM ev WHERE TRUE
+       FROM ev WHERE ${where}
        ORDER BY id
        LIMIT ${limit} OFFSET ${offset}`,
+      params,
     )
     return rows.map(r => ({
       id: num(r.id)!,
@@ -143,22 +145,22 @@ export class GraphStore {
   }
 
   // Aggregated syscall->native->java graph over the filtered events, capped.
-  // `filter` is accepted now; the filter->SQL translation is wired in Task 7
-  // (today WHERE TRUE). Reconstructs identity + counts in SQL, then assembles
-  // GraphNodes with the shared labelling - matched node-for-node against the
-  // foldEvents oracle.
-  async slice(_filter: Filter = {}, cap?: number): Promise<GraphSlice> {
-    const where = 'TRUE'
+  // Reconstructs identity + counts in SQL, then assembles GraphNodes with the
+  // shared labelling - matched node-for-node against the foldEvents oracle.
+  async slice(filter: Filter = {}, cap?: number): Promise<GraphSlice> {
+    const { where, params } = filterToSql(filter)
     const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${where})`
 
     const nodeRows = await this.rows(
       `${cte} SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`,
+      params,
     )
     const edgeRows = await this.rows(
       `${cte} SELECT chain[i] AS src, chain[i + 1] AS tgt, count(*) AS c
        FROM chains, range(1, len(chain)) AS t(i) GROUP BY src, tgt`,
+      params,
     )
-    const eventCount = await this.scalar(`SELECT count(*) AS n FROM ev WHERE ${where}`)
+    const eventCount = await this.scalar(`SELECT count(*) AS n FROM ev WHERE ${where}`, params)
 
     const nodes: GraphNode[] = nodeRows.map(r => nodeFromId(r.nid as string, Number(r.c)))
     const edges: GraphEdge[] = edgeRows.map(r => {

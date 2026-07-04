@@ -110,3 +110,34 @@ describe('GraphStore.slice', () => {
     expect(slice.nodes.length + slice.edges.length).toBeLessThanOrEqual(2)
   })
 })
+
+describe('GraphStore filtering (filterToSql wired end-to-end)', () => {
+  it('filters the table by hasJavaStack, tid, syscall, and library', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    expect((await store.table({ hasJavaStack: true }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([1, 2])
+    expect((await store.table({ tid: 202 }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([3])
+    expect((await store.table({ syscall: 'READ' }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([3])
+    expect((await store.table({ library: 'libexample' }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([1, 2])
+  })
+
+  it('filters the slice to the java-bearing bridges only', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    const s = await store.slice({ hasJavaStack: true })
+    expect(s.eventCount).toBe(2)
+    const ids = s.nodes.map(n => n.id)
+    expect(ids).toContain('java:com.example.app.RootCheck.run')
+    expect(ids).toContain('nat:libexample.so!check_su')
+    expect(ids).toContain('sys:openat')
+    expect(ids).not.toContain('sys:read')
+  })
+
+  it('free-text matches across syscall, java, and backtrace symbols', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    expect((await store.table({ text: 'RootCheck' }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([1, 2])
+    expect((await store.table({ text: 'check_su' }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([1, 2])
+    expect((await store.table({ text: 'read' }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([3])
+  })
+})
