@@ -4,6 +4,21 @@ Log here: features shipped with a known drawback to resolve later, deferred work
 and open verification items. Newest concerns first.
 
 ## Open verification items (before / during Phase 1)
+- **Renderer GUI not yet run** (Tasks 8-9) - IPC wiring, master table, and the
+  focused-subgraph render are typechecked + built but not exercised in a live
+  Electron window (no display in the build env). Manual `npm run dev` verify is
+  pending: File > Open a fixture -> table lists rows -> selecting a bridge draws
+  the java->native->syscall subgraph -> filters reshape the table.
+- **ELK runs on the main thread** (Task 9, via `cytoscape-elk`), not a Web Worker
+  as spec §5.1 describes. Acceptable for Phase 1 because the slice cap keeps the
+  graph small (fast layout). If the cap is raised materially, move layout to the
+  elkjs Web-Worker build + feed positions to cytoscape as a `preset` layout so a
+  large layout never freezes the window.
+- **Node-click inspector not wired** (Task 9) - clicking a graph node needs a
+  node->records query. `GraphStore` exposes `eventById` (single record) but no
+  `nodeEvents(nodeId, filter)`; add that store method + IPC channel + preload +
+  `window.ares` type in Task 10 (inspector), then wire `cy.on('tap','node')`.
+
 - **DuckDB native module in Electron** - confirm `@duckdb/node-api` packages and
   runs on **both Windows and Linux** via `electron-builder` (`asarUnpack` the
   native binding; `postinstall: electron-builder install-app-deps` for the ABI

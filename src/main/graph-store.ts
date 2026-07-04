@@ -4,16 +4,9 @@ import type { SyscallEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
 import { parseFrameSymbol } from '@shared/frame-symbol'
 import { capSlice, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
+import type { TableRow } from '@shared/table'
 
-export interface TableRow {
-  id: number
-  tid: number
-  syscall: string
-  retval: number | null
-  hasJava: boolean
-  topJava: string | null
-  topNative: string | null
-}
+export type { TableRow }
 
 // Explicit read_json schema so DuckDB never mis-infers the nested/heterogeneous
 // fields. Extends the ARES host store's schema (tools/ares-mcp/trace_store.py)
