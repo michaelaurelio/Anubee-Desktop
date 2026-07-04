@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('ares', {
     ipcRenderer.invoke('graph:table', filter, page),
   slice: (filter: Filter, cap?: number) => ipcRenderer.invoke('graph:slice', filter, cap),
   eventById: (id: number) => ipcRenderer.invoke('graph:eventById', id),
+  nodeEvents: (nodeId: string, filter: Filter) => ipcRenderer.invoke('graph:nodeEvents', nodeId, filter),
   onProgress: (cb: (pct: number) => void) =>
     ipcRenderer.on('trace:progress', (_e, pct) => cb(pct as number)),
   onLoaded: (cb: (s: { eventCount: number; errors: number }) => void) =>

@@ -14,10 +14,9 @@ and open verification items. Newest concerns first.
   graph small (fast layout). If the cap is raised materially, move layout to the
   elkjs Web-Worker build + feed positions to cytoscape as a `preset` layout so a
   large layout never freezes the window.
-- **Node-click inspector not wired** (Task 9) - clicking a graph node needs a
-  node->records query. `GraphStore` exposes `eventById` (single record) but no
-  `nodeEvents(nodeId, filter)`; add that store method + IPC channel + preload +
-  `window.ares` type in Task 10 (inspector), then wire `cy.on('tap','node')`.
+- **Node-click inspector** (done Task 10) - `GraphStore.nodeEvents(nodeId, filter)`
+  + `graph:nodeEvents` IPC + preload + `cy.on('tap','node')` are wired and
+  unit-tested (store side). Still part of the pending live-GUI verify above.
 
 - **DuckDB native module in Electron** - confirm `@duckdb/node-api` packages and
   runs on **both Windows and Linux** via `electron-builder` (`asarUnpack` the

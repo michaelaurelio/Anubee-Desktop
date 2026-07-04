@@ -3,6 +3,7 @@ import elk from 'cytoscape-elk'
 import { sliceToElements, elkLayoutOptions, filterForRow } from './graph-view'
 import { renderTable } from './table'
 import { currentFilter, wireFilterControls } from './filter-controls'
+import { showNodeInspector } from './inspector'
 import type { TableRow } from '@shared/table'
 
 cytoscape.use(elk)
@@ -45,6 +46,11 @@ async function selectRow(row: TableRow): Promise<void> {
   await cy.layout(elkLayoutOptions()).run()
   showBanner(slice.truncated)
 }
+
+cy.on('tap', 'node', evt => {
+  const nodeId = evt.target.id()
+  void window.ares.nodeEvents(nodeId, currentFilter()).then(events => showNodeInspector(nodeId, events))
+})
 
 window.ares.onProgress(pct => status(`Loading... ${pct}%`))
 window.ares.onLoaded(s => {

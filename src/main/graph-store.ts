@@ -172,6 +172,20 @@ export class GraphStore {
     return JSON.parse(rows[0].js as string) as SyscallEvent
   }
 
+  // The raw records whose reconstructed chain touches `nodeId`, honouring the
+  // active filter. Feeds the node inspector on demand (records stay in DuckDB).
+  async nodeEvents(nodeId: string, filter: Filter = {}, limit = 500): Promise<SyscallEvent[]> {
+    const { where, params } = filterToSql(filter)
+    const lim = Math.max(0, Math.trunc(limit))
+    const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${where})`
+    const rows = await this.rows(
+      `${cte} SELECT to_json(ev) AS js FROM ev JOIN chains ON ev.id = chains.eid
+       WHERE list_contains(chain, ?) ORDER BY ev.id LIMIT ${lim}`,
+      [...params, nodeId],
+    )
+    return rows.map(r => JSON.parse(r.js as string) as SyscallEvent)
+  }
+
   async close(): Promise<void> {
     this.con?.closeSync()
     this.instance?.closeSync()

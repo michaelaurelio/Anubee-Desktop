@@ -10,6 +10,7 @@ declare global {
       table(filter: Filter, page: { limit: number; offset: number }): Promise<TableRow[]>
       slice(filter: Filter, cap?: number): Promise<GraphSlice>
       eventById(id: number): Promise<SyscallEvent | undefined>
+      nodeEvents(nodeId: string, filter: Filter): Promise<SyscallEvent[]>
       onProgress(cb: (pct: number) => void): void
       onLoaded(cb: (s: { eventCount: number; errors: number }) => void): void
     }

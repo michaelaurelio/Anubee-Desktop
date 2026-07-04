@@ -48,6 +48,7 @@ ipcMain.handle('trace:open', () => openViaDialog())
 ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }) => store.table(filter, page))
 ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number) => store.slice(filter, cap))
 ipcMain.handle('graph:eventById', (_e, id: number) => store.eventById(id))
+ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter) => store.nodeEvents(nodeId, filter))
 
 app.whenReady().then(createWindow)
 app.on('window-all-closed', () => {

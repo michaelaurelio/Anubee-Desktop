@@ -141,3 +141,20 @@ describe('GraphStore filtering (filterToSql wired end-to-end)', () => {
     expect((await store.table({ text: 'read' }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([3])
   })
 })
+
+describe('GraphStore.nodeEvents', () => {
+  it('returns the raw records whose chain touches a node', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    expect((await store.nodeEvents('sys:openat')).map(e => e.id)).toEqual([1, 2])
+    expect((await store.nodeEvents('java:com.example.app.RootCheck.run')).map(e => e.id)).toEqual([1, 2])
+    expect((await store.nodeEvents('nat:libc.so!read')).map(e => e.id)).toEqual([3])
+  })
+
+  it('honours the active filter', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    expect((await store.nodeEvents('sys:openat', { tid: 101 })).map(e => e.id)).toEqual([1, 2])
+    expect((await store.nodeEvents('sys:openat', { tid: 999 }))).toEqual([])
+  })
+})
