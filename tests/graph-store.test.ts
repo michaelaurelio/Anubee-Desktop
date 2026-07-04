@@ -3,6 +3,8 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
+import { parseJsonl, isSyscall } from '@shared/ares-parse'
+import { foldEvents, type GraphSlice } from '@shared/graph-shape'
 
 // A trace with 2 root-check bridges (java + native), 1 java-less read, a
 // non-syscall `lib` record, and a deliberately malformed line. Placeholder
@@ -74,5 +76,37 @@ describe('GraphStore.eventById', () => {
     store = new GraphStore()
     await store.ingest(fixture())
     expect(await store.eventById(999)).toBeUndefined()
+  })
+})
+
+// The DuckDB slice SQL must reconstruct the same graph as the pure-TS oracle.
+const oracleEvents = parseJsonl(LINES.join('\n')).events.filter(isSyscall)
+
+const normNodes = (s: GraphSlice) =>
+  [...s.nodes].sort((a, b) => a.id.localeCompare(b.id))
+    .map(n => ({ id: n.id, kind: n.kind, label: n.label, module: n.module, count: n.count }))
+const normEdges = (s: GraphSlice) =>
+  [...s.edges].sort((a, b) => a.id.localeCompare(b.id))
+    .map(e => ({ id: e.id, source: e.source, target: e.target, count: e.count }))
+
+describe('GraphStore.slice', () => {
+  it('reconstructs the same nodes/edges as the foldEvents oracle', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    const oracle = foldEvents(oracleEvents)
+    const slice = await store.slice()
+
+    expect(slice.eventCount).toBe(oracle.eventCount)
+    expect(slice.truncated).toBe(false)
+    expect(normNodes(slice)).toEqual(normNodes(oracle))
+    expect(normEdges(slice)).toEqual(normEdges(oracle))
+  })
+
+  it('flags truncated when node+edge count exceeds the cap', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    const slice = await store.slice({}, 2)
+    expect(slice.truncated).toBe(true)
+    expect(slice.nodes.length + slice.edges.length).toBeLessThanOrEqual(2)
   })
 })

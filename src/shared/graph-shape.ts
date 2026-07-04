@@ -79,14 +79,21 @@ export function foldEvents(events: SyscallEvent[], cap?: number): GraphSlice {
     }
   }
 
-  let nodeList = [...nodes.values()]
-  let edgeList = [...edges.values()]
-  const truncated = cap !== undefined && nodeList.length + edgeList.length > cap
-  if (truncated) {
-    // Deterministic trim by insertion order — keeps nodes, then edges, up to cap.
-    nodeList = nodeList.slice(0, cap)
-    edgeList = edgeList.slice(0, Math.max(0, cap - nodeList.length))
-  }
+  return capSlice([...nodes.values()], [...edges.values()], events.length, cap)
+}
 
-  return { nodes: nodeList, edges: edgeList, eventCount: events.length, truncated }
+// Assemble a GraphSlice, flagging (and trimming to) a max node+edge count.
+// Shared by foldEvents (the oracle) and the DuckDB slice so both truncate the
+// same way: keep nodes first, then edges, up to `cap`.
+export function capSlice(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  eventCount: number,
+  cap?: number,
+): GraphSlice {
+  const truncated = cap !== undefined && nodes.length + edges.length > cap
+  if (!truncated) return { nodes, edges, eventCount, truncated: false }
+  const ns = nodes.slice(0, cap)
+  const es = edges.slice(0, Math.max(0, cap! - ns.length))
+  return { nodes: ns, edges: es, eventCount, truncated: true }
 }

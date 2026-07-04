@@ -2,6 +2,8 @@ import { openSync, readSync, closeSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection } from '@duckdb/node-api'
 import type { SyscallEvent } from '@shared/events'
 import type { Filter } from '@shared/filter'
+import { parseFrameSymbol } from '@shared/frame-symbol'
+import { capSlice, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
 
 export interface TableRow {
   id: number
@@ -28,6 +30,32 @@ const COLS =
 
 function sqlStr(s: string): string {
   return "'" + s.replace(/'/g, "''") + "'"
+}
+
+// The ordered top->bottom chain of node ids for one event, in SQL — the same
+// identity rules as graph-shape.chainOf: reversed java_stack, then reversed
+// backtrace (bare-address frames dropped, `+0x<off>` stripped so call sites
+// collapse), then the syscall. Interpolated into the slice CTE.
+const CHAIN_SQL = `list_concat(
+  list_transform(array_reverse(coalesce(java_stack, [])), x -> 'java:' || x),
+  list_transform(
+    list_filter(array_reverse(list_transform(backtrace, b -> b.symbol)),
+                s -> NOT (starts_with(s, '0x') AND NOT contains(s, '!'))),
+    s -> 'nat:' || regexp_replace(s, '\\+0x[0-9a-fA-F]+$', '')
+  ),
+  ['sys:' || syscall]
+)`
+
+// Rebuild a node's kind/label/module from its id, mirroring chainOf's labelling
+// exactly (native goes through the shared parseFrameSymbol). The SQL owns
+// identity + counts; labelling stays in shared TS so it can never drift.
+function nodeFromId(id: string, count: number): GraphNode {
+  if (id.startsWith('java:')) return { id, kind: 'java', label: id.slice(5), module: null, count }
+  if (id.startsWith('sys:')) return { id, kind: 'syscall', label: id.slice(4), module: null, count }
+  const rest = id.slice(4) // 'nat:'
+  const p = parseFrameSymbol(rest)
+  const label = p.symbol ? `${p.symbol} (${p.module})` : (p.module ?? rest)
+  return { id, kind: 'native', label, module: p.module, count }
 }
 
 function num(v: unknown): number | null {
@@ -112,6 +140,33 @@ export class GraphStore {
       topJava: (r.topJava as string | null) ?? null,
       topNative: (r.topNative as string | null) ?? null,
     }))
+  }
+
+  // Aggregated syscall->native->java graph over the filtered events, capped.
+  // `filter` is accepted now; the filter->SQL translation is wired in Task 7
+  // (today WHERE TRUE). Reconstructs identity + counts in SQL, then assembles
+  // GraphNodes with the shared labelling — matched node-for-node against the
+  // foldEvents oracle.
+  async slice(_filter: Filter = {}, cap?: number): Promise<GraphSlice> {
+    const where = 'TRUE'
+    const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${where})`
+
+    const nodeRows = await this.rows(
+      `${cte} SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`,
+    )
+    const edgeRows = await this.rows(
+      `${cte} SELECT chain[i] AS src, chain[i + 1] AS tgt, count(*) AS c
+       FROM chains, range(1, len(chain)) AS t(i) GROUP BY src, tgt`,
+    )
+    const eventCount = await this.scalar(`SELECT count(*) AS n FROM ev WHERE ${where}`)
+
+    const nodes: GraphNode[] = nodeRows.map(r => nodeFromId(r.nid as string, Number(r.c)))
+    const edges: GraphEdge[] = edgeRows.map(r => {
+      const source = r.src as string
+      const target = r.tgt as string
+      return { id: `${source}=>${target}`, source, target, count: Number(r.c) }
+    })
+    return capSlice(nodes, edges, eventCount, cap)
   }
 
   // One raw record, reconstructed as a plain SyscallEvent via DuckDB's to_json.
