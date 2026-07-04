@@ -4,11 +4,18 @@ Log here: features shipped with a known drawback to resolve later, deferred work
 and open verification items. Newest concerns first.
 
 ## Open verification items (before / during Phase 1)
-- **Renderer GUI not yet run** (Tasks 8-9) - IPC wiring, master table, and the
-  focused-subgraph render are typechecked + built but not exercised in a live
-  Electron window (no display in the build env). Manual `npm run dev` verify is
-  pending: File > Open a fixture -> table lists rows -> selecting a bridge draws
-  the java->native->syscall subgraph -> filters reshape the table.
+- **Renderer GUI verified** (via `npm run shots`) - table, focused subgraph, node
+  inspector, and the has-java_stack filter all work end to end in a live Electron
+  window. Open UI polish from that review (see below).
+- **UI polish from the first GUI review** (not yet fixed):
+  1. Master table columns truncate with a horizontal scrollbar - `topJava` clipped,
+     `topNative` hidden. Needs ellipsis + `title` tooltip (or a wider/resizable
+     panel), not `white-space: nowrap` overflow.
+  2. Graph node labels sit on top of the edge line and the arrowheads pierce the
+     text. Offset labels (text-valign/margin) and shrink the target arrows.
+  3. Graph framing is inconsistent between states and wastes horizontal space -
+     add `cy.fit(padding)` after layout.
+  4. Inspector record links use default anchor styling (blue underline) - style.
 - **ELK runs on the main thread** (Task 9, via `cytoscape-elk`), not a Web Worker
   as spec §5.1 describes. Acceptable for Phase 1 because the slice cap keeps the
   graph small (fast layout). If the cap is raised materially, move layout to the
@@ -22,8 +29,11 @@ and open verification items. Newest concerns first.
   runs on **both Windows and Linux** via `electron-builder` (`asarUnpack` the
   native binding; `postinstall: electron-builder install-app-deps` for the ABI
   rebuild). This is the one real packaging risk in the new data tier.
-  - **Status (Task 1):** `@duckdb/node-api@1.5.4` loads + queries fine under
-    **Node 22** (smoke-tested). NOT yet exercised under **Electron** - first real
+  - **Status (GUI run):** RESOLVED for dev - `@duckdb/node-api@1.5.4` ingests +
+    queries fine **under Electron 42** (the live app loaded the fixture, and the
+    table/slice/inspector all pulled from DuckDB). Packaging (`electron-builder`
+    `asarUnpack` + ABI rebuild) is still unproven for a distributable build.
+  - **(historical) Task 1:** loaded + queried under **Node 22** first; the first
     Electron+DuckDB run is Task 6/8. `electron-builder` is not installed yet
     (packaging is a later phase), so the `postinstall` ABI-rebuild hook is
     deferred; add it when packaging lands and re-verify the binding against
