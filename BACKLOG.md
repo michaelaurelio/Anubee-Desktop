@@ -7,15 +7,15 @@ and open verification items. Newest concerns first.
 - **Renderer GUI verified** (via `npm run shots`) - table, focused subgraph, node
   inspector, and the has-java_stack filter all work end to end in a live Electron
   window. Open UI polish from that review (see below).
-- **UI polish from the first GUI review** (not yet fixed):
-  1. Master table columns truncate with a horizontal scrollbar - `topJava` clipped,
-     `topNative` hidden. Needs ellipsis + `title` tooltip (or a wider/resizable
-     panel), not `white-space: nowrap` overflow.
-  2. Graph node labels sit on top of the edge line and the arrowheads pierce the
-     text. Offset labels (text-valign/margin) and shrink the target arrows.
-  3. Graph framing is inconsistent between states and wastes horizontal space -
-     add `cy.fit(padding)` after layout.
-  4. Inspector record links use default anchor styling (blue underline) - style.
+- **UI polish from the first GUI review** (FIXED, verified via `npm run shots`):
+  1. Master table - fixed column layout with ellipsis + `title` tooltips; no more
+     horizontal scrollbar.
+  2. Graph node labels moved beside the node (right-aligned, light backing) so the
+     edge/arrow no longer crosses them; target arrows scaled down + lightened.
+  3. `cy.fit(padding)` after layout - consistent framing per selection.
+  4. Inspector record links restyled (no default underline), detail separated.
+  - Remaining minor: single vertical chains leave empty space to the right (labels
+    extend right, nodes sit left-of-center) - acceptable; revisit if it bothers.
 - **ELK runs on the main thread** (Task 9, via `cytoscape-elk`), not a Web Worker
   as spec §5.1 describes. Acceptable for Phase 1 because the slice cap keeps the
   graph small (fast layout). If the cap is raised materially, move layout to the

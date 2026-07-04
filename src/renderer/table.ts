@@ -12,13 +12,18 @@ export function renderTable(rows: TableRow[], onSelect: (row: TableRow) => void)
   for (const h of ['id', 'tid', 'syscall', 'java?', 'top java', 'top native']) {
     const th = document.createElement('th')
     th.textContent = h
+    th.title = h // header may ellipsis-truncate in a narrow column
     head.appendChild(th)
   }
 
   for (const r of rows) {
     const tr = tbl.insertRow()
     const cells = [String(r.id), String(r.tid), r.syscall, r.hasJava ? '✓' : '', r.topJava ?? '', r.topNative ?? '']
-    for (const c of cells) tr.insertCell().textContent = c
+    for (const c of cells) {
+      const td = tr.insertCell()
+      td.textContent = c
+      if (c) td.title = c // full value on hover, since wide cells ellipsis-truncate
+    }
     tr.style.cursor = 'pointer'
     tr.onclick = () => onSelect(r)
   }

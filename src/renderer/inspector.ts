@@ -30,17 +30,24 @@ export function showNodeInspector(nodeId: string, events: SyscallEvent[]): void 
 
   const head = document.createElement('div')
   head.style.fontWeight = 'bold'
+  head.style.marginBottom = '6px'
   head.textContent = `${nodeId} - ${events.length} record(s)`
   host.appendChild(head)
 
   const detail = document.createElement('pre')
   detail.style.whiteSpace = 'pre-wrap'
+  detail.style.marginTop = '8px'
+  detail.style.borderTop = '1px solid #eee'
+  detail.style.paddingTop = '6px'
 
   const list = document.createElement('div')
   for (const ev of events.slice(0, 500)) {
     const item = document.createElement('a')
     item.href = '#'
     item.style.display = 'block'
+    item.style.textDecoration = 'none'
+    item.style.color = '#2563eb'
+    item.style.padding = '1px 0'
     item.textContent = `#${ev.id} ${ev.syscall} (tid ${ev.tid})`
     item.onclick = evt => {
       evt.preventDefault()

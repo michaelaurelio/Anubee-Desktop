@@ -8,10 +8,15 @@
       #toolbar { display: flex; gap: 8px; align-items: center; padding: 6px; border-bottom: 1px solid #ccc; }
       #toolbar input { font: inherit; padding: 2px 4px; }
       #main { position: absolute; top: 40px; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: 360px 1fr 340px; }
-      #table { overflow: auto; border-right: 1px solid #ccc; }
-      #table table { border-collapse: collapse; width: 100%; }
-      #table th, #table td { text-align: left; padding: 2px 6px; border-bottom: 1px solid #eee; white-space: nowrap; }
+      #table { overflow-y: auto; overflow-x: hidden; border-right: 1px solid #ccc; }
+      #table table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+      #table th, #table td { text-align: left; padding: 2px 6px; border-bottom: 1px solid #eee; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #table th { position: sticky; top: 0; background: #fafafa; }
+      #table td:nth-child(1), #table th:nth-child(1) { width: 34px; }
+      #table td:nth-child(2), #table th:nth-child(2) { width: 40px; }
+      #table td:nth-child(3), #table th:nth-child(3) { width: 64px; }
+      #table td:nth-child(4), #table th:nth-child(4) { width: 48px; text-align: center; }
+      #table tr:hover td { background: #f2f7ff; }
       #cy { position: relative; }
       #banner { position: absolute; top: 6px; left: 6px; right: 6px; padding: 4px 8px; background: #fff3cd; border: 1px solid #ffe08a; display: none; }
       #inspector { overflow: auto; border-left: 1px solid #ccc; padding: 8px; font-family: ui-monospace, monospace; }

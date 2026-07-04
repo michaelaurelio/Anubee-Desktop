@@ -11,11 +11,40 @@ cytoscape.use(elk)
 const cy = cytoscape({
   container: document.getElementById('cy'),
   style: [
-    { selector: 'node', style: { label: 'data(label)', 'font-size': 9, 'text-wrap': 'wrap', 'text-max-width': '140px', width: 16, height: 16 } },
+    {
+      selector: 'node',
+      style: {
+        label: 'data(label)',
+        'font-size': 10,
+        'text-wrap': 'wrap',
+        'text-max-width': '200px',
+        // Place the label beside the node (not on it) so the edge/arrow never
+        // crosses the text; a light backing keeps it legible over edges.
+        'text-halign': 'right',
+        'text-valign': 'center',
+        'text-margin-x': 8,
+        'text-background-color': '#ffffff',
+        'text-background-opacity': 0.82,
+        'text-background-shape': 'roundrectangle',
+        'text-background-padding': '2',
+        width: 18,
+        height: 18,
+      },
+    },
     { selector: 'node[kind = "java"]', style: { 'background-color': '#27ae60', shape: 'diamond' } },
     { selector: 'node[kind = "native"]', style: { 'background-color': '#2980b9' } },
     { selector: 'node[kind = "syscall"]', style: { 'background-color': '#c0392b', shape: 'round-rectangle' } },
-    { selector: 'edge', style: { width: 'mapData(count, 1, 50, 1, 6)', 'curve-style': 'bezier', 'target-arrow-shape': 'triangle', 'line-color': '#999', 'target-arrow-color': '#999' } },
+    {
+      selector: 'edge',
+      style: {
+        width: 'mapData(count, 1, 50, 1, 5)',
+        'curve-style': 'bezier',
+        'target-arrow-shape': 'triangle',
+        'arrow-scale': 0.8,
+        'line-color': '#b0b0b0',
+        'target-arrow-color': '#b0b0b0',
+      },
+    },
   ],
 })
 
@@ -43,7 +72,11 @@ async function selectRow(row: TableRow): Promise<void> {
   cy.elements().remove()
   cy.add(els.nodes)
   cy.add(els.edges)
-  await cy.layout(elkLayoutOptions()).run()
+  const layout = cy.layout(elkLayoutOptions())
+  const settled = layout.promiseOn('layoutstop')
+  layout.run()
+  await settled
+  cy.fit(undefined, 48) // frame the slice with padding; consistent zoom per selection
   showBanner(slice.truncated)
 }
 
