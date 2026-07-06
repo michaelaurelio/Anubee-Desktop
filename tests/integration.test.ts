@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { resolve, join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall } from '@shared/ares-parse'
 import { foldEvents } from '@shared/graph-shape'
@@ -42,5 +43,42 @@ describe('integration: load the fixture end to end', () => {
     await store.ingest(FIXTURE)
     expect((await store.table({ library: 'libexample' }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([1, 2])
     expect((await store.table({ tid: 202 }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([3])
+  })
+})
+
+function fixture(lines: object[]): string {
+  const dir = mkdtempSync(join(tmpdir(), 'ares-'))
+  const p = join(dir, 'run.jsonl')
+  writeFileSync(p, lines.map(l => JSON.stringify(l)).join('\n'))
+  return p
+}
+
+const evA = { type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 56, syscall: 'openat',
+  args: ['0xffffff9c', '0x0'], retval: 7, string_args: { '1': '/system/bin/su' },
+  fd_args: {}, decoded_args: {}, java_stack: ['com.example.app.RootCheck.run'],
+  backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!check_su+0x10' }] }
+
+describe('multi-run store', () => {
+  it('keeps two runs addressable and returns distinct runIds', async () => {
+    const store = new GraphStore()
+    const a = await store.ingest(fixture([evA]))
+    const b = await store.ingest(fixture([{ ...evA, syscall: 'ptrace', string_args: {} }]))
+    expect(a.runId).not.toBe(b.runId)
+    expect(store.runs().map(r => r.runId).sort()).toEqual([a.runId, b.runId].sort())
+
+    const rowsA = await store.table({}, { limit: 10, offset: 0 }, a.runId)
+    const rowsB = await store.table({}, { limit: 10, offset: 0 }, b.runId)
+    expect(rowsA.map(r => r.syscall)).toEqual(['openat'])
+    expect(rowsB.map(r => r.syscall)).toEqual(['ptrace'])
+    await store.close()
+  })
+
+  it('defaults queries to the most recent run', async () => {
+    const store = new GraphStore()
+    await store.ingest(fixture([evA]))
+    await store.ingest(fixture([{ ...evA, syscall: 'ptrace', string_args: {} }]))
+    const rows = await store.table({}, { limit: 10, offset: 0 })
+    expect(rows.map(r => r.syscall)).toEqual(['ptrace'])
+    await store.close()
   })
 })
