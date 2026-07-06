@@ -33,11 +33,13 @@ and open verification items. Newest concerns first.
   exist (`RaspCategory`) but `rasp-heuristics.ts` only scores `debugger` and
   `root` today; no reliable syscall-only signal identified yet for the other
   three.
-- **Orphaned tags have no repair UX** - if a sidecar is loaded against a
-  re-ingested run whose node id changed (symbol resolution differs, binary
-  rebuilt, etc.), the stale tag is kept as-is rather than dropped or flagged.
-  Planned: a flag/filter for tags whose target no longer matches any node in
-  the active run.
+- **Orphaned tags have no repair UX** (RESOLVED) - if a sidecar is loaded
+  against a re-ingested run whose node id changed (symbol resolution differs,
+  binary rebuilt, etc.), the stale tag used to be kept as-is rather than
+  dropped or flagged. `GraphStore.orphanTargets` now checks the tagged targets
+  against the run's live node/edge sets; the renderer's Orphans panel lists
+  the stale tags with per-tag Drop + Drop all, refreshed on load and after a
+  drop.
 - **ELK still runs on the main renderer thread**, not a Web Worker (carried
   over from Phase 1, see below) - fine while the slice cap keeps graphs small.
 - **Ptrace-request SQL/schema coupling** (mental note for the next ARES-version
