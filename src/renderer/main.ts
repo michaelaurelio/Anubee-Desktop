@@ -255,11 +255,20 @@ function wireCapture(): void {
     vals = {}
     renderCapabilityForm(formHost, capById(sel.value)!, vals, v => { vals = v })
   }
-  sel.addEventListener('change', drawForm)
+  sel.addEventListener('change', () => {
+    drawForm()
+    preflightOk = false
+    startBtn.disabled = true
+    statusHost.innerHTML = ''
+  })
   drawForm()
 
-  void window.ares.getTracerConfig().then(cfg => { binIn.value = cfg.aresBinary; specIn.value = cfg.specsDir })
-  const saveCfg = (): void => void window.ares.setTracerConfig({ aresBinary: binIn.value, specsDir: specIn.value })
+  let configLoaded = false
+  void window.ares.getTracerConfig().then(cfg => { binIn.value = cfg.aresBinary; specIn.value = cfg.specsDir; configLoaded = true })
+  const saveCfg = (): void => {
+    if (!configLoaded) return
+    void window.ares.setTracerConfig({ aresBinary: binIn.value, specsDir: specIn.value })
+  }
   binIn.addEventListener('change', saveCfg)
   specIn.addEventListener('change', saveCfg)
 
