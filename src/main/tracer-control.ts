@@ -3,6 +3,7 @@
 // injected (Adb) so the logic is testable without a device. Command strings are
 // built by src/shared/tracer-caps (pure).
 import { execFile, spawn as nodeSpawn } from 'node:child_process'
+import { StringDecoder } from 'node:string_decoder'
 import { DEVICE_BIN, DEVICE_SPECS, STOP_ARG } from '@shared/tracer-caps'
 
 export interface Adb {
@@ -93,23 +94,41 @@ export function realAdb(): Adb {
   }
 }
 
+// Pure, independent line-buffering helper. Buffers raw bytes across pushes and
+// decodes with a StringDecoder so multibyte UTF-8 chars split across a chunk
+// boundary are reassembled correctly before splitting on '\n'. Each call to
+// lineSplitter() owns its own buffer/decoder - stdout and stderr must each get
+// their own instance so interleaved 'data' events never bleed into one line.
+export function lineSplitter(onLine: (line: string) => void): { push(chunk: Buffer): void; flush(): void } {
+  const decoder = new StringDecoder('utf8')
+  let buf = ''
+  return {
+    push(chunk) {
+      buf += decoder.write(chunk)
+      const parts = buf.split('\n')
+      buf = parts.pop() ?? ''
+      parts.forEach(l => onLine(l))
+    },
+    flush() {
+      buf += decoder.end()
+      if (buf) onLine(buf)
+      buf = ''
+    },
+  }
+}
+
 export function realSpawner(): Spawner {
   return {
     spawn(args) {
       const child = nodeSpawn('adb', args)
-      let buf = ''
-      const feed = (chunk: Buffer): string[] => {
-        buf += chunk.toString()
-        const parts = buf.split('\n')
-        buf = parts.pop() ?? ''
-        return parts
-      }
       let lineCb: (l: string) => void = () => {}
-      child.stdout.on('data', c => feed(c).forEach(l => lineCb(l)))
-      child.stderr.on('data', c => feed(c).forEach(l => lineCb(l)))
+      const stdoutSplitter = lineSplitter(l => lineCb(l))
+      const stderrSplitter = lineSplitter(l => lineCb(l))
+      child.stdout.on('data', c => stdoutSplitter.push(c))
+      child.stderr.on('data', c => stderrSplitter.push(c))
       return {
         onLine(cb) { lineCb = cb },
-        onExit(cb) { child.on('close', code => { if (buf) lineCb(buf); cb(code ?? 0) }) },
+        onExit(cb) { child.on('close', code => { stdoutSplitter.flush(); stderrSplitter.flush(); cb(code ?? 0) }) },
         kill() { child.kill('SIGINT') },
       }
     },

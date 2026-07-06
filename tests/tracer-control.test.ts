@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { preflight, startRun, type Adb, type Spawner } from '../src/main/tracer-control'
+import { preflight, startRun, lineSplitter, type Adb, type Spawner } from '../src/main/tracer-control'
 
 // A scripted fake adb: matches on the joined args, returns a canned result.
 function fakeAdb(routes: Array<[RegExp, { code?: number; stdout?: string; stderr?: string }]>): Adb & { calls: string[] } {
@@ -76,6 +76,44 @@ function fakeSpawner(): Spawner & { lastArgs: string[]; emitLine: (l: string) =>
   }
   return self
 }
+
+describe('lineSplitter', () => {
+  it('emits a line split across two push chunks once, whole', () => {
+    const lines: string[] = []
+    const s = lineSplitter(l => lines.push(l))
+    s.push(Buffer.from('hello wor'))
+    s.push(Buffer.from('ld\n'))
+    expect(lines).toEqual(['hello world'])
+  })
+
+  it('keeps two independent instances from cross-contaminating on interleaved partials', () => {
+    const outLines: string[] = []
+    const errLines: string[] = []
+    const out = lineSplitter(l => outLines.push(l))
+    const err = lineSplitter(l => errLines.push(l))
+    out.push(Buffer.from('hello wor'))
+    err.push(Buffer.from('ERR: oops\n'))
+    out.push(Buffer.from('ld\n'))
+    expect(errLines).toEqual(['ERR: oops'])
+    expect(outLines).toEqual(['hello world'])
+  })
+
+  it('flush() emits a trailing unterminated line', () => {
+    const lines: string[] = []
+    const s = lineSplitter(l => lines.push(l))
+    s.push(Buffer.from('trailing, no newline'))
+    expect(lines).toEqual([])
+    s.flush()
+    expect(lines).toEqual(['trailing, no newline'])
+  })
+
+  it('flush() on an empty buffer emits nothing', () => {
+    const lines: string[] = []
+    const s = lineSplitter(l => lines.push(l))
+    s.flush()
+    expect(lines).toEqual([])
+  })
+})
 
 describe('startRun', () => {
   it('spawns adb shell with the run arg and streams lines', async () => {
