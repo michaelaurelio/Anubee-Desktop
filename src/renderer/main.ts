@@ -251,15 +251,20 @@ function wireCapture(): void {
     sel.appendChild(opt)
   }
 
-  const drawForm = (): void => {
-    vals = {}
-    renderCapabilityForm(formHost, capById(sel.value)!, vals, v => { vals = v })
-  }
-  sel.addEventListener('change', () => {
-    drawForm()
+  // A prior preflight validated a specific package; any capability switch or
+  // input edit invalidates it, so re-gate Start until preflight is re-run.
+  const invalidatePreflight = (): void => {
     preflightOk = false
     startBtn.disabled = true
     statusHost.innerHTML = ''
+  }
+  const drawForm = (): void => {
+    vals = {}
+    renderCapabilityForm(formHost, capById(sel.value)!, vals, v => { vals = v; invalidatePreflight() })
+  }
+  sel.addEventListener('change', () => {
+    drawForm()
+    invalidatePreflight()
   })
   drawForm()
 

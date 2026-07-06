@@ -116,9 +116,15 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
       runId = summary.runId
     }
   } else if (dumpDir) {
-    // Pull the whole dump directory of rebuilt .so files to the host.
+    // Pull the whole dump directory of rebuilt .so files to the host. A pull
+    // failure (e.g. nothing matched, so the dir is empty) is surfaced to the
+    // console rather than swallowed, so the user isn't told a dump succeeded.
     const hostDir = resolve(runsDir(), `dump-${ts}`)
-    await pullResult(adb, 'artifact', dumpDir, hostDir).catch(() => {})
+    try {
+      await pullResult(adb, 'artifact', dumpDir, hostDir)
+    } catch (e) {
+      win.webContents.send('tracer:line', `dump pull failed: ${(e as Error).message}`)
+    }
   }
   win.webContents.send('tracer:done', { code, kind: cap.outputKind, runId })
   return { code, kind: cap.outputKind, runId }
