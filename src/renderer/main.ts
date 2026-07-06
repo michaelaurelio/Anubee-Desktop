@@ -8,6 +8,7 @@ import { badgeText, renderTagEditor } from './tag-view'
 import { renderSuggestions } from './suggestions-view'
 import { upsertTag, removeTag, tagsByTarget, type Tag } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
+import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
 
 cytoscape.use(elk)
 
@@ -49,11 +50,18 @@ const cy = cytoscape({
         'target-arrow-color': '#b0b0b0',
       },
     },
+    { selector: 'node[presence = "A-only"]', style: { 'background-color': '#c0392b' } },
+    { selector: 'node[presence = "B-only"]', style: { 'background-color': '#27ae60' } },
+    { selector: 'node[presence = "both"]', style: { 'background-color': '#95a5a6' } },
+    { selector: 'edge[presence = "A-only"]', style: { 'line-color': '#c0392b', 'target-arrow-color': '#c0392b' } },
+    { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
   ],
 })
 
 let activeRunId: number | undefined
 let tags: Tag[] = []
+let runB: number | undefined
+let diffMode: DiffMode = 'all'
 
 async function refreshTags(): Promise<void> {
   if (activeRunId === undefined) return
@@ -140,6 +148,43 @@ cy.on('tap', 'node', evt => {
   })
 })
 
+async function refreshDiff(): Promise<void> {
+  const host = document.getElementById('diff-table')
+  if (!host || activeRunId === undefined || runB === undefined) return
+  const rows = await window.ares.diffTable(activeRunId, runB, currentFilter(), 1000)
+  const taggedIds = new Set(tags.map(t => t.target))
+  renderDiffTable(host, filterDiffRows(rows, diffMode, taggedIds),
+    id => badgeText(tagsByTarget(tags, id)),
+    async id => {
+      const merged = await window.ares.diffSlice(activeRunId!, runB!, id)
+      const els = mergedToElements(merged)
+      cy.elements().remove()
+      cy.add(els.nodes)
+      cy.add(els.edges)
+      const layout = cy.layout(elkLayoutOptions())
+      const settled = layout.promiseOn('layoutstop')
+      layout.run()
+      await settled
+      cy.fit(undefined, 48)
+    })
+}
+
+function wireDiff(): void {
+  document.getElementById('load-run-b')?.addEventListener('click', async () => {
+    const runA = activeRunId
+    const summary = await window.ares.openFile()
+    if (summary) {
+      runB = summary.runId
+      activeRunId = runA
+      void refreshDiff()
+    }
+  })
+  document.getElementById('diff-mode')?.addEventListener('change', e => {
+    diffMode = (e.target as HTMLSelectElement).value as DiffMode
+    void refreshDiff()
+  })
+}
+
 function wireExport(): void {
   const md = document.getElementById('export-md')
   const json = document.getElementById('export-json')
@@ -163,3 +208,4 @@ window.ares.onLoaded(s => {
 })
 wireFilterControls(refreshTable)
 wireExport()
+wireDiff()
