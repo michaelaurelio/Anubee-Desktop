@@ -85,6 +85,18 @@ describe('multi-run store', () => {
   })
 })
 
+describe('nodeEvents run scoping', () => {
+  it('scopes nodeEvents to the requested run even when ids collide across runs', async () => {
+    const store = new GraphStore()
+    const a = await store.ingest(fixture([{ ...evA, string_args: { '1': '/system/bin/su' }, tid: 101 }]))
+    const b = await store.ingest(fixture([{ ...evA, string_args: { '1': '/system/bin/su' }, tid: 999 }]))
+    const events = await store.nodeEvents('sys:openat', {}, 500, b.runId)
+    expect(events).toHaveLength(1)
+    expect(events[0].tid).toBe(999)
+    await store.close()
+  })
+})
+
 describe('heuristic suggestions', () => {
   it('suggests root + debugger tags from a run', async () => {
     const store = new GraphStore()

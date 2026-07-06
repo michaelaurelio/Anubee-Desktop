@@ -241,7 +241,7 @@ export class GraphStore {
     const scoped = `run_id = ${rid} AND (${where})`
     const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})`
     const rows = await this.rows(
-      `${cte} SELECT to_json(ev) AS js FROM ev JOIN chains ON ev.id = chains.eid
+      `${cte} SELECT to_json(ev) AS js FROM ev JOIN chains ON ev.id = chains.eid AND ev.run_id = ${rid}
        WHERE list_contains(chain, ?) ORDER BY ev.id LIMIT ${lim}`,
       [...params, nodeId],
     )
