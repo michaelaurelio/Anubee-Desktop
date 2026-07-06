@@ -157,7 +157,7 @@ async function refreshDiff(): Promise<void> {
   renderDiffTable(host, filterDiffRows(rows, diffMode, taggedIds),
     id => badgeText(tagsByTarget(tags, id)),
     async id => {
-      const merged = await window.ares.diffSlice(activeRunId!, runB!, id)
+      const merged = await window.ares.diffSlice(activeRunId!, runB!, id, currentFilter())
       const els = mergedToElements(merged)
       cy.elements().remove()
       cy.add(els.nodes)

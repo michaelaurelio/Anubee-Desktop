@@ -296,10 +296,10 @@ export class GraphStore {
     return rows.slice(0, limit)
   }
 
-  async diffSlice(runA: number, runB: number, nodeId: string): Promise<MergedSlice> {
+  async diffSlice(runA: number, runB: number, nodeId: string, filter: Filter = {}): Promise<MergedSlice> {
     const [sa, sb] = await Promise.all([
-      this.slice({ text: undefined }, undefined, runA),
-      this.slice({ text: undefined }, undefined, runB),
+      this.slice(filter, undefined, runA),
+      this.slice(filter, undefined, runB),
     ])
     const idsA = new Set(sa.nodes.map(n => n.id))
     const idsB = new Set(sb.nodes.map(n => n.id))

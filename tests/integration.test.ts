@@ -163,4 +163,25 @@ describe('run diffing', () => {
     expect(merged.nodes.find(n => n.id === 'sys:openat')!.presence).toBe('both')
     await store.close()
   })
+
+  it('diffSlice honors the active filter (filtered-out neighbour drops from the same node neighbourhood)', async () => {
+    const store = new GraphStore()
+    // Two events share the native node + syscall but reach it from different tids
+    // and java methods. Filtering by tid must prune one java neighbour of check_su.
+    const mk = () => [
+      evA, // tid 101, java RootCheck.run -> nat check_su -> sys openat
+      { ...evA, id: 2, tid: 202, java_stack: ['com.example.app.Other.probe'] }, // same native+syscall, other branch
+    ]
+    const a = await store.ingest(fixture(mk()))
+    const b = await store.ingest(fixture(mk()))
+    const node = 'nat:libexample.so!check_su'
+    const other = 'java:com.example.app.Other.probe'
+    // Unfiltered: both java branches are neighbours of check_su.
+    const unfiltered = await store.diffSlice(a.runId, b.runId, node)
+    expect(unfiltered.nodes.some(n => n.id === other)).toBe(true)
+    // Filtered to tid 101: the tid-202 branch (Other.probe) must be pruned.
+    const filtered = await store.diffSlice(a.runId, b.runId, node, { tid: 101 })
+    expect(filtered.nodes.some(n => n.id === other)).toBe(false)
+    await store.close()
+  })
 })
