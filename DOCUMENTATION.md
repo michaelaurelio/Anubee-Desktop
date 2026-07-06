@@ -26,12 +26,28 @@ a graph slice is filtered and capped before it reaches the renderer.
 - **Offline only** - loads a saved JSONL file; no live streaming, no on-device
   capture yet (tracer control and live view are later phases).
 - **Focused views, not a whole-run graph** - you reach a subgraph by filtering the
-  table and selecting a row. A whole-run overview (supernode aggregation) and a
-  flame-graph view are deferred.
+  table and selecting a row. A whole-run overview (supernode aggregation) is
+  deferred; the flame-graph view (below) covers the call-depth axis instead.
 - **Rendered slices are capped** - an over-large graph slice is truncated with a
   prompt to narrow the filter, rather than drawn as an unreadable hairball.
 - **Input contract is ARES JSONL output only** - the app parses ARES's output
   schema; it never builds against ARES source.
+
+### Graph node legend
+
+The focused subgraph draws a small always-visible legend in the bottom-left of
+the graph pane (`#legend` in `index.html`): a green diamond for a java method, a
+blue dot for a native symbol, a red square for a syscall - the same shape/color
+coding used on the nodes themselves and reused verbatim by the flame view's
+`KIND_FILL` map (`src/renderer/flame-view.ts`) so the two views read as one
+system.
+
+### Master table column widths
+
+The master table's `top java` / `top native` columns are widened (96px / 110px,
+`#table td:nth-child(5)` / `nth-child(6)` in `index.html`) so a typical
+`com.example.app.Class.method` / `libexample.so!symbol` entry shows more of the
+name before eliding, on top of the existing ellipsis + `title` tooltip fallback.
 
 ## Phase 2 - tagging, heuristics, findings export, run diffing
 
@@ -132,3 +148,48 @@ neighbourhood of the selected node. The renderer's diff mode (`diff-view.ts`):
 load a second run -> an A/B/delta table filterable by only-in-A / only-in-B /
 tagged -> select a row -> a merged subgraph colored red (removed, A-only),
 green (added, B-only), grey (shared).
+
+## Flame-graph view
+
+A second view mode alongside the focused subgraph, toggled with the Graph /
+Flame buttons in the toolbar (`#tab-graph` / `#tab-flame`, `showView()` in
+`main.ts`): an icicle over every chain in the current filter, for reading call
+*depth* rather than the graph's cross-link structure.
+
+- **`stackRollup` (data tier)** - `GraphStore.stackRollup(filter, maxChains,
+  runId?)` (`src/main/graph-store.ts`) reuses the same `CHAIN_SQL` chain
+  expression as the graph slice query, but groups by the whole chain instead of
+  by adjacent edge: `SELECT chain, count(*) FROM (SELECT <CHAIN_SQL> AS chain
+  FROM ev WHERE <scoped filter>) GROUP BY chain ORDER BY c DESC LIMIT
+  <maxChains>`. It also reports `eventCount` and `distinctChains` (unfiltered by
+  the row cap) so the renderer can tell "5000 chains shown" from "5000 chains,
+  period." `maxChains` defaults to 5000 and bounds the IPC payload; rows beyond
+  the cap are dropped (heaviest first), not silently merged.
+- **`flame-shape` fold (pure tier)** - `buildFlame(rows, cap)`
+  (`src/shared/flame-shape.ts`) folds the distinct weighted chains into a
+  prefix tree under a synthetic `root` node (heaviest chains inserted first, so
+  a node `cap` - the renderer passes 2000 - keeps the hottest paths and stays
+  deterministic regardless of input order). Each tree node's `value` is the
+  summed count of every chain passing through it; `labelForId` (shared with the
+  graph's `nodeFromId`) supplies the same `{kind, label}` per node id, so a
+  syscall/native/java frame in the flame reads identically to the same node in
+  the graph. `layoutFlame(root, width, rowHeight)` then does the icicle math:
+  root spans the full width at the top, each node's children partition its
+  parent's width in proportion to `value`, and depth grows downward.
+- **Hand-rolled SVG icicle (render tier)** - `renderFlame(host, tree,
+  truncated)` (`src/renderer/flame-view.ts`) draws `layoutFlame`'s rects as
+  plain SVG `<rect>`/`<text>` elements, no charting library. Top-down (root at
+  y=0, deeper frames below), kind-colored via the same `KIND_FILL` map as the
+  graph legend (root grey, java green `#27ae60`, native blue `#2980b9`, syscall
+  red `#c0392b`), truncated labels with a rough char-budget-per-pixel so text
+  never spills its box. Clicking a frame with children re-roots the view on it
+  (zoom); a `⤴ reset` button returns to the full tree. Hovering a frame shows a
+  native `<title>` tooltip with the full label, absolute count, and percentage
+  of the current root's total - no JS tooltip library, works fully offline. A
+  truncation banner (`.flame-banner`) appears whenever either cap actually
+  cut data (`rollup.truncated || tree.truncated`).
+- **Limitation** - the flame is a *filtered* rollup, capped at 5000 chains
+  (`stackRollup`) and 2000 tree nodes (`buildFlame`), same principle as the
+  graph slice cap: never draw an unbounded run at once. If the banner appears,
+  narrow the filter (has-java_stack, syscall, tid, ...) to see every path
+  rather than a heaviest-first sample.
