@@ -13,6 +13,10 @@ declare global {
       eventById(id: number, runId?: number): Promise<SyscallEvent | undefined>
       nodeEvents(nodeId: string, filter: Filter, runId?: number): Promise<SyscallEvent[]>
       suggest: (runId?: number) => Promise<import('@shared/rasp-heuristics').Suggestion[]>
+      diffTable: (runA: number, runB: number, filter: import('@shared/filter').Filter, cap?: number) =>
+        Promise<import('@shared/diff').DiffRow[]>
+      diffSlice: (runA: number, runB: number, nodeId: string) =>
+        Promise<import('@shared/diff').MergedSlice>
       loadTags(runId: number): Promise<{ tags: import('@shared/project-store').Tag[]; errors: string[] }>
       saveTags(runId: number, tags: import('@shared/project-store').Tag[]): Promise<void>
       exportFindings: (runId: number, format: 'md' | 'json') => Promise<string | null>

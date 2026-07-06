@@ -7,6 +7,7 @@ import { loadTags, saveTags } from './sidecar'
 import type { Tag } from '@shared/project-store'
 import { buildFindings, renderMarkdown, renderJSON } from '@shared/findings'
 import type { SyscallEvent } from '@shared/events'
+import type { DiffRow } from '@shared/diff'
 
 // DuckDB lives here in the main process; read_json runs on its own native
 // threads, off the V8 heap, so there is no event array to ship over IPC. The
@@ -65,6 +66,10 @@ ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number, runId?: number)
 ipcMain.handle('graph:eventById', (_e, id: number, runId?: number) => store.eventById(id, runId))
 ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter, runId?: number) => store.nodeEvents(nodeId, filter, 500, runId))
 ipcMain.handle('rasp:suggest', (_e, runId?: number) => store.suggest(runId))
+ipcMain.handle('graph:diffTable', (_e, runA: number, runB: number, filter: Filter, cap?: number) =>
+  store.diffTable(runA, runB, filter, cap))
+ipcMain.handle('graph:diffSlice', (_e, runA: number, runB: number, nodeId: string) =>
+  store.diffSlice(runA, runB, nodeId))
 
 function runFileOf(runId: number): { file: string; ingestedAt: string } {
   const info = store.runs().find(r => r.runId === runId)

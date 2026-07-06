@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld('ares', {
   nodeEvents: (nodeId: string, filter: Filter, runId?: number) =>
     ipcRenderer.invoke('graph:nodeEvents', nodeId, filter, runId),
   suggest: (runId?: number) => ipcRenderer.invoke('rasp:suggest', runId),
+  diffTable: (runA: number, runB: number, filter: Filter, cap?: number) =>
+    ipcRenderer.invoke('graph:diffTable', runA, runB, filter, cap),
+  diffSlice: (runA: number, runB: number, nodeId: string) =>
+    ipcRenderer.invoke('graph:diffSlice', runA, runB, nodeId),
   loadTags: (runId: number) => ipcRenderer.invoke('tags:load', runId),
   saveTags: (runId: number, tags: unknown[]) => ipcRenderer.invoke('tags:save', runId, tags),
   exportFindings: (runId: number, format: 'md' | 'json') =>
