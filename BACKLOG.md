@@ -24,10 +24,15 @@ and open verification items. Newest concerns first.
   (`src/shared/flame-shape.ts`) -> hand-rolled SVG icicle
   (`src/renderer/flame-view.ts`): top-down, kind-colored, click-to-zoom, hover
   tooltip, truncation banner. Toggled via Graph/Flame buttons in the toolbar.
-  **Residual drawback:** the 5000-chain (`stackRollup`) / 2000-node
-  (`buildFlame`) caps are un-tuned against a real busy run - verify the
-  truncation banner actually triggers before the SVG degrades once real
-  fixtures exist.
+  **Caps validated (2026-07-06)** against a real 245,760-event run: the caps
+  now live in `src/shared/caps.ts` (`GRAPH_SLICE_CAP` 1500, `FLAME_CHAIN_CAP`
+  5000, `FLAME_NODE_CAP` 2000). Measured on the real run: flame tree = 12,347
+  nodes unfiltered, so `FLAME_NODE_CAP` truncates and the flame banner **was
+  observed to fire** in a live window; the graph banner was verified by
+  forcing a low cap (real focused subgraph is only ~152 elements, so the
+  graph cap is a safety ceiling the per-row path never reaches). Fixed a live
+  bug found here: the renderer passed `undefined` as the graph slice cap, so
+  the graph banner could never fire.
 - **P1** Graph node legend - always-visible shape/color key in the graph pane
   (`#legend`), reused verbatim by the flame view's `KIND_FILL` map.
 - **P2** Master table column widths - `top java` / `top native` columns
@@ -105,9 +110,13 @@ and open verification items. Newest concerns first.
   If that feels bad on a multi-GB run, fall back to ingest-in-a-worker with a
   DuckDB **file** handoff (worker writes, main opens read-only). Plan Task 8 /
   spec §5.
-- **Slice-cap value** - start at ≤1–2k nodes/edges (spec §5.1). Tune against a
-  real busy run once fixtures exist; the truncation banner must trigger before
-  cytoscape/ELK degrades.
+- **Slice-cap value** - RESOLVED (2026-07-06). Centralized in
+  `src/shared/caps.ts` and validated against a real 245,760-event run: the
+  focused-subgraph path peaks at ~152 elements, so `GRAPH_SLICE_CAP` 1500 sits
+  well below the ~2-3k cytoscape/ELK hairball threshold and acts as a safety
+  ceiling; both truncation banners were observed to fire in a live window
+  (flame naturally at 12,347 tree nodes, graph via a forced low cap). Retune
+  only if a future run shows focused subgraphs approaching the ceiling.
 - **Schema-drift test robustness** - `tests/schema-drift.test.ts` scrapes quoted
   keys from `../ARES/src/syscalls/syscalls.c`. If the emitter is refactored to
   build keys non-literally, the scrape breaks - revisit to parse `trace_schema.h`
