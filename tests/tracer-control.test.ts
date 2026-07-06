@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { preflight, startRun, lineSplitter, type Adb, type Spawner } from '../src/main/tracer-control'
+import { preflight, startRun, lineSplitter, pullResult, type Adb, type Spawner } from '../src/main/tracer-control'
 
 // A scripted fake adb: matches on the joined args, returns a canned result.
 function fakeAdb(routes: Array<[RegExp, { code?: number; stdout?: string; stderr?: string }]>): Adb & { calls: string[] } {
@@ -137,5 +137,27 @@ describe('startRun', () => {
     expect(adb.calls).toContain("shell su -c 'pkill -INT -f /data/local/tmp/ares'")
     sp.exit(130)
     await h.done
+  })
+})
+
+describe('pullResult', () => {
+  it('pulls a jsonl run to the host', async () => {
+    const adb = fakeAdb([[/^pull /, { code: 0 }]])
+    const r = await pullResult(adb, 'jsonl', '/data/local/tmp/ares-X.jsonl', '/host/runs/ares-X.jsonl')
+    expect(r).toEqual({ kind: 'jsonl', hostPath: '/host/runs/ares-X.jsonl' })
+    expect(adb.calls).toContain('pull /data/local/tmp/ares-X.jsonl /host/runs/ares-X.jsonl')
+  })
+
+  it('does not pull for a stdout run', async () => {
+    const adb = fakeAdb([])
+    const r = await pullResult(adb, 'stdout', '', '')
+    expect(r).toEqual({ kind: 'stdout' })
+    expect(adb.calls).toEqual([])
+  })
+
+  it('throws when the pull fails', async () => {
+    const adb = fakeAdb([[/^pull /, { code: 1, stderr: 'no such file' }]])
+    await expect(pullResult(adb, 'jsonl', '/data/local/tmp/x.jsonl', '/host/x.jsonl'))
+      .rejects.toThrow(/pull failed/)
   })
 })

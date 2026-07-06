@@ -5,6 +5,7 @@
 import { execFile, spawn as nodeSpawn } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
 import { DEVICE_BIN, DEVICE_SPECS, STOP_ARG } from '@shared/tracer-caps'
+import type { OutputKind } from '@shared/tracer-caps'
 
 export interface Adb {
   run(args: string[]): Promise<{ code: number; stdout: string; stderr: string }>
@@ -147,4 +148,21 @@ export function startRun(sp: Spawner, adb: Adb, runArg: string, onLine: (line: s
     },
     done,
   }
+}
+
+export interface PullResult {
+  kind: OutputKind
+  hostPath?: string
+}
+
+export async function pullResult(
+  adb: Adb,
+  outputKind: OutputKind,
+  devicePath: string,
+  hostPath: string,
+): Promise<PullResult> {
+  if (outputKind === 'stdout') return { kind: 'stdout' }
+  const r = await adb.run(['pull', devicePath, hostPath])
+  if (r.code !== 0) throw new Error(`adb pull failed: ${r.stderr.trim() || r.stdout.trim()}`)
+  return { kind: outputKind, hostPath }
 }
