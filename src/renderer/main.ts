@@ -64,9 +64,10 @@ let runB: number | undefined
 let diffMode: DiffMode = 'all'
 
 async function refreshTags(): Promise<void> {
-  if (activeRunId === undefined) return
-  const r = await window.ares.loadTags(activeRunId)
-  tags = r.tags
+  const rid = activeRunId
+  if (rid === undefined) return
+  const r = await window.ares.loadTags(rid)
+  if (activeRunId === rid) tags = r.tags
 }
 
 async function persistTags(): Promise<void> {
@@ -176,6 +177,7 @@ function wireDiff(): void {
     if (summary) {
       runB = summary.runId
       activeRunId = runA
+      await refreshTags()
       void refreshDiff()
     }
   })
