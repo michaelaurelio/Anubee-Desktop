@@ -18,6 +18,13 @@
       #table td:nth-child(4), #table th:nth-child(4) { width: 48px; text-align: center; }
       #table tr:hover td { background: #f2f7ff; }
       #cy { position: relative; }
+      #view { position: relative; }
+      #cy, #flame { position: absolute; inset: 0; }
+      #flame { display: none; overflow: auto; padding: 4px; }
+      #flame.active { display: block; }
+      #cy.hidden { display: none; }
+      .flame-reset { margin: 2px 0 6px; font: inherit; }
+      .flame-banner { padding: 4px 8px; background: #fff3cd; border: 1px solid #ffe08a; margin-bottom: 6px; }
       #banner { position: absolute; top: 6px; left: 6px; right: 6px; padding: 4px 8px; background: #fff3cd; border: 1px solid #ffe08a; display: none; }
       #side { border-left: 1px solid #ccc; display: flex; flex-direction: column; overflow: hidden; }
       #inspector { flex: 1 1 auto; overflow: auto; padding: 8px; font-family: ui-monospace, monospace; }
@@ -37,6 +44,8 @@
       <input id="f-tid" placeholder="tid" size="6" />
       <label><input type="checkbox" id="f-hasjava" /> has java_stack</label>
       <button id="apply">Filter</button>
+      <button id="tab-graph">Graph</button>
+      <button id="tab-flame">Flame</button>
       <button id="export-md">Export MD</button>
       <button id="export-json">Export JSON</button>
       <button id="load-run-b">Load run B</button>
@@ -49,7 +58,10 @@
     </div>
     <div id="main">
       <div id="table"></div>
-      <div id="cy"><div id="banner"></div></div>
+      <div id="view">
+        <div id="cy"><div id="banner"></div></div>
+        <div id="flame"></div>
+      </div>
       <div id="side">
         <div id="orphans"></div>
         <div id="inspector"></div>
