@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { resolve } from 'path'
 import { GraphStore } from './graph-store'
 import type { Filter } from '@shared/filter'
+import { loadTags, saveTags } from './sidecar'
+import type { Tag } from '@shared/project-store'
 
 // DuckDB lives here in the main process; read_json runs on its own native
 // threads, off the V8 heap, so there is no event array to ship over IPC. The
@@ -59,6 +61,18 @@ ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset
 ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number, runId?: number) => store.slice(filter, cap, runId))
 ipcMain.handle('graph:eventById', (_e, id: number, runId?: number) => store.eventById(id, runId))
 ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter, runId?: number) => store.nodeEvents(nodeId, filter, 500, runId))
+
+function runFileOf(runId: number): { file: string; ingestedAt: string } {
+  const info = store.runs().find(r => r.runId === runId)
+  if (!info) throw new Error(`unknown runId ${runId}`)
+  return { file: info.file, ingestedAt: info.ingestedAt }
+}
+
+ipcMain.handle('tags:load', (_e, runId: number) => loadTags(runFileOf(runId).file))
+ipcMain.handle('tags:save', (_e, runId: number, tags: Tag[]) => {
+  const { file, ingestedAt } = runFileOf(runId)
+  saveTags(file, ingestedAt, tags)
+})
 
 app.whenReady().then(createWindow)
 app.on('window-all-closed', () => {
