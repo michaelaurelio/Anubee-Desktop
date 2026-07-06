@@ -2,8 +2,7 @@ import { openSync, readSync, closeSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
 import type { SyscallEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
-import { parseFrameSymbol } from '@shared/frame-symbol'
-import { capSlice, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
+import { capSlice, labelForId, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
 import { candidateWhere, score, aggregate, type Suggestion } from '@shared/rasp-heuristics'
 import { presenceOf, type DiffRow, type MergedSlice, type MergedNode } from '@shared/diff'
@@ -41,16 +40,11 @@ const CHAIN_SQL = `list_concat(
   ['sys:' || syscall]
 )`
 
-// Rebuild a node's kind/label/module from its id, mirroring chainOf's labelling
-// exactly (native goes through the shared parseFrameSymbol). The SQL owns
-// identity + counts; labelling stays in shared TS so it can never drift.
+// Rebuild a node's kind/label/module from its id via the shared labelForId.
+// The SQL owns identity + counts; labelling stays in shared TS so it can
+// never drift.
 function nodeFromId(id: string, count: number): GraphNode {
-  if (id.startsWith('java:')) return { id, kind: 'java', label: id.slice(5), module: null, count }
-  if (id.startsWith('sys:')) return { id, kind: 'syscall', label: id.slice(4), module: null, count }
-  const rest = id.slice(4) // 'nat:'
-  const p = parseFrameSymbol(rest)
-  const label = p.symbol ? `${p.symbol} (${p.module})` : (p.module ?? rest)
-  return { id, kind: 'native', label, module: p.module, count }
+  return { id, ...labelForId(id), count }
 }
 
 function num(v: unknown): number | null {

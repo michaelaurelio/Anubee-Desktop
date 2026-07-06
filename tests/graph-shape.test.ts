@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chainOf, foldEvents } from '@shared/graph-shape'
+import { chainOf, foldEvents, labelForId } from '@shared/graph-shape'
 import type { SyscallEvent } from '@shared/events'
 
 function syscall(over: Partial<SyscallEvent> = {}): SyscallEvent {
@@ -75,5 +75,26 @@ describe('foldEvents', () => {
   it('flags truncated when node+edge count exceeds the cap', () => {
     const s = foldEvents([syscall()], 2) // 3 nodes + 2 edges > 2
     expect(s.truncated).toBe(true)
+  })
+})
+
+describe('labelForId', () => {
+  it('labels a java id', () => {
+    expect(labelForId('java:com.example.app.RootCheck.run')).toEqual({
+      kind: 'java', label: 'com.example.app.RootCheck.run', module: null,
+    })
+  })
+  it('labels a syscall id', () => {
+    expect(labelForId('sys:openat')).toEqual({ kind: 'syscall', label: 'openat', module: null })
+  })
+  it('labels a native id with module + symbol', () => {
+    expect(labelForId('nat:libexample.so!check_su')).toEqual({
+      kind: 'native', label: 'check_su (libexample.so)', module: 'libexample.so',
+    })
+  })
+  it('labels a native id with module only', () => {
+    expect(labelForId('nat:libexample.so')).toEqual({
+      kind: 'native', label: 'libexample.so', module: 'libexample.so',
+    })
   })
 })
