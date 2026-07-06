@@ -19,6 +19,7 @@ declare global {
         Promise<import('@shared/diff').MergedSlice>
       loadTags(runId: number): Promise<{ tags: import('@shared/project-store').Tag[]; errors: string[] }>
       saveTags(runId: number, tags: import('@shared/project-store').Tag[]): Promise<void>
+      orphans(runId: number, targets: string[]): Promise<string[]>
       exportFindings: (runId: number, format: 'md' | 'json') => Promise<string | null>
       onProgress(cb: (pct: number) => void): void
       onLoaded(cb: (s: { runId: number; eventCount: number; errors: number }) => void): void

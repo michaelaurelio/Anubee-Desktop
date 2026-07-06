@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  parseSidecar, serializeSidecar, upsertTag, removeTag, tagsByTarget, type Tag,
+  parseSidecar, serializeSidecar, upsertTag, removeTag, tagsByTarget, orphanedTags, type Tag,
 } from '../src/shared/project-store'
 
 const tag = (over: Partial<Tag> = {}): Tag => ({
@@ -55,5 +55,12 @@ describe('project-store', () => {
     const b = tag({ offset: 'libexample.so+0x10' })
     const c = tag({ target: 'sys:openat' })
     expect(tagsByTarget([a, b, c], 'nat:libexample.so!check_su')).toEqual([a, b])
+  })
+
+  it('orphanedTags selects the tags whose target is in the orphan set', () => {
+    const live = tag({ target: 'sys:openat' })
+    const gone = tag({ target: 'nat:libexample.so!removed' })
+    expect(orphanedTags([live, gone], new Set(['nat:libexample.so!removed']))).toEqual([gone])
+    expect(orphanedTags([live, gone], new Set())).toEqual([])
   })
 })

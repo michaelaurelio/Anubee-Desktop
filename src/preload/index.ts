@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('ares', {
     ipcRenderer.invoke('graph:diffSlice', runA, runB, nodeId, filter),
   loadTags: (runId: number) => ipcRenderer.invoke('tags:load', runId),
   saveTags: (runId: number, tags: Tag[]) => ipcRenderer.invoke('tags:save', runId, tags),
+  orphans: (runId: number, targets: string[]) => ipcRenderer.invoke('tags:orphans', runId, targets),
   exportFindings: (runId: number, format: 'md' | 'json') =>
     ipcRenderer.invoke('findings:export', runId, format),
   onProgress: (cb: (pct: number) => void) =>

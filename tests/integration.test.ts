@@ -185,3 +185,20 @@ describe('run diffing', () => {
     await store.close()
   })
 })
+
+describe('orphan detection', () => {
+  it('orphanTargets returns only the targets absent from the run', async () => {
+    const store = new GraphStore()
+    await store.ingest(fixture([evA])) // nodes: java:...RootCheck.run, nat:libexample.so!check_su, sys:openat
+    const targets = [
+      'nat:libexample.so!check_su',   // present
+      'sys:openat',                   // present
+      'nat:libexample.so!removed',    // gone
+      'edge:nat:libexample.so!check_su=>sys:openat', // present edge
+      'edge:sys:openat=>sys:nope',    // gone edge
+    ]
+    const orphans = await store.orphanTargets(targets)
+    expect(orphans.sort()).toEqual(['edge:sys:openat=>sys:nope', 'nat:libexample.so!removed'])
+    await store.close()
+  })
+})

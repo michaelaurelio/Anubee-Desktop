@@ -82,6 +82,7 @@ ipcMain.handle('tags:save', (_e, runId: number, tags: Tag[]) => {
   const { file, ingestedAt } = runFileOf(runId)
   saveTags(file, ingestedAt, tags)
 })
+ipcMain.handle('tags:orphans', (_e, runId: number, targets: string[]) => store.orphanTargets(targets, runId))
 
 ipcMain.handle('findings:export', async (_e, runId: number, format: 'md' | 'json') => {
   const { file } = runFileOf(runId)
