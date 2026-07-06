@@ -74,6 +74,16 @@ the same offset replaces, not duplicates. The renderer exposes a tag editor in
 the node inspector and shows tag badges on graph nodes plus a tag column in the
 master table (`src/renderer/tag-view.ts`, `inspector.ts`).
 
+### Orphaned tags
+
+When a sidecar is loaded against a re-ingested run whose node ids have shifted
+(symbol resolution differs, binary rebuilt), tags whose target no longer matches
+any node/edge become orphans. `GraphStore.orphanTargets(targets, runId?)` reports
+which targets are absent (node-id and edge-key sets built in main so only the tag
+targets cross IPC); the pure `orphanedTags(tags, orphanSet)` selects them and the
+renderer's Orphans panel lists each with a Drop / Drop all action. Orphans are
+never dropped automatically - the analyst confirms.
+
 ### Heuristic pre-tagging (never auto-applied)
 
 `src/shared/rasp-heuristics.ts` scores individual syscall events against three
@@ -113,9 +123,11 @@ renderer writes the chosen format to disk.
 occurrence counts (`nodeCounts()`, a `chainOf`-equivalent SQL unnest + group-by
 scoped to one run and the active filter) for both runs, then a full-outer-join
 by node id into `DiffRow` (id, kind, label, countA, countB, delta, presence:
-`A-only | B-only | both`). `GraphStore.diffSlice(runA, runB, nodeId)` instead
-takes each run's full `slice()`, merges the node/edge sets (tagging each with
-the same `presence` classification), and trims the merged graph down to the
+`A-only | B-only | both`), ordered divergence-first (A-only / B-only before
+shared), then by descending `abs(delta)`. `GraphStore.diffSlice(runA, runB,
+nodeId, filter?)` instead takes each run's `slice()` under the same active
+filter as the table, merges the node/edge sets (tagging each with the same
+`presence` classification), and trims the merged graph down to the
 neighbourhood of the selected node. The renderer's diff mode (`diff-view.ts`):
 load a second run -> an A/B/delta table filterable by only-in-A / only-in-B /
 tagged -> select a row -> a merged subgraph colored red (removed, A-only),
