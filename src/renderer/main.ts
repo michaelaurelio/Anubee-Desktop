@@ -12,6 +12,7 @@ import type { TableRow } from '@shared/table'
 import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
 import { renderFlame } from './flame-view'
 import { buildFlame } from '@shared/flame-shape'
+import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
 
 const cy = cytoscape({
   container: document.getElementById('cy'),
@@ -145,8 +146,8 @@ async function refreshOrphans(): Promise<void> {
 async function refreshFlame(): Promise<void> {
   const host = document.getElementById('flame')
   if (!host || activeRunId === undefined) return
-  const rollup = await window.ares.stackRollup(currentFilter(), 5000, activeRunId)
-  const tree = buildFlame(rollup.rows, 2000)
+  const rollup = await window.ares.stackRollup(currentFilter(), FLAME_CHAIN_CAP, activeRunId)
+  const tree = buildFlame(rollup.rows, FLAME_NODE_CAP)
   renderFlame(host, tree, rollup.truncated || tree.truncated)
 }
 
@@ -165,7 +166,7 @@ function refreshMiddle(): void {
 
 async function selectRow(row: TableRow): Promise<void> {
   showView('graph')
-  const slice = await window.ares.slice(filterForRow(row, currentFilter()), undefined, activeRunId)
+  const slice = await window.ares.slice(filterForRow(row, currentFilter()), GRAPH_SLICE_CAP, activeRunId)
   const els = sliceToElements(slice)
   cy.elements().remove()
   cy.add(els.nodes)
