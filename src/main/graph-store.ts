@@ -5,6 +5,8 @@ import { filterToSql, type Filter } from '@shared/filter'
 import { parseFrameSymbol } from '@shared/frame-symbol'
 import { capSlice, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
+import { candidateWhere, score, aggregate, type Suggestion } from '@shared/rasp-heuristics'
+import { presenceOf, type DiffRow, type MergedSlice, type MergedNode } from '@shared/diff'
 
 export type { TableRow }
 
@@ -68,9 +70,19 @@ function detectFormat(path: string): 'array' | 'newline_delimited' {
   }
 }
 
+export interface RunInfo {
+  runId: number
+  file: string
+  ingestedAt: string
+  eventCount: number
+}
+
 export class GraphStore {
   private instance?: DuckDBInstance
   private con?: DuckDBConnection
+  private runsMap = new Map<number, RunInfo>()
+  private nextRunId = 1
+  private activeRunId?: number
 
   private conn(): DuckDBConnection {
     if (!this.con) throw new Error('GraphStore: no run loaded (call ingest first)')
@@ -89,30 +101,66 @@ export class GraphStore {
   }
 
   // Load a JSONL run into DuckDB. Raw records stay in the database, off the JS
-  // heap. Returns the syscall count and the malformed-line count.
-  async ingest(path: string, onProgress?: (pct: number) => void): Promise<{ eventCount: number; errors: number }> {
-    await this.close()
-    this.instance = await DuckDBInstance.create(':memory:')
-    this.con = await this.instance.connect()
-
+  // heap. Returns the run id, syscall count, and the malformed-line count.
+  async ingest(
+    path: string,
+    onProgress?: (pct: number) => void,
+  ): Promise<{ runId: number; eventCount: number; errors: number }> {
+    if (!this.instance) {
+      this.instance = await DuckDBInstance.create(':memory:')
+      this.con = await this.instance.connect()
+    }
+    const runId = this.nextRunId++
     const fmt = detectFormat(path)
-    await this.conn().run(
-      `CREATE TABLE ev AS SELECT * FROM read_json(${sqlStr(path)}, ` +
-        `format='${fmt}', columns=${COLS}, maximum_object_size=20000000, ignore_errors=true)`,
-    )
+    const firstRun = this.runsMap.size === 0
+
+    const source =
+      `SELECT ${runId} AS run_id, * FROM read_json(${sqlStr(path)}, ` +
+      `format='${fmt}', columns=${COLS}, maximum_object_size=20000000, ignore_errors=true)`
+
+    if (firstRun) await this.conn().run(`CREATE TABLE ev AS ${source}`)
+    else await this.conn().run(`INSERT INTO ev ${source}`)
 
     // A malformed line becomes an all-null row (type NULL); a valid non-syscall
     // record keeps its type (e.g. 'lib'). Count them apart, keep only syscalls.
-    const errors = await this.scalar("SELECT count(*) n FROM ev WHERE type IS NULL")
-    const eventCount = await this.scalar("SELECT count(*) n FROM ev WHERE type = 'syscall'")
-    await this.conn().run("DELETE FROM ev WHERE type IS DISTINCT FROM 'syscall'")
+    const errors = await this.scalar(
+      `SELECT count(*) n FROM ev WHERE run_id = ${runId} AND type IS NULL`,
+    )
+    const eventCount = await this.scalar(
+      `SELECT count(*) n FROM ev WHERE run_id = ${runId} AND type = 'syscall'`,
+    )
+    await this.conn().run(
+      `DELETE FROM ev WHERE run_id = ${runId} AND type IS DISTINCT FROM 'syscall'`,
+    )
 
+    this.runsMap.set(runId, {
+      runId,
+      file: path,
+      ingestedAt: new Date().toISOString(),
+      eventCount,
+    })
+    this.activeRunId = runId
     onProgress?.(100)
-    return { eventCount, errors }
+    return { runId, eventCount, errors }
+  }
+
+  runs(): RunInfo[] {
+    return [...this.runsMap.values()]
+  }
+
+  private resolveRun(runId?: number): number {
+    const id = runId ?? this.activeRunId
+    if (id === undefined) throw new Error('GraphStore: no run loaded (call ingest first)')
+    return id
   }
 
   // Master-table page, filtered in SQL.
-  async table(filter: Filter, page: { limit: number; offset: number }): Promise<TableRow[]> {
+  async table(
+    filter: Filter,
+    page: { limit: number; offset: number },
+    runId?: number,
+  ): Promise<TableRow[]> {
+    const rid = this.resolveRun(runId)
     const limit = Math.max(0, Math.trunc(page.limit))
     const offset = Math.max(0, Math.trunc(page.offset))
     const { where, params } = filterToSql(filter)
@@ -121,7 +169,7 @@ export class GraphStore {
          (java_stack IS NOT NULL AND len(java_stack) > 0) AS hasJava,
          java_stack[1] AS topJava,
          backtrace[1].symbol AS topNative
-       FROM ev WHERE ${where}
+       FROM ev WHERE run_id = ${rid} AND (${where})
        ORDER BY id
        LIMIT ${limit} OFFSET ${offset}`,
       params,
@@ -140,9 +188,11 @@ export class GraphStore {
   // Aggregated syscall->native->java graph over the filtered events, capped.
   // Reconstructs identity + counts in SQL, then assembles GraphNodes with the
   // shared labelling - matched node-for-node against the foldEvents oracle.
-  async slice(filter: Filter = {}, cap?: number): Promise<GraphSlice> {
+  async slice(filter: Filter = {}, cap?: number, runId?: number): Promise<GraphSlice> {
+    const rid = this.resolveRun(runId)
     const { where, params } = filterToSql(filter)
-    const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${where})`
+    const scoped = `run_id = ${rid} AND (${where})`
+    const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})`
 
     const nodeRows = await this.rows(
       `${cte} SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`,
@@ -153,7 +203,7 @@ export class GraphStore {
        FROM chains, range(1, len(chain)) AS t(i) GROUP BY src, tgt`,
       params,
     )
-    const eventCount = await this.scalar(`SELECT count(*) AS n FROM ev WHERE ${where}`, params)
+    const eventCount = await this.scalar(`SELECT count(*) AS n FROM ev WHERE ${scoped}`, params)
 
     const nodes: GraphNode[] = nodeRows.map(r => nodeFromId(r.nid as string, Number(r.c)))
     const edges: GraphEdge[] = edgeRows.map(r => {
@@ -166,24 +216,116 @@ export class GraphStore {
 
   // One raw record, reconstructed as a plain SyscallEvent via DuckDB's to_json.
   // `id` is an internal integer, safe to inline.
-  async eventById(id: number): Promise<SyscallEvent | undefined> {
-    const rows = await this.rows(`SELECT to_json(ev) AS js FROM ev WHERE id = ${Math.trunc(id)}`)
+  async eventById(id: number, runId?: number): Promise<SyscallEvent | undefined> {
+    const rid = this.resolveRun(runId)
+    const rows = await this.rows(
+      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND id = ${Math.trunc(id)}`,
+    )
     if (rows.length === 0) return undefined
-    return JSON.parse(rows[0].js as string) as SyscallEvent
+    // to_json includes run_id; drop it so the shape stays a clean SyscallEvent.
+    const { run_id: _drop, ...ev } = JSON.parse(rows[0].js as string)
+    return ev as SyscallEvent
   }
 
   // The raw records whose reconstructed chain touches `nodeId`, honouring the
   // active filter. Feeds the node inspector on demand (records stay in DuckDB).
-  async nodeEvents(nodeId: string, filter: Filter = {}, limit = 500): Promise<SyscallEvent[]> {
+  async nodeEvents(
+    nodeId: string,
+    filter: Filter = {},
+    limit = 500,
+    runId?: number,
+  ): Promise<SyscallEvent[]> {
+    const rid = this.resolveRun(runId)
     const { where, params } = filterToSql(filter)
     const lim = Math.max(0, Math.trunc(limit))
-    const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${where})`
+    const scoped = `run_id = ${rid} AND (${where})`
+    const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})`
     const rows = await this.rows(
-      `${cte} SELECT to_json(ev) AS js FROM ev JOIN chains ON ev.id = chains.eid
+      `${cte} SELECT to_json(ev) AS js FROM ev JOIN chains ON ev.id = chains.eid AND ev.run_id = ${rid}
        WHERE list_contains(chain, ?) ORDER BY ev.id LIMIT ${lim}`,
       [...params, nodeId],
     )
-    return rows.map(r => JSON.parse(r.js as string) as SyscallEvent)
+    return rows.map(r => {
+      const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
+      return ev as SyscallEvent
+    })
+  }
+
+  // Run the heuristic candidate filter in SQL (bounded to RASP-relevant
+  // syscalls), reconstruct each candidate event, and score it with the pure
+  // rules. Suggestions are never auto-applied - the renderer confirms them.
+  async suggest(runId?: number): Promise<Suggestion[]> {
+    const rid = this.resolveRun(runId)
+    const rows = await this.rows(
+      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND (${candidateWhere()})`,
+    )
+    const all: Suggestion[] = []
+    for (const r of rows) {
+      const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
+      all.push(...score(ev as SyscallEvent))
+    }
+    return aggregate(all)
+  }
+
+  private async nodeCounts(runId: number, filter: Filter = {}): Promise<Map<string, number>> {
+    const { where, params } = filterToSql(filter)
+    const scoped = `run_id = ${runId} AND (${where})`
+    const rows = await this.rows(
+      `WITH chains AS (SELECT ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})
+       SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`,
+      params,
+    )
+    return new Map(rows.map(r => [r.nid as string, Number(r.c)]))
+  }
+
+  async diffTable(runA: number, runB: number, filter: Filter = {}, cap?: number): Promise<DiffRow[]> {
+    const [ca, cb] = await Promise.all([this.nodeCounts(runA, filter), this.nodeCounts(runB, filter)])
+    const ids = new Set([...ca.keys(), ...cb.keys()])
+    const rows: DiffRow[] = []
+    for (const id of ids) {
+      const countA = ca.get(id) ?? 0
+      const countB = cb.get(id) ?? 0
+      const n = nodeFromId(id, 0)
+      rows.push({ id, kind: n.kind, label: n.label, countA, countB,
+        delta: countB - countA, presence: presenceOf(countA, countB) })
+    }
+    // Divergence first (A-only / B-only before shared), then by magnitude.
+    rows.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta))
+    const limit = cap ?? rows.length
+    return rows.slice(0, limit)
+  }
+
+  async diffSlice(runA: number, runB: number, nodeId: string): Promise<MergedSlice> {
+    const [sa, sb] = await Promise.all([
+      this.slice({ text: undefined }, undefined, runA),
+      this.slice({ text: undefined }, undefined, runB),
+    ])
+    const idsA = new Set(sa.nodes.map(n => n.id))
+    const idsB = new Set(sb.nodes.map(n => n.id))
+    const merged = new Map<string, MergedNode>()
+    for (const n of [...sa.nodes, ...sb.nodes]) {
+      if (merged.has(n.id)) continue
+      const presence = presenceOf(idsA.has(n.id) ? 1 : 0, idsB.has(n.id) ? 1 : 0)
+      merged.set(n.id, { ...n, presence })
+    }
+    const edgeKey = (e: { source: string; target: string }) => `${e.source}=>${e.target}`
+    const edgesA = new Set(sa.edges.map(edgeKey))
+    const edgesB = new Set(sb.edges.map(edgeKey))
+    const mergedEdges = new Map<string, GraphEdge & { presence: MergedNode['presence'] }>()
+    for (const e of [...sa.edges, ...sb.edges]) {
+      const k = edgeKey(e)
+      if (mergedEdges.has(k)) continue
+      mergedEdges.set(k, { ...e, presence: presenceOf(edgesA.has(k) ? 1 : 0, edgesB.has(k) ? 1 : 0) })
+    }
+    // Keep only the neighbourhood of nodeId (nodes on an edge touching it, plus itself).
+    const keep = new Set<string>([nodeId])
+    for (const e of mergedEdges.values()) {
+      if (e.source === nodeId) keep.add(e.target)
+      if (e.target === nodeId) keep.add(e.source)
+    }
+    const nodes = [...merged.values()].filter(n => keep.has(n.id))
+    const edges = [...mergedEdges.values()].filter(e => keep.has(e.source) && keep.has(e.target))
+    return { nodes, edges, truncated: sa.truncated || sb.truncated }
   }
 
   async close(): Promise<void> {
@@ -191,5 +333,8 @@ export class GraphStore {
     this.instance?.closeSync()
     this.con = undefined
     this.instance = undefined
+    this.runsMap.clear()
+    this.activeRunId = undefined
+    this.nextRunId = 1
   }
 }

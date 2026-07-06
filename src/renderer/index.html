@@ -19,7 +19,12 @@
       #table tr:hover td { background: #f2f7ff; }
       #cy { position: relative; }
       #banner { position: absolute; top: 6px; left: 6px; right: 6px; padding: 4px 8px; background: #fff3cd; border: 1px solid #ffe08a; display: none; }
-      #inspector { overflow: auto; border-left: 1px solid #ccc; padding: 8px; font-family: ui-monospace, monospace; }
+      #side { border-left: 1px solid #ccc; display: flex; flex-direction: column; overflow: hidden; }
+      #inspector { flex: 1 1 auto; overflow: auto; padding: 8px; font-family: ui-monospace, monospace; }
+      #suggestions { flex: 0 0 auto; max-height: 40%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; }
+      #diff-table { flex: 0 0 auto; max-height: 40%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; }
+      #diff-table table { border-collapse: collapse; width: 100%; }
+      #diff-table th, #diff-table td { text-align: left; padding: 2px 6px; font-size: 12px; }
     </style>
   </head>
   <body>
@@ -31,11 +36,24 @@
       <input id="f-tid" placeholder="tid" size="6" />
       <label><input type="checkbox" id="f-hasjava" /> has java_stack</label>
       <button id="apply">Filter</button>
+      <button id="export-md">Export MD</button>
+      <button id="export-json">Export JSON</button>
+      <button id="load-run-b">Load run B</button>
+      <select id="diff-mode">
+        <option value="all">all</option>
+        <option value="only-in-A">only in A</option>
+        <option value="only-in-B">only in B</option>
+        <option value="tagged">tagged</option>
+      </select>
     </div>
     <div id="main">
       <div id="table"></div>
       <div id="cy"><div id="banner"></div></div>
-      <div id="inspector"></div>
+      <div id="side">
+        <div id="inspector"></div>
+        <div id="diff-table"></div>
+        <div id="suggestions"></div>
+      </div>
     </div>
     <script type="module" src="./main.ts"></script>
   </body>

@@ -3,6 +3,63 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped in Phase 2 (features 5, 6, 7)
+- **5** RASP semantic tagging + heuristic pre-tagging - `project-store` sidecar
+  persistence (`<run>.ares-desktop.json`), tag editor + node badges + table tag
+  column, bounded DuckDB candidate scan feeding a pure `score()` (three grounded
+  rules: ptrace `args[0]==0`, root-path openat/access/newfstatat/faccessat,
+  `/proc/self/status` read), Confirm-to-tag flow.
+- **6** Findings export (Markdown/JSON) - `src/shared/findings.ts` builds one
+  `Finding` per tag (native block, category, calling Java method, syscall+path,
+  occurrence count); export dialog writes the file.
+- **7** Run diffing - the `ev` table is now `run_id`-scoped (multiple runs
+  loaded at once); `diffTable` (full-outer-join of per-run node counts ->
+  presence + delta) and `diffSlice` (merged, colored neighbourhood) implemented
+  in `GraphStore`, with a renderer diff mode (load run B -> A/B/delta table ->
+  select row -> merged colored subgraph).
+
+## Known drawbacks from Phase 2 (to resolve later)
+- **`diffSlice` neighbourhood scoping** - it reuses the full per-run `slice()`
+  then trims to the selected node's immediate neighbourhood; a deliberate
+  simple first cut, but can be broad (and slow) on a very large run. Revisit if
+  it's a problem on real busy runs.
+- **`diffSlice` ignores the active filter** - `diffTable` honors the current
+  table filter when computing per-run counts, but `diffSlice` does not; a
+  filtered diff-table row can expand into an unfiltered neighbourhood in the
+  graph view. Minor UX inconsistency, not a correctness bug (presence/delta in
+  the table stays correct) - align the two before shipping diff mode as
+  primary UX.
+- **emulator / integrity / hook heuristic rules are stubs** - the categories
+  exist (`RaspCategory`) but `rasp-heuristics.ts` only scores `debugger` and
+  `root` today; no reliable syscall-only signal identified yet for the other
+  three.
+- **Orphaned tags have no repair UX** - if a sidecar is loaded against a
+  re-ingested run whose node id changed (symbol resolution differs, binary
+  rebuilt, etc.), the stale tag is kept as-is rather than dropped or flagged.
+  Planned: a flag/filter for tags whose target no longer matches any node in
+  the active run.
+- **ELK still runs on the main renderer thread**, not a Web Worker (carried
+  over from Phase 1, see below) - fine while the slice cap keeps graphs small.
+- **Ptrace-request SQL/schema coupling** (mental note for the next ARES-version
+  bump) - `rasp-heuristics.candidateWhere()`'s SQL pre-filter matches the
+  ptrace request as raw `args[1] IN ('0x0', '0')`, which couples to ARES's
+  current hex-emit format (`jb_hex` always emits `"0x0"` for request 0). If
+  ARES ever emits decoded/decimal request values instead, this SQL pre-filter
+  would silently narrow candidates below what the pure `score()` would catch -
+  the arg *formatting* is not covered by `tests/schema-drift.test.ts` (which
+  only checks field names). Re-check this predicate whenever the vendored ARES
+  schema version is bumped.
+- **Four deferred code-review minors** (not blocking, low-priority cleanup):
+  - `src/preload/index.ts` types `saveTags`'s `tags` param as `unknown[]`,
+    while `src/renderer/types.d.ts` types the same IPC call as `Tag[]` - should
+    agree (tighten the preload signature).
+  - `tests/integration.test.ts` imports `candidateWhere` but does not use it.
+  - No test covers `findings.ts`'s `blockLabel()` offset-only branch (offset
+    present, no plain-symbol fallback needed).
+  - `diffTable`'s sort comment claims "divergence first, then magnitude" but
+    the code only sorts by `Math.abs(delta)` - either fix the comment or add
+    the presence-based primary sort it describes.
+
 ## Open verification items (before / during Phase 1)
 - **Renderer GUI verified** (via `npm run shots`) - table, focused subgraph, node
   inspector, and the has-java_stack filter all work end to end in a live Electron
@@ -52,11 +109,6 @@ and open verification items. Newest concerns first.
   instead. Test must skip cleanly when `../ARES` is absent.
 
 ## Deferred features (post-core, spec §7)
-- **5** RASP semantic tagging + heuristic pre-tagging → brings `project-store`
-  sidecar persistence.
-- **6** Findings export (Markdown/JSON).
-- **7** Run diffing - implement as a **SQL join over two ingested DuckDB runs**
-  (the DuckDB tier makes this cheap; note it when scheduling).
 - **9** Tracer control over adb (offline-friendly launch → capture → auto-load).
 - **11** Flame-graph / icicle view - strong companion for the call-chain *depth*
   axis; DuckDB supplies the stack rollup. Node-link graph stays for the
