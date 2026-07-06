@@ -127,8 +127,34 @@ and open verification items. Newest concerns first.
   build keys non-literally, the scrape breaks - revisit to parse `trace_schema.h`
   instead. Test must skip cleanly when `../ARES` is absent.
 
+## Shipped this session (feature 9 - tracer control)
+- **9** Tracer control over adb (launch → capture → auto-load) - `tracer-caps`
+  capability registry (7 engines, three output kinds jsonl/stdout/artifact),
+  `tracer-control` main orchestration (preflight, `startRun` with per-stream
+  `lineSplitter`, graceful `pkill -INT` stop, `pullResult`), config persistence
+  (`<userData>/tracer-config.json`), and the renderer **Capture** view. Full
+  detail in `DOCUMENTATION.md`. **Device-verified 2026-07-07** (stock
+  `com.android.deskclock`): syscalls 81,611 events ingested; lib 91 `[lib]` lines;
+  dump 5 rebuilt `.so` pulled; both timeout and manual-stop paths flush the sink.
+
+### Known drawbacks / follow-ups from feature 9
+- **`dump` dumps on app *exit* by default** (post-decryption) - the capability
+  does not expose `--on-map` (dump-the-instant-a-lib-maps) or `-p <pid>`
+  (attach to a running process). For a short UI window the on-exit default
+  relies on the app exiting or the timeout firing. Add `--on-map` / attach-pid
+  as dump options if a real use needs a mid-run dump.
+- **`mod` analyzer is a free-text field** - the analyzer name is typed by the
+  user, not discovered from `ares mod --help`. Parse the analyzer list at
+  runtime when this is exercised on device (spec §9 open item).
+- **`funcs`/`correlate`/`trace` spec is a free-text filename** - the UI expects
+  a spec basename under the pushed `specs/` dir; it does not list the available
+  specs. These JSONL engines were not exercised on-device this session (only
+  `syscalls`, `lib`, `dump` were); smoke them when a spec-driven run is needed.
+- **stdout/artifact runs never send a UI "run loaded" signal** - only `jsonl`
+  runs auto-switch to the table; `lib`/`dump` leave the result in the console /
+  `userData/runs/` with no in-app artifact browser yet.
+
 ## Deferred features (post-core, spec §7)
-- **9** Tracer control over adb (offline-friendly launch → capture → auto-load).
 - **8** Session-only MCP (stdio) exposing the tagged graph. Decision C: headless
   analytics + device tools stay in `tools/ares-mcp`.
 - **10** Timeline view / live-stream input-swap - needs ordered/live data.

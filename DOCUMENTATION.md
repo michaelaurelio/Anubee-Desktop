@@ -220,3 +220,51 @@ Note: the `files: ["out/**"]` entry only narrows the *app source* electron-build
 packs; it does **not** drop `node_modules` - electron-builder collects production
 dependencies (including `@duckdb/node-api`) separately, so the binding is still
 bundled and then `asarUnpack`ed. Do not "correct" `files` to add `node_modules`.
+
+## Tracer control (feature 9) - launch → capture → auto-load
+
+Launch the ARES tracer on a connected rooted device from the **Capture** view,
+capture its output, and route the result back in. Offline-friendly: the tracer
+writes to a device file during the run; the desktop pulls and ingests it after
+the run stops (not a live-streaming graph - that is feature 10).
+
+**Modules.** `src/shared/tracer-caps.ts` (pure) is the capability registry - one
+descriptor per engine with a `buildArgv`, cross-field `validate`, and the
+`composeRunArg` device-command builder. `src/main/tracer-control.ts` (main) owns
+the adb orchestration behind an injected `Adb`/`Spawner` seam: `preflight`,
+`startRun` (spawn + per-stream line buffering via `lineSplitter`), `stop`,
+`pullResult`. `src/renderer/capture-view.ts` renders the form + console; the
+toolbar wiring lives in `main.ts`'s `wireCapture()`.
+
+**Capabilities and the three output kinds.** All seven engines are exposed.
+`syscalls`/`funcs`/`correlate`/`trace` are `jsonl` (`-o <dev>.jsonl` → pull →
+reuse the existing `loadPath` ingest → switch to the master table). `lib` is
+`stdout` (streams `[lib]` lines to the console). `dump` is `artifact`. `mod`
+runs a named analyzer (default `stdout`). `correlate`/`trace` carry a
+"writes BRK" loud badge.
+
+**The `su -c` contract.** Each ares run is one `su -c '<single string>'` -
+chaining commands in one `su -c` breaks the on-device BPF load with `-EPERM`.
+Runs are wrapped `timeout -s INT -k 3 <secs>` for a graceful SIGINT stop with a
+SIGKILL backstop; the manual Stop button sends `pkill -INT -f …ares` as a
+separate `su -c`. A blank timeout means "run until Stop".
+
+**Preflight** gates Start with five ordered checks (device reachable, `su`
+root, kernel BTF, package installed, on-device binary md5 vs the configured host
+`build/ares` - pushed if stale, after `kill_ares` to avoid `ETXTBSY`). Host
+paths to `build/ares` + `specs/` persist in `<userData>/tracer-config.json`.
+
+**Engine-specific arg rules learned from the device.** `syscalls` rejects
+`-P <pkg>` alone - a library filter (`-l`) or capture-all (`-a`) is mandatory,
+enforced by `syscalls`'s `validate` before dispatch. `dump` rebuilds one `.so`
+per matching library (named `<lib>.<pid>.<addr>.so`) into a directory (`-d DIR`);
+the handler creates the device dir up front and pulls the whole directory.
+
+**Storage + privacy.** Pulled captures land in `<userData>/runs/` (outside the
+repo); the target package is user-entered at runtime, never hardcoded.
+
+**Device-verified (2026-07-07).** Against a real rooted device (stock
+`com.android.deskclock`): preflight all-green; `syscalls -a` → 81,611 events
+ingested, 0 parse errors; graceful timeout stop (exit 124) and manual `pkill -INT`
+stop (exit 130) both flushed the sink; `lib` → 91 `[lib]` lines with `libc.so`
+resolved; `dump` → 5 rebuilt `.so` files pulled from the dump directory.
