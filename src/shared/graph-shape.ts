@@ -25,6 +25,18 @@ export interface GraphSlice {
   truncated: boolean
 }
 
+// Reconstruct a node's kind/label/module from its id. The SQL owns identity +
+// counts; labelling lives here so the graph, the flame view, and the legend can
+// never drift. Native ids go through the shared parseFrameSymbol.
+export function labelForId(id: string): { kind: NodeKind; label: string; module: string | null } {
+  if (id.startsWith('java:')) return { kind: 'java', label: id.slice(5), module: null }
+  if (id.startsWith('sys:')) return { kind: 'syscall', label: id.slice(4), module: null }
+  const rest = id.slice(4) // 'nat:'
+  const p = parseFrameSymbol(rest)
+  const label = p.symbol ? `${p.symbol} (${p.module})` : (p.module ?? rest)
+  return { kind: 'native', label, module: p.module }
+}
+
 // A node in the chain, without the aggregate count (added by foldEvents).
 type ChainNode = Omit<GraphNode, 'count'>
 

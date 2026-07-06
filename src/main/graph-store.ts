@@ -2,9 +2,9 @@ import { openSync, readSync, closeSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
 import type { SyscallEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
-import { parseFrameSymbol } from '@shared/frame-symbol'
-import { capSlice, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
+import { capSlice, labelForId, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
+import type { StackRollup } from '@shared/flame-shape'
 import { candidateWhere, score, aggregate, type Suggestion } from '@shared/rasp-heuristics'
 import { presenceOf, type DiffRow, type MergedSlice, type MergedNode } from '@shared/diff'
 
@@ -41,16 +41,11 @@ const CHAIN_SQL = `list_concat(
   ['sys:' || syscall]
 )`
 
-// Rebuild a node's kind/label/module from its id, mirroring chainOf's labelling
-// exactly (native goes through the shared parseFrameSymbol). The SQL owns
-// identity + counts; labelling stays in shared TS so it can never drift.
+// Rebuild a node's kind/label/module from its id via the shared labelForId.
+// The SQL owns identity + counts; labelling stays in shared TS so it can
+// never drift.
 function nodeFromId(id: string, count: number): GraphNode {
-  if (id.startsWith('java:')) return { id, kind: 'java', label: id.slice(5), module: null, count }
-  if (id.startsWith('sys:')) return { id, kind: 'syscall', label: id.slice(4), module: null, count }
-  const rest = id.slice(4) // 'nat:'
-  const p = parseFrameSymbol(rest)
-  const label = p.symbol ? `${p.symbol} (${p.module})` : (p.module ?? rest)
-  return { id, kind: 'native', label, module: p.module, count }
+  return { id, ...labelForId(id), count }
 }
 
 function num(v: unknown): number | null {
@@ -212,6 +207,33 @@ export class GraphStore {
       return { id: `${source}=>${target}`, source, target, count: Number(r.c) }
     })
     return capSlice(nodes, edges, eventCount, cap)
+  }
+
+  // Aggregated stack rollup over the filtered events: distinct full chains with
+  // occurrence counts, for the flame view. Reuses CHAIN_SQL (same identity as the
+  // graph). Heaviest first; capped by maxChains to bound the IPC payload.
+  async stackRollup(filter: Filter = {}, maxChains = 5000, runId?: number): Promise<StackRollup> {
+    const rid = this.resolveRun(runId)
+    const { where, params } = filterToSql(filter)
+    const scoped = `run_id = ${rid} AND (${where})`
+    const cte = `WITH chains AS (SELECT ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})`
+
+    const distinctChains = await this.scalar(
+      `${cte} SELECT count(*) AS n FROM (SELECT chain FROM chains GROUP BY chain)`,
+      params,
+    )
+    const eventCount = await this.scalar(`SELECT count(*) AS n FROM ev WHERE ${scoped}`, params)
+    const lim = Math.max(0, Math.trunc(maxChains))
+    const rows = await this.rows(
+      `${cte} SELECT chain, count(*) AS c FROM chains GROUP BY chain ORDER BY c DESC LIMIT ${lim}`,
+      params,
+    )
+    return {
+      rows: rows.map(r => ({ chain: (r.chain as { items: string[] }).items, count: Number(r.c) })),
+      eventCount,
+      distinctChains,
+      truncated: distinctChains > lim,
+    }
   }
 
   // One raw record, reconstructed as a plain SyscallEvent via DuckDB's to_json.

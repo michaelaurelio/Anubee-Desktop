@@ -56,5 +56,11 @@ await win.click('#apply')
 await win.waitForTimeout(500)
 await shot('04-filtered.png')
 
+// 5. Flame view: toggle to the icicle over the filtered set.
+await win.click('#tab-flame')
+await win.waitForSelector('#flame svg', { timeout: 15000 })
+await win.waitForTimeout(400)
+await shot('05-flame.png')
+
 await app.close()
 console.log('done')

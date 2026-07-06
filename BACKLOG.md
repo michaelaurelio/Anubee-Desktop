@@ -18,6 +18,22 @@ and open verification items. Newest concerns first.
   in `GraphStore`, with a renderer diff mode (load run B -> A/B/delta table ->
   select row -> merged colored subgraph).
 
+## Shipped this session (flame-graph view + graph polish)
+- **11** Flame-graph / icicle view - `GraphStore.stackRollup` (reuses
+  `CHAIN_SQL`, `GROUP BY chain`) -> `buildFlame` prefix-tree fold
+  (`src/shared/flame-shape.ts`) -> hand-rolled SVG icicle
+  (`src/renderer/flame-view.ts`): top-down, kind-colored, click-to-zoom, hover
+  tooltip, truncation banner. Toggled via Graph/Flame buttons in the toolbar.
+  **Residual drawback:** the 5000-chain (`stackRollup`) / 2000-node
+  (`buildFlame`) caps are un-tuned against a real busy run - verify the
+  truncation banner actually triggers before the SVG degrades once real
+  fixtures exist.
+- **P1** Graph node legend - always-visible shape/color key in the graph pane
+  (`#legend`), reused verbatim by the flame view's `KIND_FILL` map.
+- **P2** Master table column widths - `top java` / `top native` columns
+  widened (96px / 110px) so typical entries show more of the name before
+  eliding.
+
 ## Known drawbacks from Phase 2 (to resolve later)
 - **`diffSlice` neighbourhood scoping** - it reuses the full per-run `slice()`
   then trims to the selected node's immediate neighbourhood; a deliberate
@@ -58,6 +74,10 @@ and open verification items. Newest concerns first.
   4. Inspector record links restyled (no default underline), detail separated.
   - Remaining minor: single vertical chains leave empty space to the right (labels
     extend right, nodes sit left-of-center) - acceptable; revisit if it bothers.
+    Centering the chain (`centerNodesX`) was attempted this session and
+    reverted: shifting nodes toward center clips the right-side node labels
+    (they extend ~300px, wider than the ~540px graph pane), so full-label
+    visibility was kept over centering. Accepted as a cosmetic known-minor.
 - **ELK layout in a Web Worker** (RESOLVED 2026-07-06, Phase 2 close-out) -
   previously ran synchronously on the main renderer thread via `cytoscape-elk`.
   Now runs in the elkjs Web-Worker build (`elk-api` + `elk-worker.min.js` via
@@ -95,9 +115,6 @@ and open verification items. Newest concerns first.
 
 ## Deferred features (post-core, spec §7)
 - **9** Tracer control over adb (offline-friendly launch → capture → auto-load).
-- **11** Flame-graph / icicle view - strong companion for the call-chain *depth*
-  axis; DuckDB supplies the stack rollup. Node-link graph stays for the
-  cross-links / bridges.
 - **8** Session-only MCP (stdio) exposing the tagged graph. Decision C: headless
   analytics + device tools stay in `tools/ares-mcp`.
 - **10** Timeline view / live-stream input-swap - needs ordered/live data.

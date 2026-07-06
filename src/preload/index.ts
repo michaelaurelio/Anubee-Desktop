@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('ares', {
     ipcRenderer.invoke('graph:table', filter, page, runId),
   slice: (filter: Filter, cap?: number, runId?: number) =>
     ipcRenderer.invoke('graph:slice', filter, cap, runId),
+  stackRollup: (filter: Filter, maxChains?: number, runId?: number) =>
+    ipcRenderer.invoke('graph:stackRollup', filter, maxChains, runId),
   eventById: (id: number, runId?: number) => ipcRenderer.invoke('graph:eventById', id, runId),
   nodeEvents: (nodeId: string, filter: Filter, runId?: number) =>
     ipcRenderer.invoke('graph:nodeEvents', nodeId, filter, runId),

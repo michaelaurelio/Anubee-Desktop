@@ -10,6 +10,8 @@ import { renderOrphans } from './orphans-view'
 import { upsertTag, removeTag, tagsByTarget, orphanedTags, type Tag } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
 import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
+import { renderFlame } from './flame-view'
+import { buildFlame } from '@shared/flame-shape'
 
 const cy = cytoscape({
   container: document.getElementById('cy'),
@@ -61,6 +63,7 @@ let activeRunId: number | undefined
 let tags: Tag[] = []
 let runB: number | undefined
 let diffMode: DiffMode = 'all'
+let currentView: 'graph' | 'flame' = 'graph'
 
 async function refreshTags(): Promise<void> {
   const rid = activeRunId
@@ -139,7 +142,29 @@ async function refreshOrphans(): Promise<void> {
   })
 }
 
+async function refreshFlame(): Promise<void> {
+  const host = document.getElementById('flame')
+  if (!host || activeRunId === undefined) return
+  const rollup = await window.ares.stackRollup(currentFilter(), 5000, activeRunId)
+  const tree = buildFlame(rollup.rows, 2000)
+  renderFlame(host, tree, rollup.truncated || tree.truncated)
+}
+
+function showView(view: 'graph' | 'flame'): void {
+  currentView = view
+  document.getElementById('cy')?.classList.toggle('hidden', view === 'flame')
+  document.getElementById('flame')?.classList.toggle('active', view === 'flame')
+  if (view === 'flame') void refreshFlame()
+}
+
+// Refresh whichever middle view is active (used by the filter apply action).
+function refreshMiddle(): void {
+  if (currentView === 'flame') void refreshFlame()
+  // graph view refreshes on row selection, not on filter apply
+}
+
 async function selectRow(row: TableRow): Promise<void> {
+  showView('graph')
   const slice = await window.ares.slice(filterForRow(row, currentFilter()), undefined, activeRunId)
   const els = sliceToElements(slice)
   cy.elements().remove()
@@ -218,11 +243,14 @@ window.ares.onLoaded(s => {
   status(`Loaded ${s.eventCount} events (${s.errors} parse errors)`)
   void refreshTags().then(() => {
     void refreshTable()
+    refreshMiddle()
     redrawBadges()
     void refreshSuggestions()
     void refreshOrphans()
   })
 })
-wireFilterControls(refreshTable)
+document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))
+document.getElementById('tab-flame')?.addEventListener('click', () => showView('flame'))
+wireFilterControls(() => { void refreshTable(); refreshMiddle() })
 wireExport()
 wireDiff()
