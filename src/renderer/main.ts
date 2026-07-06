@@ -4,6 +4,8 @@ import { sliceToElements, elkLayoutOptions, filterForRow } from './graph-view'
 import { renderTable } from './table'
 import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector } from './inspector'
+import { badgeText, renderTagEditor } from './tag-view'
+import { upsertTag, removeTag, tagsByTarget, type Tag } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
 
 cytoscape.use(elk)
@@ -34,6 +36,7 @@ const cy = cytoscape({
     { selector: 'node[kind = "java"]', style: { 'background-color': '#27ae60', shape: 'diamond' } },
     { selector: 'node[kind = "native"]', style: { 'background-color': '#2980b9' } },
     { selector: 'node[kind = "syscall"]', style: { 'background-color': '#c0392b', shape: 'round-rectangle' } },
+    { selector: 'node[badge]', style: { 'border-width': 3, 'border-color': '#8e44ad' } },
     {
       selector: 'edge',
       style: {
@@ -49,6 +52,26 @@ const cy = cytoscape({
 })
 
 let activeRunId: number | undefined
+let tags: Tag[] = []
+
+async function refreshTags(): Promise<void> {
+  if (activeRunId === undefined) return
+  const r = await window.ares.loadTags(activeRunId)
+  tags = r.tags
+}
+
+async function persistTags(): Promise<void> {
+  if (activeRunId === undefined) return
+  await window.ares.saveTags(activeRunId, tags)
+}
+
+function redrawBadges(): void {
+  cy.nodes().forEach(n => {
+    const b = badgeText(tagsByTarget(tags, n.id()))
+    if (b) n.data('badge', b)
+    else n.removeData('badge')
+  })
+}
 
 function status(text: string): void {
   const el = document.getElementById('status')
@@ -64,7 +87,12 @@ function showBanner(truncated: boolean): void {
 
 async function refreshTable(): Promise<void> {
   const rows = await window.ares.table(currentFilter(), { limit: 500, offset: 0 }, activeRunId)
-  renderTable(rows, selectRow)
+  renderTable(rows, selectRow, row => {
+    const ids = [`sys:${row.syscall}`]
+    if (row.topJava) ids.push(`java:${row.topJava}`)
+    const rowTags = ids.flatMap(id => tagsByTarget(tags, id))
+    return badgeText(rowTags)
+  })
   status(`${rows.length} rows`)
 }
 
@@ -80,6 +108,7 @@ async function selectRow(row: TableRow): Promise<void> {
   await settled
   cy.fit(undefined, 48) // frame the slice with padding; consistent zoom per selection
   showBanner(slice.truncated)
+  redrawBadges()
 }
 
 // Exposed for the screenshot harness / debugging to drive the graph deterministically.
@@ -87,13 +116,23 @@ async function selectRow(row: TableRow): Promise<void> {
 
 cy.on('tap', 'node', evt => {
   const nodeId = evt.target.id()
-  void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(events => showNodeInspector(nodeId, events))
+  void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(events => {
+    showNodeInspector(nodeId, events)
+    const host = document.getElementById('inspector')
+    if (!host) return
+    renderTagEditor(host, nodeId, undefined, tagsByTarget(tags, nodeId),
+      async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges() },
+      async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges() })
+  })
 })
 
 window.ares.onProgress(pct => status(`Loading... ${pct}%`))
 window.ares.onLoaded(s => {
   activeRunId = s.runId
   status(`Loaded ${s.eventCount} events (${s.errors} parse errors)`)
-  void refreshTable()
+  void refreshTags().then(() => {
+    void refreshTable()
+    redrawBadges()
+  })
 })
 wireFilterControls(refreshTable)
