@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('ares', {
   eventById: (id: number, runId?: number) => ipcRenderer.invoke('graph:eventById', id, runId),
   nodeEvents: (nodeId: string, filter: Filter, runId?: number) =>
     ipcRenderer.invoke('graph:nodeEvents', nodeId, filter, runId),
+  suggest: (runId?: number) => ipcRenderer.invoke('rasp:suggest', runId),
   loadTags: (runId: number) => ipcRenderer.invoke('tags:load', runId),
   saveTags: (runId: number, tags: unknown[]) => ipcRenderer.invoke('tags:save', runId, tags),
   onProgress: (cb: (pct: number) => void) =>

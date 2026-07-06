@@ -61,6 +61,7 @@ ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset
 ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number, runId?: number) => store.slice(filter, cap, runId))
 ipcMain.handle('graph:eventById', (_e, id: number, runId?: number) => store.eventById(id, runId))
 ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter, runId?: number) => store.nodeEvents(nodeId, filter, 500, runId))
+ipcMain.handle('rasp:suggest', (_e, runId?: number) => store.suggest(runId))
 
 function runFileOf(runId: number): { file: string; ingestedAt: string } {
   const info = store.runs().find(r => r.runId === runId)

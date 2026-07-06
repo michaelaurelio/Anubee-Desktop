@@ -5,6 +5,7 @@ import { filterToSql, type Filter } from '@shared/filter'
 import { parseFrameSymbol } from '@shared/frame-symbol'
 import { capSlice, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
+import { candidateWhere, score, aggregate, type Suggestion } from '@shared/rasp-heuristics'
 
 export type { TableRow }
 
@@ -247,6 +248,22 @@ export class GraphStore {
       const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
       return ev as SyscallEvent
     })
+  }
+
+  // Run the heuristic candidate filter in SQL (bounded to RASP-relevant
+  // syscalls), reconstruct each candidate event, and score it with the pure
+  // rules. Suggestions are never auto-applied - the renderer confirms them.
+  async suggest(runId?: number): Promise<Suggestion[]> {
+    const rid = this.resolveRun(runId)
+    const rows = await this.rows(
+      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND (${candidateWhere()})`,
+    )
+    const all: Suggestion[] = []
+    for (const r of rows) {
+      const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
+      all.push(...score(ev as SyscallEvent))
+    }
+    return aggregate(all)
   }
 
   async close(): Promise<void> {

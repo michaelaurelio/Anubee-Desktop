@@ -5,6 +5,7 @@ import { resolve, join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall } from '@shared/ares-parse'
 import { foldEvents } from '@shared/graph-shape'
+import { candidateWhere } from '../src/shared/rasp-heuristics'
 
 const FIXTURE = resolve(__dirname, 'fixtures/sample.jsonl')
 const store = new GraphStore()
@@ -79,6 +80,23 @@ describe('multi-run store', () => {
     await store.ingest(fixture([{ ...evA, syscall: 'ptrace', string_args: {} }]))
     const rows = await store.table({}, { limit: 10, offset: 0 })
     expect(rows.map(r => r.syscall)).toEqual(['ptrace'])
+    await store.close()
+  })
+})
+
+describe('heuristic suggestions', () => {
+  it('suggests root + debugger tags from a run', async () => {
+    const store = new GraphStore()
+    await store.ingest(fixture([
+      evA, // openat /system/bin/su -> root
+      { ...evA, id: 2, syscall: 'ptrace', args: ['0x0'], string_args: {}, backtrace: [] }, // TRACEME -> debugger
+      { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/data/app/ok.so' } }, // benign
+    ]))
+    const s = await store.suggest()
+    const cats = s.map(x => x.category).sort()
+    expect(cats).toContain('root')
+    expect(cats).toContain('debugger')
+    expect(s.find(x => x.category === 'root')!.target).toBe('nat:libexample.so!check_su')
     await store.close()
   })
 })
