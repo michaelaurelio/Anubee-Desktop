@@ -8,16 +8,31 @@
     "build": "electron-vite build",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit",
-    "shots": "node scripts/screenshot.mjs"
+    "shots": "node scripts/screenshot.mjs",
+    "dist": "electron-vite build && electron-builder --linux dir",
+    "postinstall": "electron-builder install-app-deps"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "build": {
+    "appId": "com.ares.desktop",
+    "asarUnpack": [
+      "**/node_modules/@duckdb/**"
+    ],
+    "files": [
+      "out/**"
+    ],
+    "directories": {
+      "output": "release"
+    }
+  },
   "devDependencies": {
     "@types/cytoscape": "^3.21.9",
     "@types/node": "^26.1.0",
     "electron": "^42.5.2",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "playwright": "^1.61.1",
     "typescript": "^6.0.3",
