@@ -7,4 +7,7 @@ docs/
 *.jsonl
 # ...but synthetic test fixtures (placeholder identifiers only) are tracked.
 !tests/fixtures/*.jsonl
+# Local real captures - never tracked (real identifiers). Synthetic fixtures stay in tests/fixtures/.
+fixtures/local/
 screenshots/
+release/

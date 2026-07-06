@@ -193,3 +193,30 @@ Flame buttons in the toolbar (`#tab-graph` / `#tab-flame`, `showView()` in
   graph slice cap: never draw an unbounded run at once. If the banner appears,
   narrow the filter (has-java_stack, syscall, tid, ...) to see every path
   rather than a heaviest-first sample.
+
+## Render caps (`src/shared/caps.ts`)
+
+The three render-tier caps live in one module - `GRAPH_SLICE_CAP` (1500),
+`FLAME_CHAIN_CAP` (5000), `FLAME_NODE_CAP` (2000) - consumed by the renderer's
+graph and flame paths. They were validated against a real 245,760-event
+capture: the per-row focused subgraph peaks at ~152 elements (so the graph cap
+is a safety ceiling below the ~2-3k cytoscape/ELK hairball threshold, not a
+routine limit), while the unfiltered flame folds to 12,347 tree nodes and
+truncates at `FLAME_NODE_CAP` - the flame truncation banner was observed to
+fire in a live window, the graph banner via a forced low cap.
+
+## Packaging (`electron-builder`, Linux verified)
+
+The one native-module packaging risk is `@duckdb/node-api`. `package.json`'s
+`build` block `asarUnpack`s `@duckdb/**` so the binding loads from
+`app.asar.unpacked/` at runtime, and `postinstall: electron-builder
+install-app-deps` rebuilds it against the Electron ABI. `npm run dist`
+(`electron-vite build && electron-builder --linux dir`) produces
+`release/linux-unpacked/`. The packaged app was driven against a real run and
+served the master table, focused slice, and node-inspector raw records all
+from the unpacked DuckDB binding. Windows packaging is not yet verified.
+
+Note: the `files: ["out/**"]` entry only narrows the *app source* electron-builder
+packs; it does **not** drop `node_modules` - electron-builder collects production
+dependencies (including `@duckdb/node-api`) separately, so the binding is still
+bundled and then `asarUnpack`ed. Do not "correct" `files` to add `node_modules`.
