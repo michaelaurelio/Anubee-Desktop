@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
 import { loadConfig, saveConfig } from './tracer-config'
-import { capById, composeRunArg, outJsonlPath, DEVICE_BIN } from '@shared/tracer-caps'
+import { capById, composeRunArg, outJsonlPath, outDumpDir } from '@shared/tracer-caps'
 
 // DuckDB lives here in the main process; read_json runs on its own native
 // threads, off the V8 heap, so there is no event array to ship over IPC. The
@@ -97,7 +97,12 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
   if (!cap) throw new Error(`unknown capability ${capId}`)
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
   const jsonlPath = cap.outputKind === 'jsonl' ? outJsonlPath(ts) : undefined
-  const runArg = composeRunArg({ cap, vals: vals as never, timeoutSecs, jsonlPath })
+  // dump writes one rebuilt .so per matching library into a directory (-d DIR);
+  // create it up front (a separate su -c from the ares run - never chain) so ares
+  // has somewhere to write, then pull the whole directory afterwards.
+  const dumpDir = cap.outputKind === 'artifact' ? outDumpDir(ts) : undefined
+  if (dumpDir) await adb.run(['shell', `su -c 'mkdir -p ${dumpDir}'`])
+  const runArg = composeRunArg({ cap, vals: vals as never, timeoutSecs, jsonlPath, dumpDir })
   activeRun = startRun(spawner, adb, runArg, line => win.webContents.send('tracer:line', line))
   const { code } = await activeRun.done
   activeRun = null
@@ -110,10 +115,10 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
       const summary = await loadPath(pulled.hostPath)
       runId = summary.runId
     }
-  } else if (cap.outputKind === 'artifact') {
-    // dump rebuilds a .so under /data/local/tmp; pull the newest match.
-    const hostPath = resolve(runsDir(), `dump-${ts}.so`)
-    await pullResult(adb, 'artifact', `${DEVICE_BIN.replace(/ares$/, '')}dump-latest.so`, hostPath).catch(() => {})
+  } else if (dumpDir) {
+    // Pull the whole dump directory of rebuilt .so files to the host.
+    const hostDir = resolve(runsDir(), `dump-${ts}`)
+    await pullResult(adb, 'artifact', dumpDir, hostDir).catch(() => {})
   }
   win.webContents.send('tracer:done', { code, kind: cap.outputKind, runId })
   return { code, kind: cap.outputKind, runId }

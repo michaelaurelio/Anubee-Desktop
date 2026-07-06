@@ -51,9 +51,19 @@ describe('tracer-caps registry', () => {
   it('accepts a valid input set', () => {
     expect(validateInputs(capById('syscalls')!, { pkg: 'com.android.deskclock', lib: 'libc.so' })).toEqual([])
   })
+
+  it('rejects syscalls with neither a library filter nor capture-all', () => {
+    // ares errors "-l <lib-selector> is required (or use -a)" if given just -P.
+    expect(validateInputs(capById('syscalls')!, { pkg: 'com.android.deskclock' }))
+      .toContain('provide a library filter or check "capture all libraries"')
+  })
+
+  it('accepts syscalls with capture-all', () => {
+    expect(validateInputs(capById('syscalls')!, { pkg: 'com.android.deskclock', all: true })).toEqual([])
+  })
 })
 
-import { composeRunArg, outJsonlPath, DEVICE_BIN, STOP_ARG } from '../src/shared/tracer-caps'
+import { composeRunArg, outJsonlPath, outDumpDir, DEVICE_BIN, STOP_ARG } from '../src/shared/tracer-caps'
 
 describe('composeRunArg', () => {
   const syscalls = capById('syscalls')!
@@ -83,5 +93,16 @@ describe('composeRunArg', () => {
     expect(DEVICE_BIN).toBe('/data/local/tmp/ares')
     expect(STOP_ARG).toBe("su -c 'pkill -INT -f /data/local/tmp/ares'")
     expect(outJsonlPath('X')).toBe('/data/local/tmp/ares-X.jsonl')
+  })
+
+  it('appends -d <dumpDir> for an artifact (dump) capability', () => {
+    const arg = composeRunArg({
+      cap: capById('dump')!, vals: { pkg: 'com.android.deskclock', pattern: 'lib<example>.so' },
+      timeoutSecs: 20, dumpDir: outDumpDir('20260707T101500'),
+    })
+    expect(arg).toBe(
+      "su -c 'timeout -s INT -k 3 20 /data/local/tmp/ares dump com.android.deskclock " +
+      "lib<example>.so -d /data/local/tmp/ares-dump-20260707T101500'")
+    expect(outDumpDir('X')).toBe('/data/local/tmp/ares-dump-X')
   })
 })

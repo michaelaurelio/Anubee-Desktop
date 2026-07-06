@@ -23,6 +23,9 @@ export interface Capability {
   loud?: boolean
   inputs: CapInput[]
   buildArgv(vals: CapValues): string[]
+  // Cross-field validation beyond per-input `required` (e.g. syscalls needs a
+  // library filter OR capture-all). Returns human-readable errors, [] if valid.
+  validate?(vals: CapValues): string[]
 }
 
 export const DEVICE_SPECS = '/data/local/tmp/specs'
@@ -44,6 +47,11 @@ export const CAPABILITIES: Capability[] = [
       else if (v.lib) a.push('-l', s(v.lib))
       if (v.syscalls) a.push('-s', s(v.syscalls))
       return a
+    },
+    // ares rejects `syscalls -P <pkg>` alone: a stack-origin library filter (-l)
+    // or capture-all (-a) is mandatory. Enforce it before a run is dispatched.
+    validate(v) {
+      return v.lib || v.all ? [] : ['provide a library filter or check "capture all libraries"']
     },
   },
   {
@@ -114,6 +122,7 @@ export function validateInputs(cap: Capability, vals: CapValues): string[] {
   for (const inp of cap.inputs) {
     if (inp.required && !vals[inp.key]) errs.push(`${inp.label} is required`)
   }
+  if (cap.validate) errs.push(...cap.validate(vals))
   return errs
 }
 
@@ -122,6 +131,12 @@ export const STOP_ARG = "su -c 'pkill -INT -f /data/local/tmp/ares'"
 
 export function outJsonlPath(ts: string): string {
   return `/data/local/tmp/ares-${ts}.jsonl`
+}
+
+// `dump` rebuilds one .so per matching library (named <lib>.<pid>.<addr>.so) into
+// a directory (`-d DIR`); the whole directory is pulled after the run.
+export function outDumpDir(ts: string): string {
+  return `/data/local/tmp/ares-dump-${ts}`
 }
 
 // Build the single string handed to `adb shell` as `su -c '<...>'`. One su -c
@@ -134,9 +149,11 @@ export function composeRunArg(opts: {
   vals: CapValues
   timeoutSecs?: number
   jsonlPath?: string
+  dumpDir?: string
 }): string {
   const argv = opts.cap.buildArgv(opts.vals)
   if (opts.cap.outputKind === 'jsonl' && opts.jsonlPath) argv.push('-o', opts.jsonlPath)
+  if (opts.cap.outputKind === 'artifact' && opts.dumpDir) argv.push('-d', opts.dumpDir)
   const inner = opts.timeoutSecs
     ? `timeout -s INT -k 3 ${opts.timeoutSecs} ${DEVICE_BIN} ${argv.join(' ')}`
     : `${DEVICE_BIN} ${argv.join(' ')}`
