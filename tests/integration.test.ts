@@ -6,6 +6,7 @@ import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall } from '@shared/ares-parse'
 import { foldEvents } from '@shared/graph-shape'
 import { presenceOf } from '../src/shared/diff'
+import type { StackRollup } from '../src/shared/flame-shape'
 
 const FIXTURE = resolve(__dirname, 'fixtures/sample.jsonl')
 const store = new GraphStore()
@@ -199,6 +200,37 @@ describe('orphan detection', () => {
     ]
     const orphans = await store.orphanTargets(targets)
     expect(orphans.sort()).toEqual(['edge:sys:openat=>sys:nope', 'nat:libexample.so!removed'])
+    await store.close()
+  })
+})
+
+describe('stackRollup', () => {
+  it('groups events by full chain with counts (unfiltered)', async () => {
+    const store = new GraphStore()
+    await store.ingest(FIXTURE)
+    const r: StackRollup = await store.stackRollup()
+    expect(r.eventCount).toBe(3)
+    expect(r.distinctChains).toBe(2)
+    const byLen = [...r.rows].sort((a, b) => b.count - a.count)
+    expect(byLen[0].count).toBe(2)
+    expect(byLen[0].chain).toEqual([
+      'java:com.example.app.RootCheck.run',
+      'nat:libexample.so!RootCheck_run',
+      'nat:libexample.so!check_su',
+      'sys:openat',
+    ])
+    expect(byLen[1].count).toBe(1)
+    expect(byLen[1].chain).toEqual(['nat:libc.so!read', 'sys:read'])
+    await store.close()
+  })
+
+  it('honors the has-java_stack filter', async () => {
+    const store = new GraphStore()
+    await store.ingest(FIXTURE)
+    const r = await store.stackRollup({ hasJavaStack: true })
+    expect(r.eventCount).toBe(2)
+    expect(r.distinctChains).toBe(1)
+    expect(r.rows[0].count).toBe(2)
     await store.close()
   })
 })
