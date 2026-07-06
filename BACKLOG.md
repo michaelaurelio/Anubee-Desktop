@@ -36,6 +36,11 @@ and open verification items. Newest concerns first.
   the arg *formatting* is not covered by `tests/schema-drift.test.ts` (which
   only checks field names). Re-check this predicate whenever the vendored ARES
   schema version is bumped.
+- **`runElkLayout` surfaces no layout error** - if the elkjs worker fails to
+  spawn/bundle on a target platform, `runElkLayout` rejects and the graph
+  silently fails to lay out (nodes stay at the origin) with no user feedback.
+  Matches the renderer's existing no-try/catch pattern; add a catch + status
+  message if this ever bites. Verified working via `npm run shots`.
 - **Phase 2 close-out (2026-07-06)** - diffSlice now honors the active filter;
   orphaned-tag detection + Drop repair UX; ELK layout moved to a Web Worker
   (cytoscape gets a preset layout); the four code-review minors are closed.
@@ -53,11 +58,11 @@ and open verification items. Newest concerns first.
   4. Inspector record links restyled (no default underline), detail separated.
   - Remaining minor: single vertical chains leave empty space to the right (labels
     extend right, nodes sit left-of-center) - acceptable; revisit if it bothers.
-- **ELK runs on the main thread** (Task 9, via `cytoscape-elk`), not a Web Worker
-  as spec §5.1 describes. Acceptable for Phase 1 because the slice cap keeps the
-  graph small (fast layout). If the cap is raised materially, move layout to the
-  elkjs Web-Worker build + feed positions to cytoscape as a `preset` layout so a
-  large layout never freezes the window.
+- **ELK layout in a Web Worker** (RESOLVED 2026-07-06, Phase 2 close-out) -
+  previously ran synchronously on the main renderer thread via `cytoscape-elk`.
+  Now runs in the elkjs Web-Worker build (`elk-api` + `elk-worker.min.js` via
+  Vite's `?worker`), feeding positions to cytoscape as a `preset` layout;
+  `cytoscape-elk` removed. A large layout no longer freezes the window.
 - **Node-click inspector** (done Task 10) - `GraphStore.nodeEvents(nodeId, filter)`
   + `graph:nodeEvents` IPC + preload + `cy.on('tap','node')` are wired and
   unit-tested (store side). Still part of the pending live-GUI verify above.
