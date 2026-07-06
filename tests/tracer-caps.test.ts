@@ -52,3 +52,36 @@ describe('tracer-caps registry', () => {
     expect(validateInputs(capById('syscalls')!, { pkg: 'com.android.deskclock', lib: 'libc.so' })).toEqual([])
   })
 })
+
+import { composeRunArg, outJsonlPath, DEVICE_BIN, STOP_ARG } from '../src/shared/tracer-caps'
+
+describe('composeRunArg', () => {
+  const syscalls = capById('syscalls')!
+  const lib = capById('lib')!
+
+  it('wraps a jsonl run in su -c + timeout and appends -o', () => {
+    const arg = composeRunArg({
+      cap: syscalls, vals: { pkg: 'com.android.deskclock', lib: 'libc.so' },
+      timeoutSecs: 20, jsonlPath: outJsonlPath('20260707T101500'),
+    })
+    expect(arg).toBe(
+      "su -c 'timeout -s INT -k 3 20 /data/local/tmp/ares syscalls -P com.android.deskclock " +
+      "-l libc.so -o /data/local/tmp/ares-20260707T101500.jsonl'")
+  })
+
+  it('does not append -o for a stdout capability', () => {
+    const arg = composeRunArg({ cap: lib, vals: { pkg: 'com.android.deskclock' }, timeoutSecs: 10 })
+    expect(arg).toBe("su -c 'timeout -s INT -k 3 10 /data/local/tmp/ares lib com.android.deskclock'")
+  })
+
+  it('omits the timeout wrapper when timeoutSecs is unset (run until Stop)', () => {
+    const arg = composeRunArg({ cap: lib, vals: { pkg: 'com.android.deskclock' } })
+    expect(arg).toBe("su -c '/data/local/tmp/ares lib com.android.deskclock'")
+  })
+
+  it('exposes the fixed binary path and stop command', () => {
+    expect(DEVICE_BIN).toBe('/data/local/tmp/ares')
+    expect(STOP_ARG).toBe("su -c 'pkill -INT -f /data/local/tmp/ares'")
+    expect(outJsonlPath('X')).toBe('/data/local/tmp/ares-X.jsonl')
+  })
+})

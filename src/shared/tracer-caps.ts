@@ -116,3 +116,29 @@ export function validateInputs(cap: Capability, vals: CapValues): string[] {
   }
   return errs
 }
+
+export const DEVICE_BIN = '/data/local/tmp/ares'
+export const STOP_ARG = "su -c 'pkill -INT -f /data/local/tmp/ares'"
+
+export function outJsonlPath(ts: string): string {
+  return `/data/local/tmp/ares-${ts}.jsonl`
+}
+
+// Build the single string handed to `adb shell` as `su -c '<...>'`. One su -c
+// per run (chaining breaks BPF load with -EPERM, spec s2). Package/lib/pattern
+// tokens are simple identifiers (no quotes/spaces), so plain space-join inside
+// the single-quoted su -c body is safe; reject exotic tokens upstream if ever
+// needed.
+export function composeRunArg(opts: {
+  cap: Capability
+  vals: CapValues
+  timeoutSecs?: number
+  jsonlPath?: string
+}): string {
+  const argv = opts.cap.buildArgv(opts.vals)
+  if (opts.cap.outputKind === 'jsonl' && opts.jsonlPath) argv.push('-o', opts.jsonlPath)
+  const inner = opts.timeoutSecs
+    ? `timeout -s INT -k 3 ${opts.timeoutSecs} ${DEVICE_BIN} ${argv.join(' ')}`
+    : `${DEVICE_BIN} ${argv.join(' ')}`
+  return `su -c '${inner}'`
+}
