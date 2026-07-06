@@ -96,10 +96,15 @@ and open verification items. Newest concerns first.
   runs on **both Windows and Linux** via `electron-builder` (`asarUnpack` the
   native binding; `postinstall: electron-builder install-app-deps` for the ABI
   rebuild). This is the one real packaging risk in the new data tier.
-  - **Status (GUI run):** RESOLVED for dev - `@duckdb/node-api@1.5.4` ingests +
-    queries fine **under Electron 42** (the live app loaded the fixture, and the
-    table/slice/inspector all pulled from DuckDB). Packaging (`electron-builder`
-    `asarUnpack` + ABI rebuild) is still unproven for a distributable build.
+  - **Status (2026-07-06):** RESOLVED on **Linux**. `electron-builder@26.15.3`
+    added; `package.json` `build` block `asarUnpack`s `@duckdb/**` and
+    `postinstall: electron-builder install-app-deps` rebuilds the binding
+    against the Electron 42 ABI (clean). `npm run dist` (`--linux dir`) emits
+    `release/linux-unpacked/`; the **packaged** app was driven against a real
+    245,760-event run and all three DuckDB paths served from the unpacked
+    binding (master table 501 rows, focused slice, node-inspector raw record).
+  - **Remaining: Windows packaging still unproven** (deferred - no Windows
+    target reachable this session). Re-verify `asarUnpack` + ABI rebuild there.
   - **(historical) Task 1:** loaded + queried under **Node 22** first; the first
     Electron+DuckDB run is Task 6/8. `electron-builder` is not installed yet
     (packaging is a later phase), so the `postinstall` ABI-rebuild hook is
