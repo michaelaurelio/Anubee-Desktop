@@ -1,6 +1,6 @@
 import cytoscape from 'cytoscape'
-import elk from 'cytoscape-elk'
-import { sliceToElements, elkLayoutOptions, filterForRow } from './graph-view'
+import { sliceToElements, filterForRow } from './graph-view'
+import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
 import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector } from './inspector'
@@ -10,8 +10,6 @@ import { renderOrphans } from './orphans-view'
 import { upsertTag, removeTag, tagsByTarget, orphanedTags, type Tag } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
 import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
-
-cytoscape.use(elk)
 
 const cy = cytoscape({
   container: document.getElementById('cy'),
@@ -147,10 +145,7 @@ async function selectRow(row: TableRow): Promise<void> {
   cy.elements().remove()
   cy.add(els.nodes)
   cy.add(els.edges)
-  const layout = cy.layout(elkLayoutOptions())
-  const settled = layout.promiseOn('layoutstop')
-  layout.run()
-  await settled
+  await runElkLayout(cy)
   cy.fit(undefined, 48) // frame the slice with padding; consistent zoom per selection
   showBanner(slice.truncated)
   redrawBadges()
@@ -184,10 +179,7 @@ async function refreshDiff(): Promise<void> {
       cy.elements().remove()
       cy.add(els.nodes)
       cy.add(els.edges)
-      const layout = cy.layout(elkLayoutOptions())
-      const settled = layout.promiseOn('layoutstop')
-      layout.run()
-      await settled
+      await runElkLayout(cy)
       cy.fit(undefined, 48)
     })
 }

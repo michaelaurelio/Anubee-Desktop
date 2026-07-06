@@ -14,18 +14,55 @@ export function sliceToElements(slice: GraphSlice): {
   }
 }
 
-// ELK layered layout, flowing DOWN so java -> native -> syscall reads top to
-// bottom. Fed to cytoscape-elk (which runs the layout in a Web Worker).
-export function elkLayoutOptions() {
+// ELK layered layout options, flowing DOWN so java -> native -> syscall reads
+// top to bottom. Values are strings (ELK's option format). The layout runs in
+// a Web Worker (see elk.worker.ts); cytoscape only applies the resulting
+// positions as a preset layout.
+const ELK_LAYOUT_OPTIONS: Record<string, string> = {
+  'elk.algorithm': 'layered',
+  'elk.direction': 'DOWN',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '60',
+  'elk.spacing.nodeNode': '30',
+}
+
+export interface ElkGraph {
+  id: 'root'
+  layoutOptions: Record<string, string>
+  children: { id: string; width: number; height: number }[]
+  edges: { id: string; sources: string[]; targets: string[] }[]
+}
+
+export interface ElkLaidOut {
+  children?: { id: string; x?: number; y?: number; width?: number; height?: number }[]
+}
+
+// Approximate a node's rendered width from its label (the dot plus the label to
+// its right) so ELK spaces columns without overlap.
+function nodeWidth(label: string): number {
+  return Math.min(240, Math.max(60, label.length * 6 + 24))
+}
+
+// Map cytoscape element defs to an ELK graph. Pure; the worker runs the layout.
+export function sliceToElkGraph(elements: {
+  nodes: { data: { id: string; label: string } }[]
+  edges: { data: { id: string; source: string; target: string } }[]
+}): ElkGraph {
   return {
-    name: 'elk',
-    elk: {
-      algorithm: 'layered',
-      'elk.direction': 'DOWN',
-      'elk.layered.spacing.nodeNodeBetweenLayers': 60,
-      'elk.spacing.nodeNode': 30,
-    },
+    id: 'root',
+    layoutOptions: ELK_LAYOUT_OPTIONS,
+    children: elements.nodes.map(n => ({ id: n.data.id, width: nodeWidth(n.data.label), height: 24 })),
+    edges: elements.edges.map(e => ({ id: e.data.id, sources: [e.data.source], targets: [e.data.target] })),
   }
+}
+
+// ELK returns each node's top-left corner; cytoscape's preset layout wants the
+// centre. Convert, tolerating missing coordinates.
+export function elkResultToPositions(result: ElkLaidOut): Record<string, { x: number; y: number }> {
+  const out: Record<string, { x: number; y: number }> = {}
+  for (const c of result.children ?? []) {
+    out[c.id] = { x: (c.x ?? 0) + (c.width ?? 0) / 2, y: (c.y ?? 0) + (c.height ?? 0) / 2 }
+  }
+  return out
 }
 
 // Build the slice filter for a selected table row (spec decision option (b):
