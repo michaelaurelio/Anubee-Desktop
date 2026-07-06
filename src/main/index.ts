@@ -9,11 +9,37 @@ import { buildFindings, renderMarkdown, renderJSON } from '@shared/findings'
 import type { SyscallEvent } from '@shared/events'
 import type { DiffRow } from '@shared/diff'
 
+// --- feature 9: tracer control -------------------------------------------
+import { mkdirSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
+import { loadConfig, saveConfig } from './tracer-config'
+import { capById, composeRunArg, outJsonlPath, DEVICE_BIN } from '@shared/tracer-caps'
+
 // DuckDB lives here in the main process; read_json runs on its own native
 // threads, off the V8 heap, so there is no event array to ship over IPC. The
 // renderer only ever asks for a table page, a bounded slice, or one record by id.
 const store = new GraphStore()
 let win!: BrowserWindow
+
+const adb = realAdb()
+const spawner = realSpawner()
+let activeRun: RunHandle | null = null
+
+async function fileMd5(path: string): Promise<string> {
+  try {
+    return createHash('md5').update(await readFile(path)).digest('hex')
+  } catch {
+    return ''
+  }
+}
+
+function runsDir(): string {
+  const d = resolve(app.getPath('userData'), 'runs')
+  mkdirSync(d, { recursive: true })
+  return d
+}
 
 function createWindow(): void {
   win = new BrowserWindow({
@@ -58,6 +84,44 @@ async function openViaDialog(): Promise<{ runId: number; eventCount: number; err
   if (r.canceled || !r.filePaths[0]) return null
   return loadPath(r.filePaths[0])
 }
+
+ipcMain.handle('tracer:config:get', () => loadConfig(app.getPath('userData')))
+ipcMain.handle('tracer:config:set', (_e, cfg: { aresBinary: string; specsDir: string }) => {
+  saveConfig(app.getPath('userData'), cfg)
+})
+ipcMain.handle('tracer:preflight', (_e, pkg: string) =>
+  preflight(adb, loadConfig(app.getPath('userData')), pkg, fileMd5))
+
+ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, unknown>, timeoutSecs?: number) => {
+  const cap = capById(capId)
+  if (!cap) throw new Error(`unknown capability ${capId}`)
+  const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
+  const jsonlPath = cap.outputKind === 'jsonl' ? outJsonlPath(ts) : undefined
+  const runArg = composeRunArg({ cap, vals: vals as never, timeoutSecs, jsonlPath })
+  activeRun = startRun(spawner, adb, runArg, line => win.webContents.send('tracer:line', line))
+  const { code } = await activeRun.done
+  activeRun = null
+
+  let runId: number | undefined
+  if (cap.outputKind === 'jsonl' && jsonlPath) {
+    const hostPath = resolve(runsDir(), `ares-${ts}.jsonl`)
+    const pulled = await pullResult(adb, 'jsonl', jsonlPath, hostPath)
+    if (pulled.hostPath) {
+      const summary = await loadPath(pulled.hostPath)
+      runId = summary.runId
+    }
+  } else if (cap.outputKind === 'artifact') {
+    // dump rebuilds a .so under /data/local/tmp; pull the newest match.
+    const hostPath = resolve(runsDir(), `dump-${ts}.so`)
+    await pullResult(adb, 'artifact', `${DEVICE_BIN.replace(/ares$/, '')}dump-latest.so`, hostPath).catch(() => {})
+  }
+  win.webContents.send('tracer:done', { code, kind: cap.outputKind, runId })
+  return { code, kind: cap.outputKind, runId }
+})
+
+ipcMain.handle('tracer:stop', async () => {
+  if (activeRun) await activeRun.stop()
+})
 
 ipcMain.handle('trace:open', () => openViaDialog())
 ipcMain.handle('graph:runs', () => store.runs())
