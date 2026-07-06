@@ -5,6 +5,7 @@ import { renderTable } from './table'
 import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
+import { renderSuggestions } from './suggestions-view'
 import { upsertTag, removeTag, tagsByTarget, type Tag } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
 
@@ -96,6 +97,19 @@ async function refreshTable(): Promise<void> {
   status(`${rows.length} rows`)
 }
 
+async function refreshSuggestions(): Promise<void> {
+  if (activeRunId === undefined) return
+  const host = document.getElementById('suggestions')
+  if (!host) return
+  const suggestions = await window.ares.suggest(activeRunId)
+  renderSuggestions(host, suggestions, async tag => {
+    tags = upsertTag(tags, tag)
+    await persistTags()
+    void refreshTable()
+    redrawBadges()
+  })
+}
+
 async function selectRow(row: TableRow): Promise<void> {
   const slice = await window.ares.slice(filterForRow(row, currentFilter()), undefined, activeRunId)
   const els = sliceToElements(slice)
@@ -133,6 +147,7 @@ window.ares.onLoaded(s => {
   void refreshTags().then(() => {
     void refreshTable()
     redrawBadges()
+    void refreshSuggestions()
   })
 })
 wireFilterControls(refreshTable)

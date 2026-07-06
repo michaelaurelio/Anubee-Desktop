@@ -19,7 +19,9 @@
       #table tr:hover td { background: #f2f7ff; }
       #cy { position: relative; }
       #banner { position: absolute; top: 6px; left: 6px; right: 6px; padding: 4px 8px; background: #fff3cd; border: 1px solid #ffe08a; display: none; }
-      #inspector { overflow: auto; border-left: 1px solid #ccc; padding: 8px; font-family: ui-monospace, monospace; }
+      #side { border-left: 1px solid #ccc; display: flex; flex-direction: column; overflow: hidden; }
+      #inspector { flex: 1 1 auto; overflow: auto; padding: 8px; font-family: ui-monospace, monospace; }
+      #suggestions { flex: 0 0 auto; max-height: 40%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; }
     </style>
   </head>
   <body>
@@ -35,7 +37,10 @@
     <div id="main">
       <div id="table"></div>
       <div id="cy"><div id="banner"></div></div>
-      <div id="inspector"></div>
+      <div id="side">
+        <div id="inspector"></div>
+        <div id="suggestions"></div>
+      </div>
     </div>
     <script type="module" src="./main.ts"></script>
   </body>
