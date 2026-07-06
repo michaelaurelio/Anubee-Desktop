@@ -243,6 +243,7 @@ window.ares.onLoaded(s => {
   status(`Loaded ${s.eventCount} events (${s.errors} parse errors)`)
   void refreshTags().then(() => {
     void refreshTable()
+    refreshMiddle()
     redrawBadges()
     void refreshSuggestions()
     void refreshOrphans()
