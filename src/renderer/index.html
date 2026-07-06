@@ -40,6 +40,12 @@
       #diff-table { flex: 0 0 auto; max-height: 40%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; }
       #diff-table table { border-collapse: collapse; width: 100%; }
       #diff-table th, #diff-table td { text-align: left; padding: 2px 6px; font-size: 12px; }
+      #capture { padding: 8px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+      #capture.hidden { display: none; }
+      #cap-console { font-family: monospace; font-size: 12px; background: #111; color: #ddd; padding: 6px; height: 240px; overflow: auto; white-space: pre-wrap; }
+      .loud-warn { color: #c0392b; font-weight: 600; }
+      .cap-input { display: flex; gap: 6px; align-items: center; }
+      .preflight-ok { color: #27ae60; } .preflight-bad { color: #c0392b; }
     </style>
   </head>
   <body>
@@ -53,6 +59,7 @@
       <button id="apply">Filter</button>
       <button id="tab-graph">Graph</button>
       <button id="tab-flame">Flame</button>
+      <button id="tab-capture">Capture</button>
       <button id="export-md">Export MD</button>
       <button id="export-json">Export JSON</button>
       <button id="load-run-b">Load run B</button>
@@ -75,6 +82,22 @@
           </div>
         </div>
         <div id="flame"></div>
+        <div id="capture" class="hidden">
+          <div id="capture-config">
+            <label>ares binary <input id="cfg-binary" type="text" placeholder="/host/build/ares" /></label>
+            <label>specs dir <input id="cfg-specs" type="text" placeholder="/host/specs" /></label>
+          </div>
+          <div id="capture-form-row">
+            <select id="cap-select"></select>
+            <input id="cap-timeout" type="text" size="4" placeholder="secs" title="timeout window (blank = run until Stop)" />
+            <button id="cap-preflight">Preflight</button>
+            <button id="cap-start" disabled>Start</button>
+            <button id="cap-stop" disabled>Stop</button>
+          </div>
+          <div id="cap-form"></div>
+          <div id="cap-preflight-status"></div>
+          <div id="cap-console"></div>
+        </div>
       </div>
       <div id="side">
         <div id="orphans"></div>

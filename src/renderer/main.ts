@@ -13,6 +13,8 @@ import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from
 import { renderFlame } from './flame-view'
 import { buildFlame } from '@shared/flame-shape'
 import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
+import { renderCapabilityForm, appendConsoleLine } from './capture-view'
+import { CAPABILITIES, capById, validateInputs, type CapValues } from '@shared/tracer-caps'
 
 const cy = cytoscape({
   container: document.getElementById('cy'),
@@ -64,7 +66,7 @@ let activeRunId: number | undefined
 let tags: Tag[] = []
 let runB: number | undefined
 let diffMode: DiffMode = 'all'
-let currentView: 'graph' | 'flame' = 'graph'
+let currentView: 'graph' | 'flame' | 'capture' = 'graph'
 
 async function refreshTags(): Promise<void> {
   const rid = activeRunId
@@ -151,10 +153,12 @@ async function refreshFlame(): Promise<void> {
   renderFlame(host, tree, rollup.truncated || tree.truncated)
 }
 
-function showView(view: 'graph' | 'flame'): void {
+function showView(view: 'graph' | 'flame' | 'capture'): void {
   currentView = view
-  document.getElementById('cy')?.classList.toggle('hidden', view === 'flame')
+  document.getElementById('cy')?.classList.toggle('hidden', view !== 'graph')
   document.getElementById('flame')?.classList.toggle('active', view === 'flame')
+  document.getElementById('flame')?.classList.toggle('hidden', view !== 'flame')
+  document.getElementById('capture')?.classList.toggle('hidden', view !== 'capture')
   if (view === 'flame') void refreshFlame()
 }
 
@@ -227,6 +231,83 @@ function wireDiff(): void {
   })
 }
 
+function wireCapture(): void {
+  const sel = document.getElementById('cap-select') as HTMLSelectElement | null
+  const formHost = document.getElementById('cap-form')
+  const statusHost = document.getElementById('cap-preflight-status')
+  const consoleHost = document.getElementById('cap-console')
+  const startBtn = document.getElementById('cap-start') as HTMLButtonElement | null
+  const stopBtn = document.getElementById('cap-stop') as HTMLButtonElement | null
+  const binIn = document.getElementById('cfg-binary') as HTMLInputElement | null
+  const specIn = document.getElementById('cfg-specs') as HTMLInputElement | null
+  if (!sel || !formHost || !statusHost || !consoleHost || !startBtn || !stopBtn || !binIn || !specIn) return
+
+  let vals: CapValues = {}
+  let preflightOk = false
+
+  for (const c of CAPABILITIES) {
+    const opt = document.createElement('option')
+    opt.value = c.id; opt.textContent = c.label
+    sel.appendChild(opt)
+  }
+
+  const drawForm = (): void => {
+    vals = {}
+    renderCapabilityForm(formHost, capById(sel.value)!, vals, v => { vals = v })
+  }
+  sel.addEventListener('change', drawForm)
+  drawForm()
+
+  void window.ares.getTracerConfig().then(cfg => { binIn.value = cfg.aresBinary; specIn.value = cfg.specsDir })
+  const saveCfg = (): void => void window.ares.setTracerConfig({ aresBinary: binIn.value, specsDir: specIn.value })
+  binIn.addEventListener('change', saveCfg)
+  specIn.addEventListener('change', saveCfg)
+
+  document.getElementById('cap-preflight')?.addEventListener('click', async () => {
+    saveCfg()
+    const pkg = String(vals.pkg ?? '')
+    if (!pkg) { statusHost.textContent = 'enter a package first'; return }
+    statusHost.textContent = 'running preflight...'
+    const checks = await window.ares.tracerPreflight(pkg)
+    statusHost.innerHTML = ''
+    for (const c of checks) {
+      const row = document.createElement('div')
+      row.className = c.ok ? 'preflight-ok' : 'preflight-bad'
+      row.textContent = `${c.ok ? 'OK' : 'FAIL'}  ${c.label} - ${c.detail}`
+      statusHost.appendChild(row)
+    }
+    preflightOk = checks.every(c => c.ok)
+    startBtn.disabled = !preflightOk
+  })
+
+  startBtn.addEventListener('click', async () => {
+    const cap = capById(sel.value)!
+    const errs = validateInputs(cap, vals)
+    if (errs.length) { statusHost.textContent = errs.join('; '); return }
+    consoleHost.innerHTML = ''
+    startBtn.disabled = true; stopBtn.disabled = false
+    const timeout = binTimeout()
+    try {
+      const r = await window.ares.tracerStart(cap.id, vals, timeout)
+      appendConsoleLine(consoleHost, `--- done (exit ${r.code}, kind ${r.kind}) ---`)
+      if (r.kind === 'jsonl' && r.runId !== undefined) showView('graph')
+    } catch (err) {
+      appendConsoleLine(consoleHost, `--- error: ${err instanceof Error ? err.message : String(err)} ---`)
+    } finally {
+      stopBtn.disabled = true; startBtn.disabled = !preflightOk
+    }
+  })
+
+  stopBtn.addEventListener('click', () => void window.ares.tracerStop())
+
+  window.ares.onTracerLine(line => appendConsoleLine(consoleHost, line))
+
+  function binTimeout(): number | undefined {
+    const t = parseInt((document.getElementById('cap-timeout') as HTMLInputElement).value, 10)
+    return Number.isFinite(t) && t > 0 ? t : undefined
+  }
+}
+
 function wireExport(): void {
   const md = document.getElementById('export-md')
   const json = document.getElementById('export-json')
@@ -252,6 +333,8 @@ window.ares.onLoaded(s => {
 })
 document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))
 document.getElementById('tab-flame')?.addEventListener('click', () => showView('flame'))
+document.getElementById('tab-capture')?.addEventListener('click', () => showView('capture'))
 wireFilterControls(() => { void refreshTable(); refreshMiddle() })
 wireExport()
 wireDiff()
+wireCapture()

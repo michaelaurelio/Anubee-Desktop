@@ -25,6 +25,14 @@ declare global {
       exportFindings: (runId: number, format: 'md' | 'json') => Promise<string | null>
       onProgress(cb: (pct: number) => void): void
       onLoaded(cb: (s: { runId: number; eventCount: number; errors: number }) => void): void
+      getTracerConfig(): Promise<{ aresBinary: string; specsDir: string }>
+      setTracerConfig(cfg: { aresBinary: string; specsDir: string }): Promise<void>
+      tracerPreflight(pkg: string): Promise<{ id: string; label: string; ok: boolean; detail: string }[]>
+      tracerStart(capId: string, vals: Record<string, unknown>, timeoutSecs?: number):
+        Promise<{ code: number; kind: string; runId?: number }>
+      tracerStop(): Promise<void>
+      onTracerLine(cb: (line: string) => void): void
+      onTracerDone(cb: (r: { code: number; kind: string; runId?: number }) => void): void
     }
   }
 }
