@@ -36,7 +36,9 @@ export function renderFlame(host: HTMLElement, tree: FlameTree, truncated: boole
       host.appendChild(b)
     }
 
-    const width = host.clientWidth || 700
+    // clientWidth includes #flame's 4px horizontal padding on each side; subtract
+    // it so the SVG fits the content box exactly (no spurious horizontal scrollbar).
+    const width = Math.max(0, (host.clientWidth || 700) - 8)
     const rects = layoutFlame(current, width, ROW_H)
     const height = rects.reduce((m, r) => Math.max(m, r.y + r.h), ROW_H)
 
