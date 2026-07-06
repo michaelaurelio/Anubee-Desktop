@@ -6,6 +6,7 @@ import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall } from '@shared/ares-parse'
 import { foldEvents } from '@shared/graph-shape'
 import { candidateWhere } from '../src/shared/rasp-heuristics'
+import { presenceOf } from '../src/shared/diff'
 
 const FIXTURE = resolve(__dirname, 'fixtures/sample.jsonl')
 const store = new GraphStore()
@@ -97,6 +98,32 @@ describe('heuristic suggestions', () => {
     expect(cats).toContain('root')
     expect(cats).toContain('debugger')
     expect(s.find(x => x.category === 'root')!.target).toBe('nat:libexample.so!check_su')
+    await store.close()
+  })
+})
+
+describe('run diffing', () => {
+  it('diffTable surfaces per-node presence and delta across two runs', async () => {
+    const store = new GraphStore()
+    const a = await store.ingest(fixture([evA])) // has nat:libexample.so!check_su + sys:openat
+    const b = await store.ingest(fixture([
+      { ...evA, syscall: 'read', string_args: {}, fd_args: { '0': '/proc/self/status' },
+        backtrace: [{ frame: 0, addr: '0x9', symbol: 'libother.so!probe+0x4' }],
+        java_stack: [] },
+    ]))
+    const rows = await store.diffTable(a.runId, b.runId)
+    const byId = new Map(rows.map(r => [r.id, r]))
+    expect(byId.get('sys:openat')!.presence).toBe('A-only')
+    expect(byId.get('sys:read')!.presence).toBe('B-only')
+    await store.close()
+  })
+
+  it('diffSlice returns a merged neighbourhood tagged by origin', async () => {
+    const store = new GraphStore()
+    const a = await store.ingest(fixture([evA]))
+    const b = await store.ingest(fixture([{ ...evA, retval: -2 }])) // same chain, run B
+    const merged = await store.diffSlice(a.runId, b.runId, 'sys:openat')
+    expect(merged.nodes.find(n => n.id === 'sys:openat')!.presence).toBe('both')
     await store.close()
   })
 })

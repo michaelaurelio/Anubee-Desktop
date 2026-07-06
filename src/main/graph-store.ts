@@ -6,6 +6,7 @@ import { parseFrameSymbol } from '@shared/frame-symbol'
 import { capSlice, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
 import { candidateWhere, score, aggregate, type Suggestion } from '@shared/rasp-heuristics'
+import { presenceOf, type DiffRow, type MergedSlice, type MergedNode } from '@shared/diff'
 
 export type { TableRow }
 
@@ -264,6 +265,67 @@ export class GraphStore {
       all.push(...score(ev as SyscallEvent))
     }
     return aggregate(all)
+  }
+
+  private async nodeCounts(runId: number, filter: Filter = {}): Promise<Map<string, number>> {
+    const { where, params } = filterToSql(filter)
+    const scoped = `run_id = ${runId} AND (${where})`
+    const rows = await this.rows(
+      `WITH chains AS (SELECT ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})
+       SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`,
+      params,
+    )
+    return new Map(rows.map(r => [r.nid as string, Number(r.c)]))
+  }
+
+  async diffTable(runA: number, runB: number, filter: Filter = {}, cap?: number): Promise<DiffRow[]> {
+    const [ca, cb] = await Promise.all([this.nodeCounts(runA, filter), this.nodeCounts(runB, filter)])
+    const ids = new Set([...ca.keys(), ...cb.keys()])
+    const rows: DiffRow[] = []
+    for (const id of ids) {
+      const countA = ca.get(id) ?? 0
+      const countB = cb.get(id) ?? 0
+      const n = nodeFromId(id, 0)
+      rows.push({ id, kind: n.kind, label: n.label, countA, countB,
+        delta: countB - countA, presence: presenceOf(countA, countB) })
+    }
+    // Divergence first (A-only / B-only before shared), then by magnitude.
+    rows.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta))
+    const limit = cap ?? rows.length
+    return rows.slice(0, limit)
+  }
+
+  async diffSlice(runA: number, runB: number, nodeId: string): Promise<MergedSlice> {
+    const [sa, sb] = await Promise.all([
+      this.slice({ text: undefined }, undefined, runA),
+      this.slice({ text: undefined }, undefined, runB),
+    ])
+    const idsA = new Set(sa.nodes.map(n => n.id))
+    const idsB = new Set(sb.nodes.map(n => n.id))
+    const merged = new Map<string, MergedNode>()
+    for (const n of [...sa.nodes, ...sb.nodes]) {
+      if (merged.has(n.id)) continue
+      const presence = presenceOf(idsA.has(n.id) ? 1 : 0, idsB.has(n.id) ? 1 : 0)
+      merged.set(n.id, { ...n, presence })
+    }
+    const edgeKey = (e: { source: string; target: string }) => `${e.source}=>${e.target}`
+    const edgesA = new Set(sa.edges.map(edgeKey))
+    const edgesB = new Set(sb.edges.map(edgeKey))
+    const mergedEdges = new Map<string, GraphEdge & { presence: MergedNode['presence'] }>()
+    for (const e of [...sa.edges, ...sb.edges]) {
+      const k = edgeKey(e)
+      if (mergedEdges.has(k)) continue
+      mergedEdges.set(k, { ...e, presence: presenceOf(edgesA.has(k) ? 1 : 0, edgesB.has(k) ? 1 : 0) })
+    }
+    // Keep only the neighbourhood of nodeId (nodes on an edge touching it, plus itself).
+    const keep = new Set<string>([nodeId])
+    for (const e of mergedEdges.values()) {
+      if (e.source === nodeId) keep.add(e.target)
+      if (e.target === nodeId) keep.add(e.source)
+    }
+    const nodes = [...merged.values()].filter(n => keep.has(n.id))
+    const edges = [...mergedEdges.values()].filter(e => keep.has(e.source) && keep.has(e.target))
+    return { nodes, edges, truncated: sa.truncated || sb.truncated }
   }
 
   async close(): Promise<void> {
