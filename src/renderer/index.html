@@ -17,7 +17,6 @@
       #table td:nth-child(3), #table th:nth-child(3) { width: 64px; }
       #table td:nth-child(4), #table th:nth-child(4) { width: 48px; text-align: center; }
       #table tr:hover td { background: #f2f7ff; }
-      #cy { position: relative; }
       #view { position: relative; }
       #cy, #flame { position: absolute; inset: 0; }
       #flame { display: none; overflow: auto; padding: 4px; }
@@ -26,6 +25,12 @@
       .flame-reset { margin: 2px 0 6px; font: inherit; }
       .flame-banner { padding: 4px 8px; background: #fff3cd; border: 1px solid #ffe08a; margin-bottom: 6px; }
       #banner { position: absolute; top: 6px; left: 6px; right: 6px; padding: 4px 8px; background: #fff3cd; border: 1px solid #ffe08a; display: none; }
+      #legend { position: absolute; bottom: 6px; left: 6px; display: flex; gap: 10px; padding: 4px 8px;
+                background: rgba(255,255,255,0.9); border: 1px solid #ddd; border-radius: 4px; font-size: 11px; z-index: 2; }
+      #legend i { display: inline-block; width: 10px; height: 10px; vertical-align: middle; margin-right: 3px; }
+      #legend .k-java { background: #27ae60; transform: rotate(45deg); }
+      #legend .k-native { background: #2980b9; border-radius: 50%; }
+      #legend .k-syscall { background: #c0392b; border-radius: 2px; }
       #side { border-left: 1px solid #ccc; display: flex; flex-direction: column; overflow: hidden; }
       #inspector { flex: 1 1 auto; overflow: auto; padding: 8px; font-family: ui-monospace, monospace; }
       #suggestions { flex: 0 0 auto; max-height: 40%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; }
@@ -59,7 +64,14 @@
     <div id="main">
       <div id="table"></div>
       <div id="view">
-        <div id="cy"><div id="banner"></div></div>
+        <div id="cy">
+          <div id="banner"></div>
+          <div id="legend">
+            <span><i class="k-java"></i> java method</span>
+            <span><i class="k-native"></i> native</span>
+            <span><i class="k-syscall"></i> syscall</span>
+          </div>
+        </div>
         <div id="flame"></div>
       </div>
       <div id="side">
