@@ -2,7 +2,8 @@
 // deploy, run, stream, stop, and pull the ARES tracer. The adb runner is
 // injected (Adb) so the logic is testable without a device. Command strings are
 // built by src/shared/tracer-caps (pure).
-import { DEVICE_BIN, DEVICE_SPECS } from '@shared/tracer-caps'
+import { execFile, spawn as nodeSpawn } from 'node:child_process'
+import { DEVICE_BIN, DEVICE_SPECS, STOP_ARG } from '@shared/tracer-caps'
 
 export interface Adb {
   run(args: string[]): Promise<{ code: number; stdout: string; stderr: string }>
@@ -65,4 +66,66 @@ export async function preflight(
     checks.push({ id: 'binary', label: 'binary pushed', ok: push.code === 0, detail: push.code === 0 ? 'pushed + chmod 755' : push.stderr.trim() })
   }
   return checks
+}
+
+export interface RunHandle {
+  stop(): Promise<void>
+  done: Promise<{ code: number }>
+}
+
+export interface Spawner {
+  spawn(args: string[]): {
+    onLine(cb: (line: string) => void): void
+    onExit(cb: (code: number) => void): void
+    kill(): void
+  }
+}
+
+export function realAdb(): Adb {
+  return {
+    run(args) {
+      return new Promise(resolve => {
+        execFile('adb', args, { maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
+          resolve({ code: err && typeof err.code === 'number' ? err.code : err ? 1 : 0, stdout, stderr })
+        })
+      })
+    },
+  }
+}
+
+export function realSpawner(): Spawner {
+  return {
+    spawn(args) {
+      const child = nodeSpawn('adb', args)
+      let buf = ''
+      const feed = (chunk: Buffer): string[] => {
+        buf += chunk.toString()
+        const parts = buf.split('\n')
+        buf = parts.pop() ?? ''
+        return parts
+      }
+      let lineCb: (l: string) => void = () => {}
+      child.stdout.on('data', c => feed(c).forEach(l => lineCb(l)))
+      child.stderr.on('data', c => feed(c).forEach(l => lineCb(l)))
+      return {
+        onLine(cb) { lineCb = cb },
+        onExit(cb) { child.on('close', code => { if (buf) lineCb(buf); cb(code ?? 0) }) },
+        kill() { child.kill('SIGINT') },
+      }
+    },
+  }
+}
+
+export function startRun(sp: Spawner, adb: Adb, runArg: string, onLine: (line: string) => void): RunHandle {
+  const proc = sp.spawn(['shell', runArg])
+  proc.onLine(onLine)
+  const done = new Promise<{ code: number }>(resolve => proc.onExit(code => resolve({ code })))
+  return {
+    async stop() {
+      // Graceful device-side stop: ares' 2-stage handler catches SIGINT. The
+      // adb-shell child then sees EOF and exits on its own.
+      await adb.run(['shell', STOP_ARG])
+    },
+    done,
+  }
 }
