@@ -290,7 +290,8 @@ export class GraphStore {
         delta: countB - countA, presence: presenceOf(countA, countB) })
     }
     // Divergence first (A-only / B-only before shared), then by magnitude.
-    rows.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta))
+    const divergent = (p: DiffRow['presence']) => (p === 'both' ? 1 : 0)
+    rows.sort((x, y) => divergent(x.presence) - divergent(y.presence) || Math.abs(y.delta) - Math.abs(x.delta))
     const limit = cap ?? rows.length
     return rows.slice(0, limit)
   }

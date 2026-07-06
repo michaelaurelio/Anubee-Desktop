@@ -5,7 +5,6 @@ import { resolve, join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall } from '@shared/ares-parse'
 import { foldEvents } from '@shared/graph-shape'
-import { candidateWhere } from '../src/shared/rasp-heuristics'
 import { presenceOf } from '../src/shared/diff'
 
 const FIXTURE = resolve(__dirname, 'fixtures/sample.jsonl')
@@ -127,6 +126,32 @@ describe('run diffing', () => {
     const byId = new Map(rows.map(r => [r.id, r]))
     expect(byId.get('sys:openat')!.presence).toBe('A-only')
     expect(byId.get('sys:read')!.presence).toBe('B-only')
+    await store.close()
+  })
+
+  it('diffTable orders divergent rows before shared, even when a shared row has a bigger delta', async () => {
+    const store = new GraphStore()
+    // Run A: the same bridge five times -> shared nodes with a large |delta|.
+    const a = await store.ingest(fixture([
+      evA, { ...evA, id: 2 }, { ...evA, id: 3 }, { ...evA, id: 4 }, { ...evA, id: 5 },
+    ]))
+    // Run B: that bridge once (shared, delta -4) + a unique bridge (B-only, delta +1).
+    const b = await store.ingest(fixture([
+      evA,
+      { ...evA, id: 2, syscall: 'read', string_args: {}, fd_args: { '0': '/proc/self/status' },
+        java_stack: ['com.example.app.Other.x'],
+        backtrace: [{ frame: 0, addr: '0x9', symbol: 'libother.so!probe+0x4' }] },
+    ]))
+    const rows = await store.diffTable(a.runId, b.runId)
+    const idx = (p: string) => rows.map((r, i) => ({ p: r.presence, i })).filter(x => x.p === p).map(x => x.i)
+    const divergentIdx = rows.map((r, i) => ({ p: r.presence, i })).filter(x => x.p !== 'both').map(x => x.i)
+    const bothIdx = idx('both')
+    // Magnitude alone would put the shared rows first...
+    const bothMax = Math.max(...rows.filter(r => r.presence === 'both').map(r => Math.abs(r.delta)))
+    const divMax = Math.max(...rows.filter(r => r.presence !== 'both').map(r => Math.abs(r.delta)))
+    expect(bothMax).toBeGreaterThan(divMax)
+    // ...but divergence-first wins: every divergent row precedes every shared row.
+    expect(Math.max(...divergentIdx)).toBeLessThan(Math.min(...bothIdx))
     await store.close()
   })
 

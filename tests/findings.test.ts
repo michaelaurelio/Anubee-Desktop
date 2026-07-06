@@ -35,6 +35,12 @@ describe('findings', () => {
     expect(md).toContain('/system/bin/su')
   })
 
+  it('markdown uses the offset as the block label when a tag has an offset', () => {
+    const offsetTag: Tag = { ...tag, offset: 'libexample.so+0x1234' }
+    const md = renderMarkdown(buildFindings([offsetTag], { 'nat:libexample.so!check_su': [ev] }))
+    expect(md).toContain('libexample.so+0x1234')
+  })
+
   it('renders valid JSON', () => {
     const json = renderJSON(buildFindings([tag], { 'nat:libexample.so!check_su': [ev] }))
     expect(JSON.parse(json)).toHaveLength(1)
