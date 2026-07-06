@@ -120,20 +120,3 @@ neighbourhood of the selected node. The renderer's diff mode (`diff-view.ts`):
 load a second run -> an A/B/delta table filterable by only-in-A / only-in-B /
 tagged -> select a row -> a merged subgraph colored red (removed, A-only),
 green (added, B-only), grey (shared).
-
-### Orphaned-tag repair
-
-A sidecar loaded against a re-ingested run whose node ids shifted (symbol
-resolution differs, binary rebuilt, etc.) can carry tags that no longer match
-anything in the live run. `GraphStore.orphanTargets(targets, runId?)` builds
-the run's node-id set (`nodeCounts()`) and distinct edge-key set (from
-`CHAIN_SQL`) in main and returns the subset of the given targets absent from
-either set - `edge:` targets check edges, everything else checks node ids.
-Only the small target list crosses IPC (`tags:orphans`), never the run's full
-id sets. `orphanedTags(tags, orphanTargets)` in `src/shared/project-store.ts`
-is the pure selector that narrows the tag list down to the orphaned ones. The
-renderer's Orphans panel (`src/renderer/orphans-view.ts`) lists them with a
-per-tag Drop and a Drop all, and stays hidden when there are none; it
-refreshes after load and after a drop (manually-added and heuristic tags
-always target a node that exists in the current run, so orphans can only
-appear from a previously-saved sidecar).
