@@ -1,7 +1,15 @@
-// cytoscape-elk ships no type declarations; it registers as a cytoscape
-// extension via `cytoscape.use(elk)`.
-declare module 'cytoscape-elk' {
-  import type { Ext } from 'cytoscape'
-  const ext: Ext
-  export default ext
+// elkjs run with its own worker (the elk-worker build, bundled by Vite's
+// ?worker import); we use only the constructor + layout().
+declare module 'elkjs/lib/elk-api.js' {
+  interface ELKConstructorArgs {
+    workerFactory?: (url?: string) => Worker
+  }
+  export default class ELK {
+    constructor(args?: ELKConstructorArgs)
+    layout(graph: unknown): Promise<unknown>
+  }
+}
+declare module 'elkjs/lib/elk-worker.min.js?worker' {
+  const WorkerFactory: { new (): Worker }
+  export default WorkerFactory
 }

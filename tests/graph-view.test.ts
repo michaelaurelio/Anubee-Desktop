@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sliceToElements, elkLayoutOptions, filterForRow } from '../src/renderer/graph-view'
+import { sliceToElements, sliceToElkGraph, elkResultToPositions, filterForRow } from '../src/renderer/graph-view'
 import type { GraphSlice } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
 
@@ -28,12 +28,26 @@ describe('sliceToElements', () => {
   })
 })
 
-describe('elkLayoutOptions', () => {
-  it('is a layered ELK layout flowing DOWN (java -> native -> syscall)', () => {
-    const o = elkLayoutOptions()
-    expect(o.name).toBe('elk')
-    expect(o.elk.algorithm).toBe('layered')
-    expect(o.elk['elk.direction']).toBe('DOWN')
+describe('sliceToElkGraph', () => {
+  it('builds a layered DOWN ELK graph with sized children and one edge per element', () => {
+    const g = sliceToElkGraph(sliceToElements(slice))
+    expect(g.layoutOptions['elk.algorithm']).toBe('layered')
+    expect(g.layoutOptions['elk.direction']).toBe('DOWN')
+    expect(g.children.map(c => c.id).sort()).toEqual(['nat:libexample.so!check', 'sys:openat'])
+    expect(g.children.every(c => c.width > 0 && c.height > 0)).toBe(true)
+    expect(g.edges).toHaveLength(1)
+    expect(g.edges[0]).toMatchObject({ sources: ['nat:libexample.so!check'], targets: ['sys:openat'] })
+  })
+})
+
+describe('elkResultToPositions', () => {
+  it('converts ELK top-left corners to cytoscape centre positions', () => {
+    const pos = elkResultToPositions({ children: [{ id: 'a', x: 10, y: 20, width: 100, height: 24 }] })
+    expect(pos.a).toEqual({ x: 60, y: 32 })
+  })
+
+  it('tolerates a result with no children', () => {
+    expect(elkResultToPositions({})).toEqual({})
   })
 })
 

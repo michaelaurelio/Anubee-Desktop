@@ -23,23 +23,10 @@ and open verification items. Newest concerns first.
   then trims to the selected node's immediate neighbourhood; a deliberate
   simple first cut, but can be broad (and slow) on a very large run. Revisit if
   it's a problem on real busy runs.
-- **`diffSlice` ignores the active filter** - `diffTable` honors the current
-  table filter when computing per-run counts, but `diffSlice` does not; a
-  filtered diff-table row can expand into an unfiltered neighbourhood in the
-  graph view. Minor UX inconsistency, not a correctness bug (presence/delta in
-  the table stays correct) - align the two before shipping diff mode as
-  primary UX.
 - **emulator / integrity / hook heuristic rules are stubs** - the categories
   exist (`RaspCategory`) but `rasp-heuristics.ts` only scores `debugger` and
   `root` today; no reliable syscall-only signal identified yet for the other
   three.
-- **Orphaned tags have no repair UX** - if a sidecar is loaded against a
-  re-ingested run whose node id changed (symbol resolution differs, binary
-  rebuilt, etc.), the stale tag is kept as-is rather than dropped or flagged.
-  Planned: a flag/filter for tags whose target no longer matches any node in
-  the active run.
-- **ELK still runs on the main renderer thread**, not a Web Worker (carried
-  over from Phase 1, see below) - fine while the slice cap keeps graphs small.
 - **Ptrace-request SQL/schema coupling** (mental note for the next ARES-version
   bump) - `rasp-heuristics.candidateWhere()`'s SQL pre-filter matches the
   ptrace request as raw `args[1] IN ('0x0', '0')`, which couples to ARES's
@@ -49,16 +36,14 @@ and open verification items. Newest concerns first.
   the arg *formatting* is not covered by `tests/schema-drift.test.ts` (which
   only checks field names). Re-check this predicate whenever the vendored ARES
   schema version is bumped.
-- **Four deferred code-review minors** (not blocking, low-priority cleanup):
-  - `src/preload/index.ts` types `saveTags`'s `tags` param as `unknown[]`,
-    while `src/renderer/types.d.ts` types the same IPC call as `Tag[]` - should
-    agree (tighten the preload signature).
-  - `tests/integration.test.ts` imports `candidateWhere` but does not use it.
-  - No test covers `findings.ts`'s `blockLabel()` offset-only branch (offset
-    present, no plain-symbol fallback needed).
-  - `diffTable`'s sort comment claims "divergence first, then magnitude" but
-    the code only sorts by `Math.abs(delta)` - either fix the comment or add
-    the presence-based primary sort it describes.
+- **`runElkLayout` surfaces no layout error** - if the elkjs worker fails to
+  spawn/bundle on a target platform, `runElkLayout` rejects and the graph
+  silently fails to lay out (nodes stay at the origin) with no user feedback.
+  Matches the renderer's existing no-try/catch pattern; add a catch + status
+  message if this ever bites. Verified working via `npm run shots`.
+- **Phase 2 close-out (2026-07-06)** - diffSlice now honors the active filter;
+  orphaned-tag detection + Drop repair UX; ELK layout moved to a Web Worker
+  (cytoscape gets a preset layout); the four code-review minors are closed.
 
 ## Open verification items (before / during Phase 1)
 - **Renderer GUI verified** (via `npm run shots`) - table, focused subgraph, node
@@ -73,11 +58,11 @@ and open verification items. Newest concerns first.
   4. Inspector record links restyled (no default underline), detail separated.
   - Remaining minor: single vertical chains leave empty space to the right (labels
     extend right, nodes sit left-of-center) - acceptable; revisit if it bothers.
-- **ELK runs on the main thread** (Task 9, via `cytoscape-elk`), not a Web Worker
-  as spec §5.1 describes. Acceptable for Phase 1 because the slice cap keeps the
-  graph small (fast layout). If the cap is raised materially, move layout to the
-  elkjs Web-Worker build + feed positions to cytoscape as a `preset` layout so a
-  large layout never freezes the window.
+- **ELK layout in a Web Worker** (RESOLVED 2026-07-06, Phase 2 close-out) -
+  previously ran synchronously on the main renderer thread via `cytoscape-elk`.
+  Now runs in the elkjs Web-Worker build (`elk-api` + `elk-worker.min.js` via
+  Vite's `?worker`), feeding positions to cytoscape as a `preset` layout;
+  `cytoscape-elk` removed. A large layout no longer freezes the window.
 - **Node-click inspector** (done Task 10) - `GraphStore.nodeEvents(nodeId, filter)`
   + `graph:nodeEvents` IPC + preload + `cy.on('tap','node')` are wired and
   unit-tested (store side). Still part of the pending live-GUI verify above.

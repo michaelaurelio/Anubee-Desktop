@@ -5,7 +5,6 @@ import { resolve, join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall } from '@shared/ares-parse'
 import { foldEvents } from '@shared/graph-shape'
-import { candidateWhere } from '../src/shared/rasp-heuristics'
 import { presenceOf } from '../src/shared/diff'
 
 const FIXTURE = resolve(__dirname, 'fixtures/sample.jsonl')
@@ -130,12 +129,76 @@ describe('run diffing', () => {
     await store.close()
   })
 
+  it('diffTable orders divergent rows before shared, even when a shared row has a bigger delta', async () => {
+    const store = new GraphStore()
+    // Run A: the same bridge five times -> shared nodes with a large |delta|.
+    const a = await store.ingest(fixture([
+      evA, { ...evA, id: 2 }, { ...evA, id: 3 }, { ...evA, id: 4 }, { ...evA, id: 5 },
+    ]))
+    // Run B: that bridge once (shared, delta -4) + a unique bridge (B-only, delta +1).
+    const b = await store.ingest(fixture([
+      evA,
+      { ...evA, id: 2, syscall: 'read', string_args: {}, fd_args: { '0': '/proc/self/status' },
+        java_stack: ['com.example.app.Other.x'],
+        backtrace: [{ frame: 0, addr: '0x9', symbol: 'libother.so!probe+0x4' }] },
+    ]))
+    const rows = await store.diffTable(a.runId, b.runId)
+    const idx = (p: string) => rows.map((r, i) => ({ p: r.presence, i })).filter(x => x.p === p).map(x => x.i)
+    const divergentIdx = rows.map((r, i) => ({ p: r.presence, i })).filter(x => x.p !== 'both').map(x => x.i)
+    const bothIdx = idx('both')
+    // Magnitude alone would put the shared rows first...
+    const bothMax = Math.max(...rows.filter(r => r.presence === 'both').map(r => Math.abs(r.delta)))
+    const divMax = Math.max(...rows.filter(r => r.presence !== 'both').map(r => Math.abs(r.delta)))
+    expect(bothMax).toBeGreaterThan(divMax)
+    // ...but divergence-first wins: every divergent row precedes every shared row.
+    expect(Math.max(...divergentIdx)).toBeLessThan(Math.min(...bothIdx))
+    await store.close()
+  })
+
   it('diffSlice returns a merged neighbourhood tagged by origin', async () => {
     const store = new GraphStore()
     const a = await store.ingest(fixture([evA]))
     const b = await store.ingest(fixture([{ ...evA, retval: -2 }])) // same chain, run B
     const merged = await store.diffSlice(a.runId, b.runId, 'sys:openat')
     expect(merged.nodes.find(n => n.id === 'sys:openat')!.presence).toBe('both')
+    await store.close()
+  })
+
+  it('diffSlice honors the active filter (filtered-out neighbour drops from the same node neighbourhood)', async () => {
+    const store = new GraphStore()
+    // Two events share the native node + syscall but reach it from different tids
+    // and java methods. Filtering by tid must prune one java neighbour of check_su.
+    const mk = () => [
+      evA, // tid 101, java RootCheck.run -> nat check_su -> sys openat
+      { ...evA, id: 2, tid: 202, java_stack: ['com.example.app.Other.probe'] }, // same native+syscall, other branch
+    ]
+    const a = await store.ingest(fixture(mk()))
+    const b = await store.ingest(fixture(mk()))
+    const node = 'nat:libexample.so!check_su'
+    const other = 'java:com.example.app.Other.probe'
+    // Unfiltered: both java branches are neighbours of check_su.
+    const unfiltered = await store.diffSlice(a.runId, b.runId, node)
+    expect(unfiltered.nodes.some(n => n.id === other)).toBe(true)
+    // Filtered to tid 101: the tid-202 branch (Other.probe) must be pruned.
+    const filtered = await store.diffSlice(a.runId, b.runId, node, { tid: 101 })
+    expect(filtered.nodes.some(n => n.id === other)).toBe(false)
+    await store.close()
+  })
+})
+
+describe('orphan detection', () => {
+  it('orphanTargets returns only the targets absent from the run', async () => {
+    const store = new GraphStore()
+    await store.ingest(fixture([evA])) // nodes: java:...RootCheck.run, nat:libexample.so!check_su, sys:openat
+    const targets = [
+      'nat:libexample.so!check_su',   // present
+      'sys:openat',                   // present
+      'nat:libexample.so!removed',    // gone
+      'edge:nat:libexample.so!check_su=>sys:openat', // present edge
+      'edge:sys:openat=>sys:nope',    // gone edge
+    ]
+    const orphans = await store.orphanTargets(targets)
+    expect(orphans.sort()).toEqual(['edge:sys:openat=>sys:nope', 'nat:libexample.so!removed'])
     await store.close()
   })
 })

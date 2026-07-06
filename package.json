@@ -27,7 +27,6 @@
   "dependencies": {
     "@duckdb/node-api": "^1.5.4-r.1",
     "cytoscape": "^3.34.0",
-    "cytoscape-elk": "^2.3.0",
     "elkjs": "^0.11.1"
   }
 }

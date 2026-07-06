@@ -22,6 +22,7 @@
       #side { border-left: 1px solid #ccc; display: flex; flex-direction: column; overflow: hidden; }
       #inspector { flex: 1 1 auto; overflow: auto; padding: 8px; font-family: ui-monospace, monospace; }
       #suggestions { flex: 0 0 auto; max-height: 40%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; }
+      #orphans { flex: 0 0 auto; max-height: 30%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; display: none; background: #fff8e1; }
       #diff-table { flex: 0 0 auto; max-height: 40%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; }
       #diff-table table { border-collapse: collapse; width: 100%; }
       #diff-table th, #diff-table td { text-align: left; padding: 2px 6px; font-size: 12px; }
@@ -50,6 +51,7 @@
       <div id="table"></div>
       <div id="cy"><div id="banner"></div></div>
       <div id="side">
+        <div id="orphans"></div>
         <div id="inspector"></div>
         <div id="diff-table"></div>
         <div id="suggestions"></div>

@@ -68,8 +68,8 @@ ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter, runId?: 
 ipcMain.handle('rasp:suggest', (_e, runId?: number) => store.suggest(runId))
 ipcMain.handle('graph:diffTable', (_e, runA: number, runB: number, filter: Filter, cap?: number) =>
   store.diffTable(runA, runB, filter, cap))
-ipcMain.handle('graph:diffSlice', (_e, runA: number, runB: number, nodeId: string) =>
-  store.diffSlice(runA, runB, nodeId))
+ipcMain.handle('graph:diffSlice', (_e, runA: number, runB: number, nodeId: string, filter: Filter) =>
+  store.diffSlice(runA, runB, nodeId, filter))
 
 function runFileOf(runId: number): { file: string; ingestedAt: string } {
   const info = store.runs().find(r => r.runId === runId)
@@ -82,6 +82,7 @@ ipcMain.handle('tags:save', (_e, runId: number, tags: Tag[]) => {
   const { file, ingestedAt } = runFileOf(runId)
   saveTags(file, ingestedAt, tags)
 })
+ipcMain.handle('tags:orphans', (_e, runId: number, targets: string[]) => store.orphanTargets(targets, runId))
 
 ipcMain.handle('findings:export', async (_e, runId: number, format: 'md' | 'json') => {
   const { file } = runFileOf(runId)

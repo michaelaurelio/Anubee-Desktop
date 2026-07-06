@@ -82,3 +82,9 @@ export function removeTag(tags: Tag[], target: string, offset?: string): Tag[] {
 export function tagsByTarget(tags: Tag[], target: string): Tag[] {
   return tags.filter(t => t.target === target)
 }
+
+// Tags whose target no longer matches any node/edge in the active run - the
+// caller supplies the orphaned-target set (computed against the live run).
+export function orphanedTags(tags: Tag[], orphanTargets: Set<string>): Tag[] {
+  return tags.filter(t => orphanTargets.has(t.target))
+}

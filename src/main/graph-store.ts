@@ -290,15 +290,16 @@ export class GraphStore {
         delta: countB - countA, presence: presenceOf(countA, countB) })
     }
     // Divergence first (A-only / B-only before shared), then by magnitude.
-    rows.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta))
+    const divergent = (p: DiffRow['presence']) => (p === 'both' ? 1 : 0)
+    rows.sort((x, y) => divergent(x.presence) - divergent(y.presence) || Math.abs(y.delta) - Math.abs(x.delta))
     const limit = cap ?? rows.length
     return rows.slice(0, limit)
   }
 
-  async diffSlice(runA: number, runB: number, nodeId: string): Promise<MergedSlice> {
+  async diffSlice(runA: number, runB: number, nodeId: string, filter: Filter = {}): Promise<MergedSlice> {
     const [sa, sb] = await Promise.all([
-      this.slice({ text: undefined }, undefined, runA),
-      this.slice({ text: undefined }, undefined, runB),
+      this.slice(filter, undefined, runA),
+      this.slice(filter, undefined, runB),
     ])
     const idsA = new Set(sa.nodes.map(n => n.id))
     const idsB = new Set(sb.nodes.map(n => n.id))
@@ -326,6 +327,23 @@ export class GraphStore {
     const nodes = [...merged.values()].filter(n => keep.has(n.id))
     const edges = [...mergedEdges.values()].filter(e => keep.has(e.source) && keep.has(e.target))
     return { nodes, edges, truncated: sa.truncated || sb.truncated }
+  }
+
+  // Which of `targets` are absent from the run: node ids gone after a re-ingest
+  // (symbol resolution shifted, binary rebuilt) or missing edges. The run's
+  // node-id set + distinct edge-key set are built and checked here in main, so
+  // only the small target list crosses IPC. `edge:` targets check edges; all
+  // others check node ids.
+  async orphanTargets(targets: string[], runId?: number): Promise<string[]> {
+    const rid = this.resolveRun(runId)
+    const nodeIds = new Set((await this.nodeCounts(rid)).keys())
+    const edgeRows = await this.rows(
+      `WITH chains AS (SELECT ${CHAIN_SQL} AS chain FROM ev WHERE run_id = ${rid})
+       SELECT DISTINCT chain[i] AS src, chain[i + 1] AS tgt
+       FROM chains, range(1, len(chain)) AS t(i)`,
+    )
+    const edgeKeys = new Set(edgeRows.map(r => `edge:${r.src as string}=>${r.tgt as string}`))
+    return targets.filter(t => (t.startsWith('edge:') ? !edgeKeys.has(t) : !nodeIds.has(t)))
   }
 
   async close(): Promise<void> {
