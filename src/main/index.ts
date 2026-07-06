@@ -38,13 +38,13 @@ function createWindow(): void {
   Menu.setApplicationMenu(menu)
 }
 
-async function loadPath(path: string): Promise<{ eventCount: number; errors: number }> {
+async function loadPath(path: string): Promise<{ runId: number; eventCount: number; errors: number }> {
   const summary = await store.ingest(path, pct => win.webContents.send('trace:progress', pct))
   win.webContents.send('trace:loaded', summary)
   return summary
 }
 
-async function openViaDialog(): Promise<{ eventCount: number; errors: number } | null> {
+async function openViaDialog(): Promise<{ runId: number; eventCount: number; errors: number } | null> {
   const r = await dialog.showOpenDialog(win, {
     filters: [{ name: 'ARES JSONL', extensions: ['jsonl', 'json'] }],
     properties: ['openFile'],
@@ -54,10 +54,11 @@ async function openViaDialog(): Promise<{ eventCount: number; errors: number } |
 }
 
 ipcMain.handle('trace:open', () => openViaDialog())
-ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }) => store.table(filter, page))
-ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number) => store.slice(filter, cap))
-ipcMain.handle('graph:eventById', (_e, id: number) => store.eventById(id))
-ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter) => store.nodeEvents(nodeId, filter))
+ipcMain.handle('graph:runs', () => store.runs())
+ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }, runId?: number) => store.table(filter, page, runId))
+ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number, runId?: number) => store.slice(filter, cap, runId))
+ipcMain.handle('graph:eventById', (_e, id: number, runId?: number) => store.eventById(id, runId))
+ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter, runId?: number) => store.nodeEvents(nodeId, filter, 500, runId))
 
 app.whenReady().then(createWindow)
 app.on('window-all-closed', () => {

@@ -48,6 +48,8 @@ const cy = cytoscape({
   ],
 })
 
+let activeRunId: number | undefined
+
 function status(text: string): void {
   const el = document.getElementById('status')
   if (el) el.textContent = text
@@ -61,13 +63,13 @@ function showBanner(truncated: boolean): void {
 }
 
 async function refreshTable(): Promise<void> {
-  const rows = await window.ares.table(currentFilter(), { limit: 500, offset: 0 })
+  const rows = await window.ares.table(currentFilter(), { limit: 500, offset: 0 }, activeRunId)
   renderTable(rows, selectRow)
   status(`${rows.length} rows`)
 }
 
 async function selectRow(row: TableRow): Promise<void> {
-  const slice = await window.ares.slice(filterForRow(row, currentFilter()))
+  const slice = await window.ares.slice(filterForRow(row, currentFilter()), undefined, activeRunId)
   const els = sliceToElements(slice)
   cy.elements().remove()
   cy.add(els.nodes)
@@ -85,11 +87,12 @@ async function selectRow(row: TableRow): Promise<void> {
 
 cy.on('tap', 'node', evt => {
   const nodeId = evt.target.id()
-  void window.ares.nodeEvents(nodeId, currentFilter()).then(events => showNodeInspector(nodeId, events))
+  void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(events => showNodeInspector(nodeId, events))
 })
 
 window.ares.onProgress(pct => status(`Loading... ${pct}%`))
 window.ares.onLoaded(s => {
+  activeRunId = s.runId
   status(`Loaded ${s.eventCount} events (${s.errors} parse errors)`)
   void refreshTable()
 })

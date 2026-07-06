@@ -6,13 +6,14 @@ import type { SyscallEvent } from '@shared/events'
 declare global {
   interface Window {
     ares: {
-      openFile(): Promise<{ eventCount: number; errors: number } | null>
-      table(filter: Filter, page: { limit: number; offset: number }): Promise<TableRow[]>
-      slice(filter: Filter, cap?: number): Promise<GraphSlice>
-      eventById(id: number): Promise<SyscallEvent | undefined>
-      nodeEvents(nodeId: string, filter: Filter): Promise<SyscallEvent[]>
+      openFile(): Promise<{ runId: number; eventCount: number; errors: number } | null>
+      runs(): Promise<{ runId: number; file: string; ingestedAt: string; eventCount: number }[]>
+      table(filter: Filter, page: { limit: number; offset: number }, runId?: number): Promise<TableRow[]>
+      slice(filter: Filter, cap?: number, runId?: number): Promise<GraphSlice>
+      eventById(id: number, runId?: number): Promise<SyscallEvent | undefined>
+      nodeEvents(nodeId: string, filter: Filter, runId?: number): Promise<SyscallEvent[]>
       onProgress(cb: (pct: number) => void): void
-      onLoaded(cb: (s: { eventCount: number; errors: number }) => void): void
+      onLoaded(cb: (s: { runId: number; eventCount: number; errors: number }) => void): void
     }
   }
 }
