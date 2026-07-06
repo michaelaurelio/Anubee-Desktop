@@ -7,8 +7,9 @@ import { chainOf } from './graph-shape'
 // ptrace's request is NOT decoded to a name - it is raw args[0], and
 // PTRACE_TRACEME === 0. Path checks read string_args (openat/access path) and
 // fd_args (resolved fd path). Kept pure so the rules are unit-testable; the
-// SQL pre-filter in graph-store uses INTERESTING_SYSCALLS/SUSPICIOUS_PATHS so
-// the WHERE and the predicate cannot drift.
+// candidateWhere() below pushes the same predicates into SQL, sharing
+// SUSPICIOUS_PATH_PATTERN with SUSPICIOUS_PATHS so the WHERE and the JS
+// predicate cannot drift apart.
 
 export interface Suggestion {
   target: string
@@ -20,8 +21,13 @@ export interface Suggestion {
 
 export const INTERESTING_SYSCALLS = ['ptrace', 'openat', 'access', 'newfstatat', 'faccessat', 'read']
 
+// su / magisk / known root paths, RE2-compatible (shared with the SQL
+// candidate filter in candidateWhere so the two can never drift). Case
+// sensitivity is applied separately by each consumer (JS flag / SQL flag arg).
+export const SUSPICIOUS_PATH_PATTERN = '(^|/)su$|magisk|/system/xbin|/sbin(/|$)'
+
 // su / magisk / known root paths. Case-insensitive.
-export const SUSPICIOUS_PATHS = /(^|\/)su$|magisk|\/system\/xbin|\/sbin(\/|$)/i
+export const SUSPICIOUS_PATHS = new RegExp(SUSPICIOUS_PATH_PATTERN, 'i')
 
 // Parse a raw syscall arg ("0x0", "0", 16) to a number, or NaN.
 function argNum(v: string | undefined): number {
@@ -40,9 +46,20 @@ function nativeTargetOf(e: SyscallEvent): string {
   return `sys:${e.syscall}`
 }
 
+// Push the actual scoring predicates into SQL so only genuine RASP candidates
+// are pulled onto the JS heap - `score()` re-checks each one and remains the
+// authority, this only narrows what to_json(ev) has to reconstruct. Kept in
+// lockstep with score()'s three rules; the path pattern is shared via
+// SUSPICIOUS_PATH_PATTERN so the SQL and JS checks cannot drift apart.
 export function candidateWhere(): string {
-  const list = INTERESTING_SYSCALLS.map(s => `'${s}'`).join(', ')
-  return `syscall IN (${list})`
+  const pathSyscalls = ['openat', 'access', 'newfstatat', 'faccessat'].map(s => `'${s}'`).join(', ')
+  const pattern = SUSPICIOUS_PATH_PATTERN.replace(/'/g, "''")
+  return (
+    `(syscall = 'ptrace' AND args[1] IN ('0x0', '0'))` +
+    ` OR (syscall IN (${pathSyscalls})` +
+    ` AND len(list_filter(map_values(string_args), v -> regexp_matches(v, '${pattern}', 'i'))) > 0)` +
+    ` OR (syscall = 'read' AND list_contains(map_values(fd_args), '/proc/self/status'))`
+  )
 }
 
 export function score(e: SyscallEvent): Suggestion[] {

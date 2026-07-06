@@ -44,6 +44,12 @@ describe('rasp-heuristics', () => {
     for (const s of ['ptrace', 'openat', 'read']) expect(w).toContain(s)
   })
 
+  it('candidateWhere pushes the actual rule predicates into SQL, not just syscall names', () => {
+    const w = candidateWhere()
+    expect(w).toContain('/proc/self/status')
+    expect(w.toLowerCase()).toContain('magisk')
+  })
+
   it('aggregate collapses to one per target with summed occurrences and max confidence', () => {
     const a = { target: 'sys:ptrace', category: 'debugger' as const, confidence: 0.8, rationale: 'x', occurrences: 1 }
     const b = { target: 'sys:ptrace', category: 'debugger' as const, confidence: 0.9, rationale: 'y', occurrences: 1 }
