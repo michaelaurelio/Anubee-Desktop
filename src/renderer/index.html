@@ -7,7 +7,7 @@
       html, body { margin: 0; height: 100%; font: 13px system-ui, sans-serif; }
       #toolbar { display: flex; gap: 8px; align-items: center; padding: 6px; border-bottom: 1px solid #ccc; }
       #toolbar input { font: inherit; padding: 2px 4px; }
-      #main { position: absolute; top: 40px; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: 360px 1fr 340px; }
+      #main { position: absolute; top: 40px; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: 520px 1fr 340px; }
       #table { overflow-y: auto; overflow-x: hidden; border-right: 1px solid #ccc; }
       #table table { border-collapse: collapse; width: 100%; table-layout: fixed; }
       #table th, #table td { text-align: left; padding: 2px 6px; border-bottom: 1px solid #eee; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -16,6 +16,8 @@
       #table td:nth-child(2), #table th:nth-child(2) { width: 40px; }
       #table td:nth-child(3), #table th:nth-child(3) { width: 64px; }
       #table td:nth-child(4), #table th:nth-child(4) { width: 48px; text-align: center; }
+      #table td:nth-child(5), #table th:nth-child(5) { width: 96px; }
+      #table td:nth-child(6), #table th:nth-child(6) { width: 110px; }
       #table tr:hover td { background: #f2f7ff; }
       #view { position: relative; }
       #cy, #flame { position: absolute; inset: 0; }
