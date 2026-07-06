@@ -1,5 +1,6 @@
 import type { Filter } from '@shared/filter'
 import type { GraphSlice } from '@shared/graph-shape'
+import type { StackRollup } from '@shared/flame-shape'
 import type { TableRow } from '@shared/table'
 import type { SyscallEvent } from '@shared/events'
 
@@ -10,6 +11,7 @@ declare global {
       runs(): Promise<{ runId: number; file: string; ingestedAt: string; eventCount: number }[]>
       table(filter: Filter, page: { limit: number; offset: number }, runId?: number): Promise<TableRow[]>
       slice(filter: Filter, cap?: number, runId?: number): Promise<GraphSlice>
+      stackRollup(filter: Filter, maxChains?: number, runId?: number): Promise<StackRollup>
       eventById(id: number, runId?: number): Promise<SyscallEvent | undefined>
       nodeEvents(nodeId: string, filter: Filter, runId?: number): Promise<SyscallEvent[]>
       suggest: (runId?: number) => Promise<import('@shared/rasp-heuristics').Suggestion[]>
