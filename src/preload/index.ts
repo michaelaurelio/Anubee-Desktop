@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('ares', {
   suggest: (runId?: number) => ipcRenderer.invoke('rasp:suggest', runId),
   loadTags: (runId: number) => ipcRenderer.invoke('tags:load', runId),
   saveTags: (runId: number, tags: unknown[]) => ipcRenderer.invoke('tags:save', runId, tags),
+  exportFindings: (runId: number, format: 'md' | 'json') =>
+    ipcRenderer.invoke('findings:export', runId, format),
   onProgress: (cb: (pct: number) => void) =>
     ipcRenderer.on('trace:progress', (_e, pct) => cb(pct as number)),
   onLoaded: (cb: (s: { runId: number; eventCount: number; errors: number }) => void) =>

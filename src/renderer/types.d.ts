@@ -15,6 +15,7 @@ declare global {
       suggest: (runId?: number) => Promise<import('@shared/rasp-heuristics').Suggestion[]>
       loadTags(runId: number): Promise<{ tags: import('@shared/project-store').Tag[]; errors: string[] }>
       saveTags(runId: number, tags: import('@shared/project-store').Tag[]): Promise<void>
+      exportFindings: (runId: number, format: 'md' | 'json') => Promise<string | null>
       onProgress(cb: (pct: number) => void): void
       onLoaded(cb: (s: { runId: number; eventCount: number; errors: number }) => void): void
     }

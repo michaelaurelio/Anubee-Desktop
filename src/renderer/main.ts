@@ -140,6 +140,17 @@ cy.on('tap', 'node', evt => {
   })
 })
 
+function wireExport(): void {
+  const md = document.getElementById('export-md')
+  const json = document.getElementById('export-json')
+  md?.addEventListener('click', () => {
+    if (activeRunId !== undefined) void window.ares.exportFindings(activeRunId, 'md').then(p => p && status(`Exported ${p}`))
+  })
+  json?.addEventListener('click', () => {
+    if (activeRunId !== undefined) void window.ares.exportFindings(activeRunId, 'json').then(p => p && status(`Exported ${p}`))
+  })
+}
+
 window.ares.onProgress(pct => status(`Loading... ${pct}%`))
 window.ares.onLoaded(s => {
   activeRunId = s.runId
@@ -151,3 +162,4 @@ window.ares.onLoaded(s => {
   })
 })
 wireFilterControls(refreshTable)
+wireExport()
