@@ -215,3 +215,8 @@ install-app-deps` rebuilds it against the Electron ABI. `npm run dist`
 `release/linux-unpacked/`. The packaged app was driven against a real run and
 served the master table, focused slice, and node-inspector raw records all
 from the unpacked DuckDB binding. Windows packaging is not yet verified.
+
+Note: the `files: ["out/**"]` entry only narrows the *app source* electron-builder
+packs; it does **not** drop `node_modules` - electron-builder collects production
+dependencies (including `@duckdb/node-api`) separately, so the binding is still
+bundled and then `asarUnpack`ed. Do not "correct" `files` to add `node_modules`.
