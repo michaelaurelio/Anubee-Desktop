@@ -64,3 +64,25 @@ describe('project-store', () => {
     expect(orphanedTags([live, gone], new Set())).toEqual([])
   })
 })
+
+import { parseSidecar as _parseSidecar, serializeSidecar as _serializeSidecar } from '../src/shared/project-store'
+import type { Rule as _Rule } from '../src/shared/rasp-heuristics'
+
+describe('sidecar rules', () => {
+  const projRule: _Rule = { id: 'p-1', category: 'custom', confidence: 0.4, rationale: 'proj', enabled: true, source: 'project',
+    match: { syscalls: ['openat'], field: 'string_args', op: 'equals', value: '/x' } }
+
+  it('round-trips rules and enabledOverrides through serialize/parse', () => {
+    const text = _serializeSidecar({ file: 'run.jsonl', ingestedAt: 'now' }, [], [projRule], { 'root-paths': false })
+    const back = _parseSidecar(text)
+    expect(back.rules.map(r => r.id)).toEqual(['p-1'])
+    expect(back.rules[0].source).toBe('project')
+    expect(back.enabledOverrides).toEqual({ 'root-paths': false })
+  })
+
+  it('defaults rules/enabledOverrides to empty when the sidecar predates them', () => {
+    const back = _parseSidecar(JSON.stringify({ schemaVersion: 1, run: { file: 'r', ingestedAt: 'x' }, tags: [] }))
+    expect(back.rules).toEqual([])
+    expect(back.enabledOverrides).toEqual({})
+  })
+})

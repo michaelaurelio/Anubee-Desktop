@@ -3,6 +3,8 @@
 // A tag's identity is (target, offset) - the graph node id plus an optional
 // block refinement. Node/edge id grammar comes from graph-shape.
 
+import { coerceRules, type Rule } from './rasp-heuristics'
+
 export type RaspCategory = 'root' | 'debugger' | 'emulator' | 'integrity' | 'hook' | 'custom'
 
 export interface Tag {
@@ -20,6 +22,8 @@ export interface Sidecar {
   schemaVersion: 1
   run: { file: string; ingestedAt: string }
   tags: Tag[]
+  rules?: Rule[]
+  enabledOverrides?: Record<string, boolean>
 }
 
 const CATEGORIES: RaspCategory[] = ['root', 'debugger', 'emulator', 'integrity', 'hook', 'custom']
@@ -42,27 +46,47 @@ function coerceTag(v: unknown): Tag | null {
   return t
 }
 
-export function parseSidecar(text: string): { tags: Tag[]; errors: string[] } {
+function coerceOverrides(v: unknown): Record<string, boolean> {
+  if (typeof v !== 'object' || v === null) return {}
+  const out: Record<string, boolean> = {}
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof val === 'boolean') out[k] = val
+  }
+  return out
+}
+
+export function parseSidecar(text: string): { tags: Tag[]; rules: Rule[]; enabledOverrides: Record<string, boolean>; errors: string[] } {
   let root: unknown
   try {
     root = JSON.parse(text)
   } catch (e) {
-    return { tags: [], errors: [`invalid JSON: ${(e as Error).message}`] }
+    return { tags: [], rules: [], enabledOverrides: {}, errors: [`invalid JSON: ${(e as Error).message}`] }
   }
-  const raw = (root as { tags?: unknown }).tags
-  if (!Array.isArray(raw)) return { tags: [], errors: ['sidecar has no tags array'] }
-  const tags: Tag[] = []
+  const obj = root as { tags?: unknown; rules?: unknown; enabledOverrides?: unknown }
   const errors: string[] = []
-  raw.forEach((entry, i) => {
-    const t = coerceTag(entry)
-    if (t) tags.push(t)
-    else errors.push(`tag[${i}] is malformed`)
-  })
-  return { tags, errors }
+  const tags: Tag[] = []
+  if (!Array.isArray(obj.tags)) {
+    errors.push('sidecar has no tags array')
+  } else {
+    obj.tags.forEach((entry, i) => {
+      const t = coerceTag(entry)
+      if (t) tags.push(t)
+      else errors.push(`tag[${i}] is malformed`)
+    })
+  }
+  const ruleArr = Array.isArray(obj.rules) ? obj.rules : []
+  const { rules, errors: ruleErrors } = coerceRules(ruleArr, 'project')
+  errors.push(...ruleErrors)
+  return { tags, rules, enabledOverrides: coerceOverrides(obj.enabledOverrides), errors }
 }
 
-export function serializeSidecar(run: { file: string; ingestedAt: string }, tags: Tag[]): string {
-  const sidecar: Sidecar = { schemaVersion: 1, run, tags }
+export function serializeSidecar(
+  run: { file: string; ingestedAt: string },
+  tags: Tag[],
+  rules: Rule[] = [],
+  enabledOverrides: Record<string, boolean> = {},
+): string {
+  const sidecar: Sidecar = { schemaVersion: 1, run, tags, rules, enabledOverrides }
   return JSON.stringify(sidecar, null, 2)
 }
 
