@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('ares', {
   eventById: (id: number, runId?: number) => ipcRenderer.invoke('graph:eventById', id, runId),
   nodeEvents: (nodeId: string, filter: Filter, runId?: number) =>
     ipcRenderer.invoke('graph:nodeEvents', nodeId, filter, runId),
+  nodeOffsets: (nodeId: string, filter: Filter, runId?: number) =>
+    ipcRenderer.invoke('graph:nodeOffsets', nodeId, filter, runId),
   suggest: (runId?: number) => ipcRenderer.invoke('rasp:suggest', runId),
   rulesGet: (runId?: number) => ipcRenderer.invoke('rasp:rules:get', runId),
   rulesSave: (scope: 'global' | 'project', ruleScope: RuleScope, runId?: number) =>
