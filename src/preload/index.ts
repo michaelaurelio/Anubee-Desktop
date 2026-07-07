@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Filter } from '@shared/filter'
 import type { Tag } from '@shared/project-store'
+import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 
 // The typed surface the renderer sees as `window.ares`. Raw events never cross
 // this bridge except the single record fetched by id for the inspector.
@@ -17,6 +18,10 @@ contextBridge.exposeInMainWorld('ares', {
   nodeEvents: (nodeId: string, filter: Filter, runId?: number) =>
     ipcRenderer.invoke('graph:nodeEvents', nodeId, filter, runId),
   suggest: (runId?: number) => ipcRenderer.invoke('rasp:suggest', runId),
+  rulesGet: (runId?: number) => ipcRenderer.invoke('rasp:rules:get', runId),
+  rulesSave: (scope: 'global' | 'project', ruleScope: RuleScope, runId?: number) =>
+    ipcRenderer.invoke('rasp:rules:save', scope, ruleScope, runId),
+  rulesPreview: (rule: Rule, runId?: number) => ipcRenderer.invoke('rasp:rules:preview', rule, runId),
   diffTable: (runA: number, runB: number, filter: Filter, cap?: number) =>
     ipcRenderer.invoke('graph:diffTable', runA, runB, filter, cap),
   diffSlice: (runA: number, runB: number, nodeId: string, filter: Filter) =>

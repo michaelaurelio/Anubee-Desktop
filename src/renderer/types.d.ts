@@ -15,6 +15,15 @@ declare global {
       eventById(id: number, runId?: number): Promise<SyscallEvent | undefined>
       nodeEvents(nodeId: string, filter: Filter, runId?: number): Promise<SyscallEvent[]>
       suggest: (runId?: number) => Promise<import('@shared/rasp-heuristics').Suggestion[]>
+      rulesGet(runId?: number): Promise<{
+        builtin: import('@shared/rasp-heuristics').Rule[]
+        global: import('@shared/rasp-heuristics').RuleScope
+        project: import('@shared/rasp-heuristics').RuleScope
+        effective: import('@shared/rasp-heuristics').Rule[]
+      }>
+      rulesSave(scope: 'global' | 'project', ruleScope: import('@shared/rasp-heuristics').RuleScope, runId?: number): Promise<void>
+      rulesPreview(rule: import('@shared/rasp-heuristics').Rule, runId?: number):
+        Promise<{ events: number; targets: number } | { error: string }>
       diffTable: (runA: number, runB: number, filter: import('@shared/filter').Filter, cap?: number) =>
         Promise<import('@shared/diff').DiffRow[]>
       diffSlice: (runA: number, runB: number, nodeId: string, filter: Filter) =>
