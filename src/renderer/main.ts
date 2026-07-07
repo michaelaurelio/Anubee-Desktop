@@ -7,6 +7,8 @@ import { renderTable } from './table'
 import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
+import { highlightNeighborhood, clearHighlight } from './graph-highlight'
+import { showOffsetPopup, closeOffsetPopup } from './offset-popup'
 import { renderSuggestions } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
@@ -76,6 +78,8 @@ const cy = cytoscape({
     { selector: 'node[presence = "both"]', style: { 'background-fill': 'solid', 'background-color': '#95a5a6' } },
     { selector: 'edge[presence = "A-only"]', style: { 'line-color': '#c0392b', 'target-arrow-color': '#c0392b' } },
     { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
+    { selector: '.dimmed', style: { 'opacity': 0.15 } },
+    { selector: 'node.highlighted', style: { 'z-index': 10 } },
   ],
 })
 
@@ -245,16 +249,38 @@ async function selectRow(row: TableRow): Promise<void> {
 ;(window as unknown as { __cy: typeof cy }).__cy = cy
 
 cy.on('tap', 'node', evt => {
-  const nodeId = evt.target.id()
-  void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(events => {
-    showNodeInspector(nodeId, events)
-    const host = document.getElementById('inspector')
-    if (!host) return
-    renderTagEditor(host, nodeId, undefined, tagsByTarget(tags, nodeId),
-      async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
-      async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() })
-  })
+  const node = evt.target
+  const nodeId = node.id()
+  highlightNeighborhood(cy, node)
+  if (node.data('kind') === 'native') {
+    void Promise.all([
+      window.ares.nodeOffsets(nodeId, currentFilter(), activeRunId),
+      window.ares.nodeEvents(nodeId, currentFilter(), activeRunId),
+    ]).then(([rows, events]) => {
+      showOffsetPopup({
+        nodeId,
+        rows,
+        anchor: { x: evt.originalEvent.clientX, y: evt.originalEvent.clientY },
+        tagHost: h => renderTagEditor(h, nodeId, undefined, tagsByTarget(tags, nodeId),
+          async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
+          async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() }),
+        eventForOffset: () => events[0],
+      })
+    })
+  } else {
+    closeOffsetPopup()
+    void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(events => {
+      showNodeInspector(nodeId, events)
+      const host = document.getElementById('inspector')
+      if (!host) return
+      renderTagEditor(host, nodeId, undefined, tagsByTarget(tags, nodeId),
+        async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
+        async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() })
+    })
+  }
 })
+
+cy.on('tap', evt => { if (evt.target === cy) { clearHighlight(cy); closeOffsetPopup() } })
 
 function applyGraphTheme(next: Theme): void {
   const c = themeColors(next)

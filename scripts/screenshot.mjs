@@ -74,6 +74,36 @@ await win.mouse.click(pos.x, pos.y)
 await win.waitForTimeout(500)
 await shot('03-inspector.png')
 
+// 3b. A native node tapped: the floating offset popup opens (with the tag
+// editor moved in) and the off-path graph dims (task 8: tap routing). A single
+// row's bridge slice is one straight chain (every node reachable from every
+// other), so fan-in/fan-out highlighting can never leave anything dimmed there;
+// load the whole run instead (two disconnected bridges in the fixture) so the
+// dim assertion is meaningful.
+await win.evaluate(async () => {
+  const cy = window.__cy
+  const slice = await window.ares.slice({}, 500)
+  cy.elements().remove()
+  cy.add(slice.nodes.map(n => ({ data: { id: n.id, kind: n.kind, label: n.label } })))
+  cy.add(slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target } })))
+  cy.layout({ name: 'grid', rows: 2 }).run()
+  cy.fit(undefined, 48)
+})
+await win.waitForTimeout(200)
+const npos = await win.evaluate(() => {
+  const cy = window.__cy
+  const n = cy.nodes('[kind = "native"]')[0]
+  const p = n.renderedPosition()
+  const bb = cy.container().getBoundingClientRect()
+  return { x: bb.left + p.x, y: bb.top + p.y }
+})
+await win.mouse.click(npos.x, npos.y)
+await win.waitForSelector('.offset-popup', { timeout: 5000 })
+const dimOk = await win.evaluate(() => window.__cy.elements('.dimmed').length > 0)
+if (!dimOk) throw new Error('tap did not dim the off-path elements')
+await win.waitForTimeout(300)
+await shot('03b-offset-popup.png')
+
 // 4. Filtered: has-java_stack only, re-run.
 await win.check('#f-hasjava')
 await win.click('#apply')
