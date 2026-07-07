@@ -168,6 +168,9 @@ function showView(view: 'graph' | 'flame' | 'capture'): void {
   document.getElementById('flame')?.classList.toggle('hidden', view !== 'flame')
   document.getElementById('capture')?.classList.toggle('hidden', view !== 'capture')
   if (view === 'flame') void refreshFlame()
+  for (const [id, v] of [['tab-graph', 'graph'], ['tab-flame', 'flame'], ['tab-capture', 'capture']] as const) {
+    document.getElementById(id)?.classList.toggle('on', currentView === v)
+  }
 }
 
 // Refresh whichever middle view is active (used by the filter apply action).
@@ -392,3 +395,18 @@ wireFilterControls(() => { void refreshTable(); refreshMiddle() })
 wireExport()
 wireDiff()
 wireCapture()
+
+document.getElementById('open-run')?.addEventListener('click', () => { void window.ares.openFile() })
+
+for (const toggle of document.querySelectorAll<HTMLElement>('[data-menu-toggle]')) {
+  toggle.addEventListener('click', e => {
+    e.stopPropagation()
+    const menu = toggle.closest('.menu')
+    const wasOpen = menu?.classList.contains('open')
+    for (const m of document.querySelectorAll('.menu.open')) m.classList.remove('open')
+    if (menu && !wasOpen) menu.classList.add('open')
+  })
+}
+document.addEventListener('click', () => {
+  for (const m of document.querySelectorAll('.menu.open')) m.classList.remove('open')
+})
