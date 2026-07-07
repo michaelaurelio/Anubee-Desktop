@@ -3,7 +3,7 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
-## Shipped (2026-07-07) - extensible RASP heuristics engine; UI/UX overhaul still deferred
+## Shipped (2026-07-07) - extensible RASP heuristics engine; UI/UX overhaul partially shipped
 Design reference: overall spec §13.
 
 - **Extensible heuristics engine - SHIPPED.** Feature 5 evolves from hardcoded
@@ -33,19 +33,29 @@ Design reference: overall spec §13.
   builtin fork + reset (editing a builtin forks a same-id override into the
   chosen scope; Reset drops that override from both scopes to restore the
   plain builtin).
+- **UI/UX production overhaul, first slice - SHIPPED.** Graph zoom
+  (in/out/fit over `cy.zoom`/`cy.fit`) and the coherent layout + visual pass
+  (drag-resizable, collapsible, `localStorage`-persisted panels in
+  `src/renderer/panels.ts`/`wirePanels`; a token dark/light theme in
+  `src/renderer/theme.ts` that is now the single source of the java/native/
+  syscall colors for cytoscape, `#legend`, and the flame view; the chrome-bar
+  / filter-bar split; empty/loading/error states) are done. See
+  `DOCUMENTATION.md`'s "UI shell" section.
 - **Still deferred: UI/UX production overhaul (conference-presentable bar).**
-  - **Graph zoom** - cytoscape zoom in/out + fit controls (currently absent).
   - **Confirm-to-tag produces no visible output** - investigate confirm→tag→
     badge/table path; make the result observable (invisible confirmation = broken
     loop).
   - **Filter into a popover/panel** - move off the non-scalable top toolbar.
-  - **Coherent layout + visual pass** - floating-panel → single-sidebar refactor,
-    consistent spacing/typography, clear empty/loading/error states, presentation
-    theme.
 - **Final-review residual minors (not urgent, tracked for follow-up):**
   - Dedup: `CATEGORIES` array duplicated in `rasp-heuristics.ts` +
     `project-store.ts`; `coerceOverrides` helper duplicated in
     `rasp-rules-store.ts` + `project-store.ts` - fold into the shared module.
+    (The separate java/native/syscall **color** triplication across
+    cytoscape/`#legend`/flame is now **resolved** - single-sourced via
+    `themeColors` in `src/renderer/theme.ts`, which also owns `labelBacking`
+    and `labelText`. Intentionally left theme-fixed, not missed conversions:
+    the `node[badge]` purple border, flame `root` grey, and the capture
+    console colors - they read acceptably on both canvases.)
   - `aggregate()` collapses multiple same-target categories to the
     highest-confidence one (both rationales are concatenated, but the
     lower-confidence `category` is overwritten) - revisit when a native frame
@@ -56,8 +66,9 @@ Design reference: overall spec §13.
   - `setEnabled` shallow-copies every rule in the scope (`rules.map(r => ({
     ...r }))`) just to add one `enabledOverrides` entry - unnecessary; only
     `enabledOverrides` needs a new object.
-  - `npm run shots` has no Rules-panel step, so panel/editor regressions
-    aren't caught by the visual snapshot pass.
+  - **CLOSED:** `npm run shots` had no Rules-panel step; a Rules-panel open/
+    close step is now present in `scripts/screenshot.mjs`, so panel/editor
+    regressions are caught by the visual snapshot pass.
 
 ## Shipped in Phase 2 (features 5, 6, 7)
 - **5** RASP semantic tagging + heuristic pre-tagging - `project-store` sidecar

@@ -49,6 +49,49 @@ The master table's `top java` / `top native` columns are widened (96px / 110px,
 `com.example.app.Class.method` / `libexample.so!symbol` entry shows more of the
 name before eliding, on top of the existing ellipsis + `title` tooltip fallback.
 
+## UI shell
+
+The toolbar is split into a **chrome bar** (Open run, the active run pill, the
+segmented Graph/Flame/Capture view switch, Rules, the Export ▾ / Diff ▾ menus,
+and the theme toggle) and a dedicated **filter bar** below it, replacing the
+earlier single crammed toolbar. An empty state is shown in place of the body
+until a run is loaded.
+
+### Adjustable panels
+
+The table and side (graph/flame/capture) regions are drag-resizable and
+collapsible. Pure width math (`clampWidth`, `DEFAULT_LAYOUT`, `parseLayout`/
+`serializeLayout`) lives in `src/renderer/panels.ts` and is unit-tested;
+`wirePanels` does the DOM wiring in the renderer. Widths are held as CSS custom
+properties (`--table-w` / `--side-w`), clamped to 160-760px, and resizing is
+driven by **window-level** pointer listeners rather than listeners on the drag
+handle itself, so a drag that outruns the handle (fast mouse movement) doesn't
+drop the resize. Each panel collapses/expands independently via a header
+chevron. Both the widths and the collapsed/expanded state persist to
+`localStorage['ares.layout']`, so the layout survives an app restart.
+
+**Known limitation:** persistence is per-machine (`localStorage`), not
+per-project - opening the same run on a different machine does not carry over
+the saved layout.
+
+### Theme
+
+`src/renderer/theme.ts` defines a token-based theme system: CSS custom
+properties with a dark default, toggled to light via a ☾/☀ button in the
+chrome bar, persisted to `localStorage['ares.theme']`. Critically, `theme.ts`
+is the **single source** of the java/native/syscall (plus label-backing and
+edge) colors - `applyGraphTheme` feeds them to cytoscape, the `#legend`, and
+the flame view's `kindFill`, replacing the previously triplicated color
+constants that had drifted across those three call sites. The graph's label
+backing color switches with the theme so node labels stay legible against
+both the dark and light canvas.
+
+### Graph zoom
+
+A zoom cluster (`+` / `-` / fit) sits over the graph pane, driving `cy.zoom`
+and `cy.fit` directly - there was previously no way to zoom the focused
+subgraph other than the mouse wheel.
+
 ## Phase 2 - tagging, heuristics, findings export, run diffing
 
 Phase 2 turns the read-only Phase 1 viewer into an annotation and comparison

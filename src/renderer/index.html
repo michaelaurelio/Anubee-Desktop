@@ -1,79 +1,216 @@
 <!doctype html>
-<html>
+<html data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <title>ARES-Desktop</title>
     <style>
-      html, body { margin: 0; height: 100%; font: 13px system-ui, sans-serif; }
-      #toolbar { display: flex; gap: 8px; align-items: center; padding: 6px; border-bottom: 1px solid #ccc; }
-      #toolbar input { font: inherit; padding: 2px 4px; }
-      #main { position: absolute; top: 40px; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: 520px 1fr 340px; }
-      #table { overflow-y: auto; overflow-x: hidden; border-right: 1px solid #ccc; }
+      :root {
+        --sp: 8px;
+        --radius: 6px;
+        --font: 13px/1.45 system-ui, sans-serif;
+        --mono: ui-monospace, "SF Mono", Menlo, monospace;
+      }
+      :root[data-theme="dark"] {
+        --surface: #0e1219; --panel: #12151c; --panel-2: #151922; --bar: #1a1f2b;
+        --border: #262d3d; --border-soft: #202634;
+        --text: #c9d1e0; --muted: #8b96a8; --stripe: #181d27; --hover: #1b2230;
+        --accent: #2647a8; --accent-bd: #3159c9; --accent-soft: #1e3a8a33; --accent-fg: #7aa2ff;
+        --k-java: #5fd28f; --k-native: #6fa8ff; --k-syscall: #ff8b7a;
+        --warn-bg: #3a2f12; --warn-bd: #5c4a1a; --warn-fg: #e8c977;
+        --input-bg: #0e1219; --input-bd: #2a3346;
+        --shadow: 0 2px 10px rgba(0,0,0,.35);
+      }
+      :root[data-theme="light"] {
+        --surface: #ffffff; --panel: #ffffff; --panel-2: #fafbfc; --bar: #f6f8fa;
+        --border: #e2e6ea; --border-soft: #eef1f4;
+        --text: #1e2530; --muted: #6b7684; --stripe: #f7f9fb; --hover: #f2f7ff;
+        --accent: #1a56db; --accent-bd: #1a56db; --accent-soft: #e8f0fe; --accent-fg: #1a56db;
+        --k-java: #27ae60; --k-native: #2980b9; --k-syscall: #c0392b;
+        --warn-bg: #fff3cd; --warn-bd: #ffe08a; --warn-fg: #7a5c00;
+        --input-bg: #ffffff; --input-bd: #cbd2da;
+        --shadow: 0 1px 4px rgba(0,0,0,.12);
+      }
+
+      html, body { margin: 0; height: 100%; font: var(--font); background: var(--surface); color: var(--text); }
+      button, input, select { font: inherit; color: inherit; }
+
+      /* --- chrome bar --- */
+      #chrome { display: flex; align-items: center; gap: var(--sp); padding: 6px 10px;
+                background: var(--bar); border-bottom: 1px solid var(--border); }
+      #chrome .mark { font-weight: 700; letter-spacing: .5px; color: var(--accent-fg); }
+      #chrome .spacer { flex: 1; }
+      .btn { background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+             padding: 4px 10px; border-radius: 5px; cursor: pointer; }
+      .btn:hover { background: var(--hover); }
+      .btn.pri { background: var(--accent); border-color: var(--accent-bd); color: #fff; }
+      #status { background: var(--accent-soft); color: var(--accent-fg); padding: 3px 9px;
+                border-radius: 10px; font-size: 12px; white-space: nowrap; }
+
+      /* segmented view switch: three preserved tab buttons styled as a segment */
+      .segment { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+      .segment .btn { border: 0; border-radius: 0; border-right: 1px solid var(--border); }
+      .segment .btn:last-child { border-right: 0; }
+      .segment .btn.on { background: var(--accent); color: #fff; }
+
+      /* ▾ menus (Export / Diff): CSS-revealed, wrapping preserved controls */
+      .menu { position: relative; }
+      .menu > .menu-body { display: none; position: absolute; right: 0; top: calc(100% + 4px); z-index: 20;
+        background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+        box-shadow: var(--shadow); padding: 6px; min-width: 150px; flex-direction: column; gap: 6px; }
+      .menu.open > .menu-body { display: flex; }
+      .menu-body .btn, .menu-body select { width: 100%; }
+
+      #theme-toggle { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+        border: 1px solid var(--border); border-radius: 5px; background: var(--panel-2); cursor: pointer; }
+
+      /* --- filter bar --- */
+      #filterbar { display: flex; align-items: center; gap: 6px; padding: 5px 10px;
+                   background: var(--panel); border-bottom: 1px solid var(--border); }
+      #filterbar .flabel { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+      #filterbar input[type=text], #filterbar input:not([type]) {
+        background: var(--input-bg); border: 1px solid var(--input-bd); color: var(--text);
+        padding: 3px 7px; border-radius: 5px; }
+      #f-text { flex: 1; }
+      #filterbar label { font-size: 12px; color: var(--muted); }
+
+      /* --- body --- */
+      #main { position: absolute; top: 76px; bottom: 0; left: 0; right: 0; display: flex;
+              --table-w: 420px; --side-w: 320px; }
+      .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px;
+        font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted);
+        border-bottom: 1px solid var(--border-soft); }
+      .panel-chevron { cursor: pointer; color: var(--muted); user-select: none; padding: 0 4px; }
+
+      #table { width: var(--table-w); flex: 0 0 auto; display: flex; flex-direction: column;
+               overflow: hidden; background: var(--panel); }
+      #table .table-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; }
+      #table.collapsed { width: 26px; }
+      #table.collapsed .table-scroll, #table.collapsed .panel-head span:not(.panel-chevron) { display: none; }
       #table table { border-collapse: collapse; width: 100%; table-layout: fixed; }
-      #table th, #table td { text-align: left; padding: 2px 6px; border-bottom: 1px solid #eee; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      #table th { position: sticky; top: 0; background: #fafafa; }
+      #table th, #table td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--border-soft);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #table th { position: sticky; top: 0; background: var(--panel-2); }
       #table td:nth-child(1), #table th:nth-child(1) { width: 34px; }
       #table td:nth-child(2), #table th:nth-child(2) { width: 40px; }
       #table td:nth-child(3), #table th:nth-child(3) { width: 64px; }
       #table td:nth-child(4), #table th:nth-child(4) { width: 48px; text-align: center; }
       #table td:nth-child(5), #table th:nth-child(5) { width: 96px; }
       #table td:nth-child(6), #table th:nth-child(6) { width: 110px; }
-      #table tr:hover td { background: #f2f7ff; }
-      #view { position: relative; }
+      #table tr:hover td { background: var(--hover); }
+      #table tr:nth-child(even) td { background: var(--stripe); }
+
+      .resize-handle { width: 5px; flex: 0 0 auto; background: var(--border); cursor: col-resize; position: relative; }
+      .resize-handle::after { content: ''; position: absolute; inset: 0 -3px; }
+      .resize-handle:hover { background: var(--accent-bd); }
+
+      #view { flex: 1 1 auto; position: relative; background: var(--surface); overflow: hidden; }
       #cy, #flame { position: absolute; inset: 0; }
+      #cy.hidden { display: none; }
       #flame { display: none; overflow: auto; padding: 4px; scrollbar-gutter: stable; }
       #flame.active { display: block; }
-      #cy.hidden { display: none; }
-      .flame-reset { margin: 2px 0 6px; font: inherit; }
-      .flame-banner { padding: 4px 8px; background: #fff3cd; border: 1px solid #ffe08a; margin-bottom: 6px; }
-      #banner { position: absolute; top: 6px; left: 6px; right: 6px; padding: 4px 8px; background: #fff3cd; border: 1px solid #ffe08a; display: none; }
-      #legend { position: absolute; bottom: 6px; left: 6px; display: flex; gap: 10px; padding: 4px 8px;
-                background: rgba(255,255,255,0.9); border: 1px solid #ddd; border-radius: 4px; font-size: 11px; z-index: 2; }
+      .flame-reset { margin: 2px 0 6px; }
+      .flame-banner, #banner { padding: 4px 8px; background: var(--warn-bg); border: 1px solid var(--warn-bd);
+        color: var(--warn-fg); border-radius: 4px; }
+      .flame-banner { margin-bottom: 6px; }
+      #banner { position: absolute; top: 6px; left: 6px; right: 6px; display: none; z-index: 3; }
+
+      /* zoom cluster */
+      #zoom { position: absolute; right: 8px; bottom: 8px; z-index: 4; display: flex; flex-direction: column;
+        border: 1px solid var(--input-bd); border-radius: var(--radius); overflow: hidden; background: var(--bar); }
+      #zoom button { border: 0; border-bottom: 1px solid var(--input-bd); background: transparent;
+        padding: 5px 8px; cursor: pointer; }
+      #zoom button:last-child { border-bottom: 0; }
+      #zoom button:hover { background: var(--hover); }
+
+      #legend { position: absolute; bottom: 8px; left: 8px; display: flex; gap: 10px; padding: 4px 8px;
+        background: var(--bar); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; z-index: 2; }
       #legend i { display: inline-block; width: 10px; height: 10px; vertical-align: middle; margin-right: 3px; }
-      #legend .k-java { background: #27ae60; transform: rotate(45deg); }
-      #legend .k-native { background: #2980b9; border-radius: 50%; }
-      #legend .k-syscall { background: #c0392b; border-radius: 2px; }
-      #side { border-left: 1px solid #ccc; display: flex; flex-direction: column; overflow: hidden; }
-      #inspector { flex: 1 1 auto; overflow: auto; padding: 8px; font-family: ui-monospace, monospace; }
-      #suggestions { flex: 0 0 auto; max-height: 40%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; }
-      #rules { flex: 0 0 auto; max-height: 40%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; display: none; }
-      #orphans { flex: 0 0 auto; max-height: 30%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; display: none; background: #fff8e1; }
-      #diff-table { flex: 0 0 auto; max-height: 40%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; }
+      #legend .k-java { background: var(--k-java); transform: rotate(45deg); }
+      #legend .k-native { background: var(--k-native); border-radius: 50%; }
+      #legend .k-syscall { background: var(--k-syscall); border-radius: 2px; }
+
+      /* empty state */
+      #empty-state { position: absolute; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 8px; color: var(--muted); z-index: 5; }
+      #empty-state.hidden { display: none; }
+      #empty-state .es-title { font-size: 15px; color: var(--text); }
+
+      /* side */
+      #side { width: var(--side-w); flex: 0 0 auto; display: flex; flex-direction: column;
+              overflow: hidden; background: var(--panel-2); border-left: 1px solid var(--border); }
+      #side.collapsed { width: 26px; }
+      #side.collapsed > *:not(.panel-head) { display: none; }
+      #side.collapsed .panel-head span:not(.panel-chevron) { display: none; }
+      #inspector { flex: 1 1 auto; overflow: auto; padding: 8px; font-family: var(--mono); }
+      #suggestions, #rules, #orphans, #diff-table { flex: 0 0 auto; overflow: auto; padding: 8px;
+        border-top: 1px solid var(--border); }
+      #suggestions { max-height: 40%; }
+      #rules { max-height: 40%; display: none; }
+      #orphans { max-height: 30%; display: none; background: var(--warn-bg); }
+      #diff-table { max-height: 40%; }
       #diff-table table { border-collapse: collapse; width: 100%; }
       #diff-table th, #diff-table td { text-align: left; padding: 2px 6px; font-size: 12px; }
+
+      /* capture */
       #capture { padding: 8px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
       #capture.hidden { display: none; }
-      #cap-console { font-family: monospace; font-size: 12px; background: #111; color: #ddd; padding: 6px; height: 240px; overflow: auto; white-space: pre-wrap; }
-      .loud-warn { color: #c0392b; font-weight: 600; }
+      #cap-console { font-family: var(--mono); font-size: 12px; background: #0a0d12; color: #ddd;
+        padding: 6px; height: 240px; overflow: auto; white-space: pre-wrap; border-radius: 4px; }
+      .loud-warn { color: var(--k-syscall); font-weight: 600; }
       .cap-input { display: flex; gap: 6px; align-items: center; }
-      .preflight-ok { color: #27ae60; } .preflight-bad { color: #c0392b; }
+      .preflight-ok { color: var(--k-java); } .preflight-bad { color: var(--k-syscall); }
     </style>
   </head>
   <body>
-    <div id="toolbar">
-      <span id="status">No run loaded - File &#9656; Open JSONL...</span>
-      <input id="f-text" placeholder="free text" />
-      <input id="f-syscall" placeholder="syscall" />
-      <input id="f-library" placeholder="library" />
-      <input id="f-tid" placeholder="tid" size="6" />
-      <label><input type="checkbox" id="f-hasjava" /> has java_stack</label>
-      <button id="apply">Filter</button>
-      <button id="tab-graph">Graph</button>
-      <button id="tab-flame">Flame</button>
-      <button id="tab-capture">Capture</button>
-      <button id="rules-btn">Rules</button>
-      <button id="export-md">Export MD</button>
-      <button id="export-json">Export JSON</button>
-      <button id="load-run-b">Load run B</button>
-      <select id="diff-mode">
-        <option value="all">all</option>
-        <option value="only-in-A">only in A</option>
-        <option value="only-in-B">only in B</option>
-        <option value="tagged">tagged</option>
-      </select>
+    <div id="chrome">
+      <span class="mark">&#9670; ARES</span>
+      <button id="open-run" class="btn pri">Open run</button>
+      <span id="status">No run loaded</span>
+      <span class="spacer"></span>
+      <div class="segment">
+        <button id="tab-graph" class="btn on">Graph</button>
+        <button id="tab-flame" class="btn">Flame</button>
+        <button id="tab-capture" class="btn">Capture</button>
+      </div>
+      <button id="rules-btn" class="btn">Rules</button>
+      <div class="menu" id="export-menu">
+        <button class="btn" data-menu-toggle>Export &#9662;</button>
+        <div class="menu-body">
+          <button id="export-md" class="btn">Export Markdown</button>
+          <button id="export-json" class="btn">Export JSON</button>
+        </div>
+      </div>
+      <div class="menu" id="diff-menu">
+        <button class="btn" data-menu-toggle>Diff &#9662;</button>
+        <div class="menu-body">
+          <button id="load-run-b" class="btn">Load run B</button>
+          <select id="diff-mode">
+            <option value="all">all</option>
+            <option value="only-in-A">only in A</option>
+            <option value="only-in-B">only in B</option>
+            <option value="tagged">tagged</option>
+          </select>
+        </div>
+      </div>
+      <button id="theme-toggle" title="Toggle light / dark">&#9790;</button>
     </div>
+
+    <div id="filterbar">
+      <span class="flabel">filter</span>
+      <input id="f-text" type="text" placeholder="free text search" />
+      <input id="f-syscall" type="text" size="8" placeholder="syscall" />
+      <input id="f-library" type="text" size="8" placeholder="library" />
+      <input id="f-tid" type="text" size="5" placeholder="tid" />
+      <label><input type="checkbox" id="f-hasjava" /> has java_stack</label>
+      <button id="apply" class="btn pri">Apply</button>
+    </div>
+
     <div id="main">
-      <div id="table"></div>
+      <div id="table">
+        <div class="panel-head"><span>Master table</span><span class="panel-chevron" data-target="table" title="collapse">&#8249;</span></div>
+        <div class="table-scroll"></div>
+      </div>
+      <div class="resize-handle" data-resize="table" title="drag to resize"></div>
       <div id="view">
         <div id="cy">
           <div id="banner"></div>
@@ -81,6 +218,11 @@
             <span><i class="k-java"></i> java method</span>
             <span><i class="k-native"></i> native</span>
             <span><i class="k-syscall"></i> syscall</span>
+          </div>
+          <div id="zoom">
+            <button id="zoom-in" title="zoom in">+</button>
+            <button id="zoom-out" title="zoom out">&#8722;</button>
+            <button id="zoom-fit" title="fit">&#10530;</button>
           </div>
         </div>
         <div id="flame"></div>
@@ -92,16 +234,22 @@
           <div id="capture-form-row">
             <select id="cap-select"></select>
             <input id="cap-timeout" type="text" size="4" placeholder="secs" title="timeout window (blank = run until Stop)" />
-            <button id="cap-preflight">Preflight</button>
-            <button id="cap-start" disabled>Start</button>
-            <button id="cap-stop" disabled>Stop</button>
+            <button id="cap-preflight" class="btn">Preflight</button>
+            <button id="cap-start" class="btn" disabled>Start</button>
+            <button id="cap-stop" class="btn" disabled>Stop</button>
           </div>
           <div id="cap-form"></div>
           <div id="cap-preflight-status"></div>
           <div id="cap-console"></div>
         </div>
+        <div id="empty-state">
+          <div class="es-title">No run loaded</div>
+          <div>Open a run to begin - use <b>Open run</b> above.</div>
+        </div>
       </div>
+      <div class="resize-handle" data-resize="side" title="drag to resize"></div>
       <div id="side">
+        <div class="panel-head"><span>Inspector</span><span class="panel-chevron" data-target="side" title="collapse">&#8250;</span></div>
         <div id="orphans"></div>
         <div id="inspector"></div>
         <div id="diff-table"></div>
