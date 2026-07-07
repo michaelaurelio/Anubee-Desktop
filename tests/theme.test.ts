@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { themeColors, parseTheme, serializeTheme, type KindColors } from '../src/renderer/theme'
+import { themeColors, parseTheme, serializeTheme, categoryColors, type KindColors } from '../src/renderer/theme'
 
 describe('theme', () => {
   it('themeColors returns a full color set for both themes', () => {
@@ -26,5 +26,18 @@ describe('theme', () => {
   it('serializeTheme round-trips through parseTheme', () => {
     expect(parseTheme(serializeTheme('light'))).toBe('light')
     expect(parseTheme(serializeTheme('dark'))).toBe('dark')
+  })
+})
+
+describe('categoryColors', () => {
+  it('returns a distinct color for every RASP category in dark', () => {
+    const c = categoryColors('dark')
+    const cats = ['root', 'debugger', 'emulator', 'integrity', 'hook', 'custom'] as const
+    for (const k of cats) expect(c[k]).toMatch(/^#[0-9a-fA-F]{6}$/)
+    expect(new Set(Object.values(c)).size).toBe(cats.length) // all distinct
+  })
+  it('returns a full map in light too', () => {
+    const c = categoryColors('light')
+    expect(c.root).toMatch(/^#[0-9a-fA-F]{6}$/)
   })
 })
