@@ -14,6 +14,7 @@ declare global {
       stackRollup(filter: Filter, maxChains?: number, runId?: number): Promise<StackRollup>
       eventById(id: number, runId?: number): Promise<SyscallEvent | undefined>
       nodeEvents(nodeId: string, filter: Filter, runId?: number): Promise<SyscallEvent[]>
+      nodeOffsets(nodeId: string, filter: Filter, runId?: number): Promise<import('@shared/origins').OffsetRow[]>
       suggest: (runId?: number) => Promise<import('@shared/rasp-heuristics').Suggestion[]>
       rulesGet(runId?: number): Promise<{
         builtin: import('@shared/rasp-heuristics').Rule[]

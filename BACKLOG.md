@@ -3,6 +3,18 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Known drawbacks from Phase 1a (native offset popup - `GraphStore.nodeOffsets`)
+- **`unlib`/library reload not handled** - the module map takes the global
+  lowest `start` per (pid, basename), so offsets are wrong for events on the
+  far side of an unload+reload at a different base (spec §14 Phase 2).
+- **`nodeOffsets` 5000-event aggregation cap can silently under-count**
+  `count`/`reaches` for a very hot node; consider surfacing a `truncated` flag.
+- **APK-embedded modules** - a frame module `base.apk -> libinner.so` won't
+  match the map's basename key, so those frames get no offset.
+- **`moduleRelative` returns a malformed `"0x-.."` string if `addr < base`**
+  (unreachable today; add a defensive guard when the Phase-1b popup consumes
+  real addresses).
+
 ## Shipped (2026-07-07) - extensible RASP heuristics engine; UI/UX overhaul partially shipped
 Design reference: overall spec §13.
 
