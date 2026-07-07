@@ -3,8 +3,10 @@ import { resolve } from 'path'
 import { writeFileSync } from 'node:fs'
 import { GraphStore } from './graph-store'
 import type { Filter } from '@shared/filter'
-import { loadTags, saveTags } from './sidecar'
+import { loadTags, saveTags, loadSidecarRules } from './sidecar'
 import type { Tag } from '@shared/project-store'
+import { loadRules } from './rasp-rules-store'
+import { resolveRules, BUILTIN_RULES } from '@shared/rasp-heuristics'
 import { buildFindings, renderMarkdown, renderJSON } from '@shared/findings'
 import type { SyscallEvent } from '@shared/events'
 import type { DiffRow } from '@shared/diff'
@@ -142,7 +144,14 @@ ipcMain.handle('graph:stackRollup', (_e, filter: Filter, maxChains?: number, run
   store.stackRollup(filter, maxChains, runId))
 ipcMain.handle('graph:eventById', (_e, id: number, runId?: number) => store.eventById(id, runId))
 ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter, runId?: number) => store.nodeEvents(nodeId, filter, 500, runId))
-ipcMain.handle('rasp:suggest', (_e, runId?: number) => store.suggest(runId))
+ipcMain.handle('rasp:suggest', (_e, runId?: number) => {
+  const rid = runId ?? store.runs().at(-1)?.runId
+  if (rid === undefined) return []
+  const global = loadRules(app.getPath('userData'))
+  const project = loadSidecarRules(runFileOf(rid).file)
+  const effective = resolveRules(BUILTIN_RULES, global, project)
+  return store.suggest(rid, effective)
+})
 ipcMain.handle('graph:diffTable', (_e, runA: number, runB: number, filter: Filter, cap?: number) =>
   store.diffTable(runA, runB, filter, cap))
 ipcMain.handle('graph:diffSlice', (_e, runA: number, runB: number, nodeId: string, filter: Filter) =>

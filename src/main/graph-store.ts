@@ -5,7 +5,7 @@ import { filterToSql, type Filter } from '@shared/filter'
 import { capSlice, labelForId, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
-import { candidateWhere, score, aggregate, type Suggestion } from '@shared/rasp-heuristics'
+import { compileWhere, scoreWith, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
 import { presenceOf, type DiffRow, type MergedSlice, type MergedNode } from '@shared/diff'
 
 export type { TableRow }
@@ -64,6 +64,8 @@ function detectFormat(path: string): 'array' | 'newline_delimited' {
     closeSync(fd)
   }
 }
+
+const EMPTY_SCOPE: RuleScope = { rules: [], enabledOverrides: {} }
 
 export interface RunInfo {
   runId: number
@@ -273,20 +275,31 @@ export class GraphStore {
     })
   }
 
-  // Run the heuristic candidate filter in SQL (bounded to RASP-relevant
-  // syscalls), reconstruct each candidate event, and score it with the pure
-  // rules. Suggestions are never auto-applied - the renderer confirms them.
-  async suggest(runId?: number): Promise<Suggestion[]> {
+  // Score the run against a resolved rule set. Main resolves built-in + global +
+  // project rules and passes them in; when omitted we default to the enabled
+  // built-ins so single-arg callers (tests) keep working. compileWhere bounds the
+  // scan to real candidates (off-heap); scoreWith re-checks each and is the
+  // scoring authority.
+  async suggest(runId?: number, rules?: Rule[]): Promise<Suggestion[]> {
     const rid = this.resolveRun(runId)
+    const effective = (rules ?? resolveRules(BUILTIN_RULES, EMPTY_SCOPE, EMPTY_SCOPE)).filter(r => r.enabled)
+    if (effective.length === 0) return []
+    const where = compileWhere(effective)
     const rows = await this.rows(
-      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND (${candidateWhere()})`,
+      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND (${where})`,
     )
     const all: Suggestion[] = []
     for (const r of rows) {
       const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
-      all.push(...score(ev as SyscallEvent))
+      all.push(...scoreWith(effective, ev as SyscallEvent))
     }
     return aggregate(all)
+  }
+
+  // Test-only escape hatch: run a raw read query. Used by the lockstep test to
+  // check DuckDB WHERE-admission directly.
+  async raw(sql: string): Promise<Record<string, DuckDBValue>[]> {
+    return this.rows(sql) as Promise<Record<string, DuckDBValue>[]>
   }
 
   private async nodeCounts(runId: number, filter: Filter = {}): Promise<Map<string, number>> {

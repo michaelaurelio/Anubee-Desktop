@@ -7,6 +7,7 @@ import { parseJsonl, isSyscall } from '@shared/ares-parse'
 import { foldEvents } from '@shared/graph-shape'
 import { presenceOf } from '../src/shared/diff'
 import type { StackRollup } from '../src/shared/flame-shape'
+import { compileWhere, scoreWith, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
 
 const FIXTURE = resolve(__dirname, 'fixtures/sample.jsonl')
 const store = new GraphStore()
@@ -98,18 +99,70 @@ describe('nodeEvents run scoping', () => {
 })
 
 describe('heuristic suggestions', () => {
-  it('suggests root + debugger tags from a run', async () => {
+  it('suggests root + debugger + hook tags from a run using the built-in set', async () => {
     const store = new GraphStore()
     await store.ingest(fixture([
       evA, // openat /system/bin/su -> root
-      { ...evA, id: 2, syscall: 'ptrace', args: ['0x0'], string_args: {}, backtrace: [] }, // TRACEME -> debugger
-      { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/data/app/ok.so' } }, // benign
+      { ...evA, id: 2, syscall: 'ptrace', args: ['0x10'], string_args: {}, backtrace: [] }, // ATTACH -> debugger
+      { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/proc/self/maps' },
+        backtrace: [{ frame: 0, addr: '0x2', symbol: 'libhook.so!scan_maps+0x4' }] }, // -> hook (distinct target so it doesn't collapse into root's aggregate entry)
+      { ...evA, id: 4, syscall: 'openat', string_args: { '1': '/data/app/ok.so' } }, // benign
     ]))
     const s = await store.suggest()
     const cats = s.map(x => x.category).sort()
     expect(cats).toContain('root')
     expect(cats).toContain('debugger')
+    expect(cats).toContain('hook')
     expect(s.find(x => x.category === 'root')!.target).toBe('nat:libexample.so!check_su')
+    await store.close()
+  })
+
+  it('honors an explicit resolved rule set (a disabled built-in stops firing)', async () => {
+    const store = new GraphStore()
+    await store.ingest(fixture([{ ...evA, syscall: 'ptrace', args: ['0x10'], string_args: {}, backtrace: [] }]))
+    const disabled = resolveRules(BUILTIN_RULES, { rules: [], enabledOverrides: { 'dbg-ptrace-attach': false } }, { rules: [], enabledOverrides: {} })
+      .filter(r => r.enabled)
+    const s = await store.suggest(undefined, disabled)
+    expect(s.some(x => x.category === 'debugger')).toBe(false)
+    await store.close()
+  })
+
+  it('returns nothing when no rules are enabled', async () => {
+    const store = new GraphStore()
+    await store.ingest(fixture([evA]))
+    expect(await store.suggest(undefined, [])).toEqual([])
+    await store.close()
+  })
+})
+
+describe('compiler lockstep (real DuckDB admits exactly what scoreWith scores)', () => {
+  // Synthetic events modeled on the real record shapes, one per built-in signal.
+  const events = [
+    { ...evA, id: 1, syscall: 'ptrace', args: ['0x10'], string_args: {}, backtrace: [] },
+    { ...evA, id: 2, syscall: 'ptrace', args: ['0x0'], string_args: {}, backtrace: [] },
+    { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/proc/self/status' } },
+    { ...evA, id: 4, syscall: 'read', string_args: {}, fd_args: { '0': '/proc/self/status' }, backtrace: [] },
+    { ...evA, id: 5, syscall: 'openat', string_args: { '1': '/proc/self/maps' } },
+    { ...evA, id: 6, syscall: 'connect', string_args: {}, sock_addr: 'unix:@/frida-zymbiote-abc', backtrace: [] },
+    { ...evA, id: 7, syscall: 'access', string_args: { '1': '/system/xbin/busybox' } },
+    { ...evA, id: 8, syscall: 'openat', string_args: { '1': '/sys/fs/selinux/enforce' } },
+    { ...evA, id: 9, syscall: 'prctl', args: ['0xdeadbeef'], string_args: {}, backtrace: [] },
+    { ...evA, id: 10, syscall: 'openat', string_args: { '1': '/data/app/benign.so' } }, // matches nothing
+  ]
+
+  it('for every built-in rule, DuckDB WHERE-admission matches scoreWith over all events', async () => {
+    const store = new GraphStore()
+    const { runId } = await store.ingest(fixture(events))
+    for (const rule of BUILTIN_RULES) {
+      const where = compileWhere([rule])
+      const admitted = new Set(
+        (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
+      )
+      for (const e of events) {
+        const jsMatches = scoreWith([rule], e as any).length > 0
+        expect(admitted.has(e.id), `${rule.id} vs event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+      }
+    }
     await store.close()
   })
 })
