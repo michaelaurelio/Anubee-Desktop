@@ -186,9 +186,9 @@ export async function renderRules(
 
     let previewTimer: ReturnType<typeof setTimeout> | undefined
     function refreshPreview(): void {
+      clearTimeout(previewTimer)
       const { rule, error } = validateRule(draftFromForm(values()), scopeSel.value === 'global' ? 'global' : 'project')
       if (!rule) { preview.textContent = `⚠ ${error}`; return }
-      clearTimeout(previewTimer)
       previewTimer = setTimeout(() => {
         void window.ares.rulesPreview(rule, activeRunId).then(res => {
           preview.textContent = 'error' in res
