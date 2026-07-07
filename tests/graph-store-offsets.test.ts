@@ -39,3 +39,29 @@ describe('GraphStore module map', () => {
     expect(store.moduleBase(runId, 100, 'libexample.so')).toBe(0x1000n)
   })
 })
+
+describe('GraphStore.nodeOffsets', () => {
+  it('returns module-relative offsets, reached syscalls, and counts', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    const rows = await store.nodeOffsets('nat:libexample.so!check_su')
+    const byOffset = Object.fromEntries(rows.map(r => [r.offset, r]))
+
+    // addr 0x1010 - base 0x1000 = 0x10, hit by openat (id 1) and read (id 3).
+    expect(byOffset['0x10'].module).toBe('libexample.so')
+    expect(byOffset['0x10'].symbol).toBe('check_su')
+    expect(byOffset['0x10'].reaches.sort()).toEqual(['openat', 'read'])
+    expect(byOffset['0x10'].count).toBe(2)
+
+    // addr 0x1020 - base 0x1000 = 0x20, hit by openat (id 2) only.
+    expect(byOffset['0x20'].reaches).toEqual(['openat'])
+    expect(byOffset['0x20'].count).toBe(1)
+  })
+
+  it('is empty when the module has no load base', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    // libc.so was never mapped by a lib record -> no base -> no offsets.
+    expect(await store.nodeOffsets('nat:libc.so!read')).toEqual([])
+  })
+})

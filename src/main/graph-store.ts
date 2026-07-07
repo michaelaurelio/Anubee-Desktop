@@ -7,7 +7,8 @@ import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
 import { compileWhere, scoreWith, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
 import { presenceOf, type DiffRow, type MergedSlice, type MergedNode } from '@shared/diff'
-import { parseHexAddr } from '@shared/origins'
+import { parseHexAddr, moduleRelative, type OffsetRow } from '@shared/origins'
+import { parseFrameSymbol } from '@shared/frame-symbol'
 
 export type { TableRow }
 
@@ -307,6 +308,51 @@ export class GraphStore {
       const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
       return ev as SyscallEvent
     })
+  }
+
+  // Module-relative call-site offsets for a native function node: the ghidra
+  // image-base offsets (addr - load_base) among that function's backtrace
+  // frames, aggregated across the filtered events whose chain touches the node.
+  // The data behind the offset popup (Copy / Copy-as-JSON). Frames whose module
+  // has no load base (never mapped by a `lib` record) are skipped.
+  async nodeOffsets(nodeId: string, filter: Filter = {}, runId?: number): Promise<OffsetRow[]> {
+    const rid = this.resolveRun(runId)
+    const meta = labelForId(nodeId)
+    if (meta.kind !== 'native' || meta.module === null) return []
+    // The node's pinned symbol, if any: 'nat:module!symbol' -> symbol, else null.
+    const rest = nodeId.slice(4)
+    const bang = rest.indexOf('!')
+    const wantSymbol = bang >= 0 ? rest.slice(bang + 1) : null
+
+    const events = await this.nodeEvents(nodeId, filter, 5000, rid)
+
+    // vaddr(hex) -> accumulating row.
+    const acc = new Map<string, OffsetRow>()
+    for (const ev of events) {
+      const base = this.moduleBase(rid, ev.pid, meta.module)
+      if (base === undefined) continue
+      // Distinct offsets this event contributes (one event counts an offset once).
+      const seen = new Set<string>()
+      for (const f of ev.backtrace) {
+        const p = parseFrameSymbol(f.symbol)
+        if (p.module !== meta.module) continue
+        if (wantSymbol !== null && p.symbol !== wantSymbol) continue
+        const addr = parseHexAddr(f.addr)
+        if (addr === null) continue
+        const offset = moduleRelative(addr, base)
+        if (seen.has(offset)) continue
+        seen.add(offset)
+        let row = acc.get(offset)
+        if (!row) {
+          row = { module: meta.module, offset, symbol: p.symbol,
+                  reaches: [], argsSample: ev.decoded_args ?? {}, count: 0 }
+          acc.set(offset, row)
+        }
+        if (!row.reaches.includes(ev.syscall)) row.reaches.push(ev.syscall)
+        row.count++
+      }
+    }
+    return [...acc.values()]
   }
 
   // Score the run against a resolved rule set. Main resolves built-in + global +
