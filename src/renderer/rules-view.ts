@@ -71,6 +71,21 @@ export async function renderRules(
   head.textContent = `Rules (${data.effective.length})`
   host.appendChild(head)
 
+  const status = document.createElement('div')
+  status.dataset.role = 'rules-status'
+  status.style.color = 'crimson'
+  host.appendChild(status)
+
+  // A row action's optimistic DOM change (e.g. a flipped checkbox) can outrun
+  // its persist(); on rejection, resync the panel to persisted truth and show
+  // the error on the freshly-rendered status line (the old `status` element
+  // is gone once renderRules rebuilds the DOM).
+  async function showError(err: unknown): Promise<void> {
+    await renderRules(host, activeRunId, onChange)
+    const fresh = host.querySelector<HTMLDivElement>('[data-role="rules-status"]')
+    if (fresh) fresh.textContent = `⚠ ${(err as Error).message}`
+  }
+
   // --- list ---
   for (const r of data.effective) {
     const row = document.createElement('div')
@@ -80,7 +95,7 @@ export async function renderRules(
     cb.type = 'checkbox'
     cb.checked = r.enabled
     cb.title = 'enable / disable'
-    cb.onchange = () => { void toggle(r.id, r.source, cb.checked) }
+    cb.onchange = () => { void toggle(r.id, r.source, cb.checked).catch(showError) }
     row.appendChild(cb)
 
     const label = document.createElement('span')
@@ -95,13 +110,13 @@ export async function renderRules(
     if (r.source !== 'builtin') {
       const del = document.createElement('button')
       del.textContent = 'Delete'
-      del.onclick = () => { void remove(r.id, r.source) }
+      del.onclick = () => { void remove(r.id, r.source).catch(showError) }
       row.appendChild(del)
     } else {
       const reset = document.createElement('button')
       reset.textContent = 'Reset'
       reset.title = 'drop any override / shadow of this builtin'
-      reset.onclick = () => { void resetBuiltin(r.id) }
+      reset.onclick = () => { void resetBuiltin(r.id).catch(showError) }
       row.appendChild(reset)
     }
     host.appendChild(row)
@@ -204,12 +219,28 @@ export async function renderRules(
     refreshPreview()
 
     const save = document.createElement('button'); save.textContent = 'Save'
-    save.onclick = () => {
-      const scope = scopeSel.value === 'global' ? 'global' : 'project'
-      const { rule, error } = validateRule(draftFromForm(values()), scope as 'global' | 'project')
+    save.onclick = async () => {
+      const scope: 'global' | 'project' = scopeSel.value === 'global' ? 'global' : 'project'
+      const { rule, error } = validateRule(draftFromForm(values()), scope)
       if (!rule) { preview.textContent = `⚠ ${error}`; return }
-      const base = scope === 'global' ? data.global : data.project
-      void persist(scope as 'global' | 'project', upsertRule(base, rule))
+      // Compose the final state of each writable scope from the current data, so a
+      // scope-change or id-rename removes the rule's prior identity (avoiding an
+      // orphaned copy that resolveRules' later-scope-wins could shadow with).
+      const edits: Record<'global' | 'project', RuleScope> = { global: data.global, project: data.project }
+      const changed = new Set<'global' | 'project'>([scope])
+      if (existing && existing.source !== 'builtin') {
+        const src = existing.source as 'global' | 'project'
+        edits[src] = deleteRule(edits[src], existing.id)
+        changed.add(src)
+      }
+      edits[scope] = upsertRule(edits[scope], rule)
+      try {
+        for (const s of changed) await window.ares.rulesSave(s, edits[s], activeRunId)
+        onChange()
+        await renderRules(host, activeRunId, onChange)
+      } catch (e) {
+        preview.textContent = `⚠ ${(e as Error).message}`
+      }
     }
     const cancel = document.createElement('button'); cancel.textContent = 'Cancel'
     cancel.onclick = () => { formHost.innerHTML = '' }
