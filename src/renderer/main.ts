@@ -1,4 +1,6 @@
 import cytoscape from 'cytoscape'
+import { themeColors, parseTheme, serializeTheme, type Theme } from './theme'
+import { wirePanels } from './panels'
 import { sliceToElements, filterForRow } from './graph-view'
 import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
@@ -17,6 +19,10 @@ import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
 import { renderCapabilityForm, appendConsoleLine } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, type CapValues } from '@shared/tracer-caps'
 
+let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
+document.documentElement.setAttribute('data-theme', theme)
+const tc = themeColors(theme)
+
 const cy = cytoscape({
   container: document.getElementById('cy'),
   style: [
@@ -32,17 +38,18 @@ const cy = cytoscape({
         'text-halign': 'right',
         'text-valign': 'center',
         'text-margin-x': 8,
-        'text-background-color': '#ffffff',
+        'text-background-color': tc.labelBacking,
         'text-background-opacity': 0.82,
         'text-background-shape': 'roundrectangle',
         'text-background-padding': '2',
+        color: theme === 'dark' ? '#c9d1e0' : '#1e2530',
         width: 18,
         height: 18,
       },
     },
-    { selector: 'node[kind = "java"]', style: { 'background-color': '#27ae60', shape: 'diamond' } },
-    { selector: 'node[kind = "native"]', style: { 'background-color': '#2980b9' } },
-    { selector: 'node[kind = "syscall"]', style: { 'background-color': '#c0392b', shape: 'round-rectangle' } },
+    { selector: 'node[kind = "java"]', style: { 'background-color': tc.java, shape: 'diamond' } },
+    { selector: 'node[kind = "native"]', style: { 'background-color': tc.native } },
+    { selector: 'node[kind = "syscall"]', style: { 'background-color': tc.syscall, shape: 'round-rectangle' } },
     { selector: 'node[badge]', style: { 'border-width': 3, 'border-color': '#8e44ad' } },
     {
       selector: 'edge',
@@ -51,8 +58,8 @@ const cy = cytoscape({
         'curve-style': 'bezier',
         'target-arrow-shape': 'triangle',
         'arrow-scale': 0.8,
-        'line-color': '#b0b0b0',
-        'target-arrow-color': '#b0b0b0',
+        'line-color': tc.edge,
+        'target-arrow-color': tc.edge,
       },
     },
     { selector: 'node[presence = "A-only"]', style: { 'background-color': '#c0392b' } },
@@ -151,7 +158,7 @@ async function refreshFlame(): Promise<void> {
   if (!host || activeRunId === undefined) return
   const rollup = await window.ares.stackRollup(currentFilter(), FLAME_CHAIN_CAP, activeRunId)
   const tree = buildFlame(rollup.rows, FLAME_NODE_CAP)
-  renderFlame(host, tree, rollup.truncated || tree.truncated)
+  renderFlame(host, tree, rollup.truncated || tree.truncated, theme)
 }
 
 function showView(view: 'graph' | 'flame' | 'capture'): void {
@@ -196,6 +203,29 @@ cy.on('tap', 'node', evt => {
       async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges() })
   })
 })
+
+function applyGraphTheme(next: Theme): void {
+  const c = themeColors(next)
+  cy.style()
+    .selector('node').style({ 'text-background-color': c.labelBacking, color: next === 'dark' ? '#c9d1e0' : '#1e2530' })
+    .selector('node[kind = "java"]').style({ 'background-color': c.java })
+    .selector('node[kind = "native"]').style({ 'background-color': c.native })
+    .selector('node[kind = "syscall"]').style({ 'background-color': c.syscall })
+    .selector('edge').style({ 'line-color': c.edge, 'target-arrow-color': c.edge })
+    .update()
+}
+
+document.getElementById('theme-toggle')?.addEventListener('click', () => {
+  theme = theme === 'dark' ? 'light' : 'dark'
+  document.documentElement.setAttribute('data-theme', theme)
+  localStorage.setItem('ares.theme', serializeTheme(theme))
+  const btn = document.getElementById('theme-toggle')
+  if (btn) btn.textContent = theme === 'dark' ? '☾' : '☀' // moon / sun
+  applyGraphTheme(theme)
+  if (currentView === 'flame') void refreshFlame()
+})
+
+wirePanels(document.body)
 
 async function refreshDiff(): Promise<void> {
   const host = document.getElementById('diff-table')

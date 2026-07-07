@@ -1,16 +1,20 @@
 import { layoutFlame, type FlameNode, type FlameTree } from '@shared/flame-shape'
+import { themeColors, type Theme } from './theme'
 
-// Single source of truth for kind colours, matching the graph node styles in
-// index.html/main.ts and the legend. 'root' is the synthetic top frame.
-const KIND_FILL: Record<string, string> = {
-  root: '#7f8c8d', java: '#27ae60', native: '#2980b9', syscall: '#c0392b',
+// Kind fills follow the active theme (single source: theme.ts). 'root' is the
+// synthetic top frame and stays theme-independent (matches the graph's
+// presence-neutral grey).
+export function kindFill(theme: Theme): Record<string, string> {
+  const c = themeColors(theme)
+  return { root: '#7f8c8d', java: c.java, native: c.native, syscall: c.syscall }
 }
 const SVG = 'http://www.w3.org/2000/svg'
 const ROW_H = 22
 
 // Render an icicle (root on top, growing down) into `host`. Clicking a frame
 // with children re-roots (zoom); a reset button returns to the full tree.
-export function renderFlame(host: HTMLElement, tree: FlameTree, truncated: boolean): void {
+export function renderFlame(host: HTMLElement, tree: FlameTree, truncated: boolean, theme: Theme = 'dark'): void {
+  const fill = kindFill(theme)
   if (tree.root.value === 0) {
     host.innerHTML = ''
     host.textContent = 'No events match the current filter.'
@@ -52,7 +56,7 @@ export function renderFlame(host: HTMLElement, tree: FlameTree, truncated: boole
       rect.setAttribute('y', String(r.y))
       rect.setAttribute('width', String(Math.max(0, r.w - 1)))
       rect.setAttribute('height', String(r.h - 1))
-      rect.setAttribute('fill', KIND_FILL[r.kind] ?? '#95a5a6')
+      rect.setAttribute('fill', fill[r.kind] ?? '#95a5a6')
       rect.style.cursor = r.node.children.length ? 'pointer' : 'default'
 
       const pct = ((r.value / current.value) * 100).toFixed(1)
