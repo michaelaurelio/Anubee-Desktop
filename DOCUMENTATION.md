@@ -102,27 +102,67 @@ never dropped automatically - the analyst confirms.
 
 ### Heuristic pre-tagging (never auto-applied)
 
-`src/shared/rasp-heuristics.ts` scores individual syscall events against three
-rules grounded in ARES's actual (undecoded) output shape:
+`src/shared/rasp-heuristics.ts` is a **rule-driven** engine, not a hardcoded
+scorer. A `Rule` is data:
 
-1. `ptrace` with raw `args[0] == 0` (`PTRACE_TRACEME`) -> `debugger`.
-2. `openat` / `access` / `newfstatat` / `faccessat` touching a known root
-   indicator path (`su`, `magisk`, `/system/xbin`, `/sbin`) -> `root`.
-3. `read` of `/proc/self/status` (a common `TracerPid` check) -> `debugger`.
+```
+{ id, category, confidence, rationale, enabled,
+  match: { syscalls, field, op, argIndex?, value }, source }
+```
 
-`emulator`, `integrity`, and `hook` are declared categories with no reliable
-syscall-only signal yet - they exist in the type so a later rule can slot in,
-but ship as stubs today. `GraphStore.suggest(runId?)` narrows the scan with
-`candidateWhere()`, a SQL predicate built from the same rule constants (in
-particular `SUSPICIOUS_PATH_PATTERN`) as the pure `score()` function, so only
-genuine candidates are reconstructed onto the JS heap - `score()` remains the
-scoring authority, the SQL predicate is purely a bounded pre-filter. Matching
-events are aggregated per target (`aggregate()`: sums occurrences, keeps the
-highest-confidence rationale) into `Suggestion` rows (target, category,
-confidence, rationale, occurrence count) and listed in a suggestions panel
-(`src/renderer/suggestions-view.ts`). A suggestion is never turned into a tag
-automatically - the analyst reviews it and clicks Confirm, which mints a
+`field` is one of the event's own shapes (`args`, `string_args`, `fd_args`,
+`sock_addr`); `op` is a **fixed** operator vocabulary - `path_matches` (regex
+against a path-like field), `equals`, `arg_hex_eq` (hex-normalized arg
+comparison) - so a rule is pure declarative matching, never user SQL or code.
+That fixed vocabulary is the safety boundary: anyone (a project, a user
+library) can add a rule, but no rule can execute arbitrary logic.
+
+Two compilers consume the same rule set and are kept in lockstep by a
+real-DuckDB integration test:
+
+- `compileWhere(rules)` -> a bounded SQL `WHERE` clause, used as a candidate
+  pre-filter so `GraphStore.suggest(runId?)` only reconstructs genuine
+  candidates onto the JS heap.
+- `scoreWith(rules, ev)` -> the per-event JS predicate and **scoring
+  authority**; the SQL pre-filter is purely a bounded narrowing, never the
+  source of truth for what matches.
+
+Every suggestion is attributed to the nearest native frame (`nativeTargetOf`).
+Matching events are aggregated per target (`aggregate()`: sums occurrences,
+keeps the highest-confidence rationale) into `Suggestion` rows (target,
+category, confidence, rationale, occurrence count) and listed in a suggestions
+panel (`src/renderer/suggestions-view.ts`). A suggestion is never turned into a
+tag automatically - the analyst reviews it and clicks Confirm, which mints a
 `source: 'heuristic'` tag through the same tag editor path.
+
+**Built-in rules** (`BUILTIN_RULES`):
+
+| id | syscalls | field / op / value | category | conf |
+|---|---|---|---|---|
+| `dbg-ptrace-attach` | ptrace | args / arg_hex_eq[0] / `0x10` | debugger | 0.7 |
+| `dbg-ptrace-traceme` | ptrace | args / arg_hex_eq[0] / `0x0` | debugger | 0.9 |
+| `dbg-status-open` | openat, newfstatat | string_args / path_matches / `/proc/self/status$` | debugger | 0.6 |
+| `dbg-status-read` | read | fd_args / equals / `/proc/self/status` | debugger | 0.6 |
+| `hook-maps` | openat, newfstatat | string_args / path_matches / `/proc/self/maps$` | hook | 0.5 |
+| `hook-frida-sock` | connect | sock_addr / path_matches / `frida` | hook | 0.9 |
+| `root-paths` | openat, access, newfstatat, faccessat | string_args / path_matches / `su`, `magisk`, `busybox`, `/system/xbin`, `/sbin`, `/data/adb` | root | 0.85 |
+| `root-selinux` | openat, newfstatat, faccessat | string_args / path_matches / `/sys/fs/selinux/enforce$` | root | 0.8 |
+| `root-ksu-prctl` | prctl | args / arg_hex_eq[0] / `0xdeadbeef` | root | 0.9 |
+
+`emulator` and `integrity` ship **no built-in rule** and are not
+syscall-detectable: emulator checks are typically property reads
+(`__system_property_get`, not a syscall), and integrity checks read the app's
+own `base.apk`, which is indistinguishable from ordinary DEX/zip loading at the
+syscall layer. Both remain valid `RaspCategory` values for manual tagging.
+
+**Merge across scopes.** Rules resolve from three layers: `BUILTIN_RULES`, a
+global library (`<userData>/rasp-rules.json`, `rasp-rules-store.ts`), and a
+per-project override carried in the run's `<run>.ares-desktop.json` sidecar.
+`resolveRules` concatenates builtin -> global -> project and, on an `id`
+collision, **later scope wins** (project overrides global overrides builtin).
+`enabledOverrides` lets any scope enable/disable any rule by id under the same
+later-scope-wins precedence, so a project can re-enable a rule a user has
+globally disabled.
 
 ### Findings export
 

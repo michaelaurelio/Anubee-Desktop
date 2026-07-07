@@ -3,6 +3,41 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-07) - extensible RASP heuristics engine; UI/UX overhaul still deferred
+Design reference: overall spec §13.
+
+- **Extensible heuristics engine - SHIPPED.** Feature 5 evolves from hardcoded
+  rules to a declarative, user-authorable rule schema (fixed op vocabulary
+  `path_matches`/`equals`/`arg_hex_eq`; no user SQL or code). Two compilers
+  (`compileWhere` -> bounded SQL pre-filter, `scoreWith` -> per-event JS scoring
+  authority) kept in lockstep by a real-DuckDB integration test. Built-ins
+  corrected/extended, validated against the real 245,760-event ARES-Detector
+  capture: fixed debugger under-firing (`PTRACE_ATTACH` + `openat
+  /proc/self/status` - the previous TRACEME/read-only rules under-fired on the
+  real RASP), added `hook` (`/proc/self/maps` + frida `sock_addr`), expanded
+  `root` (selinux, `/data/adb`, busybox, KernelSU `prctl 0xDEADBEEF`). Rules
+  merge across three scopes - `BUILTIN_RULES` + global library
+  (`<userData>/rasp-rules.json`) + per-project override (run sidecar) - via
+  `resolveRules` (later scope wins on id collision) and `enabledOverrides`
+  (same precedence, per-rule enable/disable). Persistence + tests done this
+  session.
+- **emulator / integrity - documented not-syscall-detectable** (replaces the old
+  "stubs" item below): property reads aren't syscalls; own-`base.apk` reads are
+  indistinguishable from normal loading. Categories stay for manual tagging; no
+  auto-rule.
+- **Still deferred: rule-authoring UI + UI/UX production overhaul
+  (conference-presentable bar).**
+  - **Rule-authoring UI** - predicate-builder editor + live "N matches on current
+    run" preview + global/project scope toggle.
+  - **Graph zoom** - cytoscape zoom in/out + fit controls (currently absent).
+  - **Confirm-to-tag produces no visible output** - investigate confirm→tag→
+    badge/table path; make the result observable (invisible confirmation = broken
+    loop).
+  - **Filter into a popover/panel** - move off the non-scalable top toolbar.
+  - **Coherent layout + visual pass** - floating-panel → single-sidebar refactor,
+    consistent spacing/typography, clear empty/loading/error states, presentation
+    theme.
+
 ## Shipped in Phase 2 (features 5, 6, 7)
 - **5** RASP semantic tagging + heuristic pre-tagging - `project-store` sidecar
   persistence (`<run>.ares-desktop.json`), tag editor + node badges + table tag
@@ -44,19 +79,18 @@ and open verification items. Newest concerns first.
   then trims to the selected node's immediate neighbourhood; a deliberate
   simple first cut, but can be broad (and slow) on a very large run. Revisit if
   it's a problem on real busy runs.
-- **emulator / integrity / hook heuristic rules are stubs** - the categories
-  exist (`RaspCategory`) but `rasp-heuristics.ts` only scores `debugger` and
-  `root` today; no reliable syscall-only signal identified yet for the other
-  three.
-- **Ptrace-request SQL/schema coupling** (mental note for the next ARES-version
-  bump) - `rasp-heuristics.candidateWhere()`'s SQL pre-filter matches the
-  ptrace request as raw `args[1] IN ('0x0', '0')`, which couples to ARES's
-  current hex-emit format (`jb_hex` always emits `"0x0"` for request 0). If
-  ARES ever emits decoded/decimal request values instead, this SQL pre-filter
-  would silently narrow candidates below what the pure `score()` would catch -
-  the arg *formatting* is not covered by `tests/schema-drift.test.ts` (which
-  only checks field names). Re-check this predicate whenever the vendored ARES
-  schema version is bumped.
+- **emulator / integrity / hook heuristic rules were stubs - RESOLVED
+  2026-07-07** (see the "Shipped" entry at top): `hook` shipped
+  (`/proc/self/maps` + frida `sock_addr`); debugger under-firing fixed
+  (`PTRACE_ATTACH` + `openat /proc/self/status`); `root` expanded (selinux,
+  `/data/adb`, busybox, KernelSU `prctl`). `emulator`/`integrity` are
+  documented not-syscall-detectable and remain manual-tag-only categories.
+- **Rule-engine SQL/JS lockstep** (mental note for the next ARES-version bump) -
+  `compileWhere`/`scoreWith` must stay in agreement on every rule's semantics
+  (in particular hex-arg formatting, e.g. ARES's `jb_hex` always emitting
+  `"0x0"` for a zero request); this is covered by a real-DuckDB lockstep test,
+  not by `tests/schema-drift.test.ts` (which only checks field names). Re-run
+  the lockstep test whenever the vendored ARES schema version is bumped.
 - **`runElkLayout` surfaces no layout error** - if the elkjs worker fails to
   spawn/bundle on a target platform, `runElkLayout` rejects and the graph
   silently fails to lay out (nodes stay at the origin) with no user feedback.
