@@ -164,6 +164,42 @@ collision, **later scope wins** (project overrides global overrides builtin).
 later-scope-wins precedence, so a project can re-enable a rule a user has
 globally disabled.
 
+### RASP rule-authoring UI
+
+A `#rules` floating panel (`src/renderer/rules-view.ts`, opened by the "Rules"
+toolbar button) lists `resolveRules`' effective set with a `[builtin|global|
+project]` source badge per row, an enable/disable checkbox, and Edit /
+Delete (writable scopes) / Reset (builtins) actions - every action reads the
+raw stored global/project scope (not the merged effective list), mutates a
+copy, and calls `rasp:rules:save`.
+
+The editor is a predicate-builder form (`id`, `category`, `confidence`,
+`rationale`, `syscalls`, `field`, `op`, `argIndex` - shown only when `op` is
+`arg_hex_eq` - `value`) plus an explicit scope radio (Global | Project) that
+is independent of the row being edited. `draftFromForm`/`validateRule` reject
+an invalid draft inline before anything reaches IPC.
+
+**Editing a builtin forks it.** Builtins are read-only in `BUILTIN_RULES`;
+saving an edit to a builtin row writes a same-`id` rule into whichever scope
+the form's scope radio has selected, and `resolveRules`' later-scope-wins
+merge makes that shadow rule take over from the builtin at read time. Reset
+reverses this: it deletes the same `id` from *both* global and project scopes
+(`deleteRule` x2), so the row falls back to the plain builtin. The builtin
+row's enable-toggle works similarly - it doesn't flip a flag on the
+builtin (there is none to flip); it writes an `enabledOverrides` entry into
+the project (run-local) scope, which `resolveRules` applies at read time.
+
+**Live preview.** While the form is open, every field edit (debounced ~250ms)
+revalidates the draft and, if valid, calls `rasp:rules:preview` ->
+`GraphStore.previewRule(runId, rule)`: a bounded DuckDB scan that runs
+`compileWhere([rule])` as the candidate pre-filter, scores each candidate with
+`scoreWith`, and reports `{ events, targets }` - the count of events with a
+hit and the count of distinct native targets those hits resolve to - rendered
+as `matches N events → M targets`. An invalid rule or no loaded run returns
+`{ error }`, shown in place of the counts. The preview never writes anything;
+it exists purely so an analyst can gauge a draft rule's blast radius against
+the current run before saving it into global or project scope.
+
 ### Findings export
 
 `src/shared/findings.ts` is a pure module: `buildFindings(tags, reps)` joins

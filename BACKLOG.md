@@ -25,10 +25,15 @@ Design reference: overall spec §13.
   "stubs" item below): property reads aren't syscalls; own-`base.apk` reads are
   indistinguishable from normal loading. Categories stay for manual tagging; no
   auto-rule.
-- **Still deferred: rule-authoring UI + UI/UX production overhaul
-  (conference-presentable bar).**
-  - **Rule-authoring UI** - predicate-builder editor + live "N matches on current
-    run" preview + global/project scope toggle.
+- **Rule-authoring UI - SHIPPED.** A `#rules` floating panel (predicate-builder
+  editor: id/category/confidence/rationale/syscalls/field/op/argIndex/value)
+  covers add/edit/delete/enable-disable for global and project rules, a
+  global/project scope picker on the editor, a live debounced "N matches → M
+  targets" preview against the current run (`GraphStore.previewRule`), and
+  builtin fork + reset (editing a builtin forks a same-id override into the
+  chosen scope; Reset drops that override from both scopes to restore the
+  plain builtin).
+- **Still deferred: UI/UX production overhaul (conference-presentable bar).**
   - **Graph zoom** - cytoscape zoom in/out + fit controls (currently absent).
   - **Confirm-to-tag produces no visible output** - investigate confirm→tag→
     badge/table path; make the result observable (invisible confirmation = broken
@@ -45,6 +50,14 @@ Design reference: overall spec §13.
     highest-confidence one (both rationales are concatenated, but the
     lower-confidence `category` is overwritten) - revisit when a native frame
     is legitimately both root and hook.
+  - `rules-view.ts`'s `rulesPreview().then` has no `.catch` - a rejected
+    preview call (e.g. IPC error) leaves the preview text stuck on its last
+    value with no error shown.
+  - `setEnabled` shallow-copies every rule in the scope (`rules.map(r => ({
+    ...r }))`) just to add one `enabledOverrides` entry - unnecessary; only
+    `enabledOverrides` needs a new object.
+  - `npm run shots` has no Rules-panel step, so panel/editor regressions
+    aren't caught by the visual snapshot pass.
 
 ## Shipped in Phase 2 (features 5, 6, 7)
 - **5** RASP semantic tagging + heuristic pre-tagging - `project-store` sidecar

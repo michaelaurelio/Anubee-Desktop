@@ -3,10 +3,10 @@ import { resolve } from 'path'
 import { writeFileSync } from 'node:fs'
 import { GraphStore } from './graph-store'
 import type { Filter } from '@shared/filter'
-import { loadTags, saveTags, loadSidecarRules } from './sidecar'
+import { loadTags, saveTags, loadSidecarRules, saveSidecarRules } from './sidecar'
 import type { Tag } from '@shared/project-store'
-import { loadRules } from './rasp-rules-store'
-import { resolveRules, BUILTIN_RULES } from '@shared/rasp-heuristics'
+import { loadRules, saveRules } from './rasp-rules-store'
+import { resolveRules, BUILTIN_RULES, validateRule, type Rule, type RuleScope } from '@shared/rasp-heuristics'
 import { buildFindings, renderMarkdown, renderJSON } from '@shared/findings'
 import type { SyscallEvent } from '@shared/events'
 import type { DiffRow } from '@shared/diff'
@@ -152,6 +152,35 @@ ipcMain.handle('rasp:suggest', (_e, runId?: number) => {
   const effective = resolveRules(BUILTIN_RULES, global, project)
   return store.suggest(rid, effective)
 })
+ipcMain.handle('rasp:rules:get', (_e, runId?: number) => {
+  const rid = runId ?? store.runs().at(-1)?.runId
+  const global = loadRules(app.getPath('userData'))
+  const project = rid !== undefined
+    ? loadSidecarRules(runFileOf(rid).file)
+    : { rules: [], enabledOverrides: {} }
+  const effective = resolveRules(BUILTIN_RULES, global, project)
+  return { builtin: BUILTIN_RULES, global, project, effective }
+})
+
+ipcMain.handle('rasp:rules:save', (_e, scope: 'global' | 'project', ruleScope: RuleScope, runId?: number) => {
+  if (scope === 'global') {
+    saveRules(app.getPath('userData'), ruleScope)
+    return
+  }
+  const rid = runId ?? store.runs().at(-1)?.runId
+  if (rid === undefined) throw new Error('no active run for project-scope rules')
+  const { file, ingestedAt } = runFileOf(rid)
+  saveSidecarRules(file, ingestedAt, ruleScope.rules, ruleScope.enabledOverrides)
+})
+
+ipcMain.handle('rasp:rules:preview', async (_e, rule: unknown, runId?: number) => {
+  const { rule: valid, error } = validateRule(rule, 'project')
+  if (!valid) return { error: error ?? 'invalid rule' }
+  const rid = runId ?? store.runs().at(-1)?.runId
+  if (rid === undefined) return { error: 'no run loaded' }
+  return store.previewRule(rid, valid)
+})
+
 ipcMain.handle('graph:diffTable', (_e, runA: number, runB: number, filter: Filter, cap?: number) =>
   store.diffTable(runA, runB, filter, cap))
 ipcMain.handle('graph:diffSlice', (_e, runA: number, runB: number, nodeId: string, filter: Filter) =>

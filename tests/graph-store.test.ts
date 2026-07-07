@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall } from '@shared/ares-parse'
 import { foldEvents, type GraphSlice } from '@shared/graph-shape'
+import type { Rule } from '@shared/rasp-heuristics'
 
 // A trace with 2 root-check bridges (java + native), 1 java-less read, a
 // non-syscall `lib` record, and a deliberately malformed line. Placeholder
@@ -156,5 +157,31 @@ describe('GraphStore.nodeEvents', () => {
     await store.ingest(fixture())
     expect((await store.nodeEvents('sys:openat', { tid: 101 })).map(e => e.id)).toEqual([1, 2])
     expect((await store.nodeEvents('sys:openat', { tid: 999 }))).toEqual([])
+  })
+})
+
+describe('GraphStore.previewRule', () => {
+  it('previewRule counts matching events and distinct targets', async () => {
+    store = new GraphStore()
+    const r = await store.ingest(fixture())
+    const rule: Rule = {
+      id: 'preview-root', category: 'root', confidence: 0.8, rationale: 'root path',
+      enabled: true, source: 'project',
+      match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su$|magisk' },
+    }
+    const out = await store.previewRule(r.runId, rule)
+    expect(out.events).toBe(2)  // both openat events match
+    expect(out.targets).toBe(1) // both fold to the one native block
+  })
+
+  it('previewRule returns zeros when nothing matches', async () => {
+    store = new GraphStore()
+    const r = await store.ingest(fixture())
+    const rule: Rule = {
+      id: 'preview-none', category: 'root', confidence: 0.8, rationale: 'x',
+      enabled: true, source: 'project',
+      match: { syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x10' },
+    }
+    expect(await store.previewRule(r.runId, rule)).toEqual({ events: 0, targets: 0 })
   })
 })

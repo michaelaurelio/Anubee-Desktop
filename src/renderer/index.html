@@ -36,6 +36,7 @@
       #side { border-left: 1px solid #ccc; display: flex; flex-direction: column; overflow: hidden; }
       #inspector { flex: 1 1 auto; overflow: auto; padding: 8px; font-family: ui-monospace, monospace; }
       #suggestions { flex: 0 0 auto; max-height: 40%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; }
+      #rules { flex: 0 0 auto; max-height: 40%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; display: none; }
       #orphans { flex: 0 0 auto; max-height: 30%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; display: none; background: #fff8e1; }
       #diff-table { flex: 0 0 auto; max-height: 40%; overflow: auto; border-top: 1px solid #ccc; padding: 8px; }
       #diff-table table { border-collapse: collapse; width: 100%; }
@@ -60,6 +61,7 @@
       <button id="tab-graph">Graph</button>
       <button id="tab-flame">Flame</button>
       <button id="tab-capture">Capture</button>
+      <button id="rules-btn">Rules</button>
       <button id="export-md">Export MD</button>
       <button id="export-json">Export JSON</button>
       <button id="load-run-b">Load run B</button>
@@ -104,6 +106,7 @@
         <div id="inspector"></div>
         <div id="diff-table"></div>
         <div id="suggestions"></div>
+        <div id="rules"></div>
       </div>
     </div>
     <script type="module" src="./main.ts"></script>
