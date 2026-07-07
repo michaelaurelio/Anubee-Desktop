@@ -304,6 +304,30 @@ export class GraphStore {
     return aggregate(all)
   }
 
+  // Preview a single (draft) rule against a run without persisting it. Bounded by
+  // compileWhere like suggest; returns how many events fire and how many distinct
+  // native targets result. Query failure yields zeros (mirrors suggest's guard).
+  async previewRule(runId: number | undefined, rule: Rule): Promise<{ events: number; targets: number }> {
+    const rid = this.resolveRun(runId)
+    const where = compileWhere([rule])
+    let rows
+    try {
+      rows = await this.rows(`SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND (${where})`)
+    } catch (e) {
+      console.error(`previewRule: rule query failed: ${(e as Error).message}`)
+      return { events: 0, targets: 0 }
+    }
+    const all: Suggestion[] = []
+    let events = 0
+    for (const r of rows) {
+      const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
+      const hits = scoreWith([rule], ev as SyscallEvent)
+      if (hits.length > 0) events++
+      all.push(...hits)
+    }
+    return { events, targets: aggregate(all).length }
+  }
+
   // Test-only escape hatch: run a raw read query. Used by the lockstep test to
   // check DuckDB WHERE-admission directly.
   async raw(sql: string): Promise<Record<string, DuckDBValue>[]> {
