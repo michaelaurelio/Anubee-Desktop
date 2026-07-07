@@ -5,11 +5,14 @@ import type { TableRow } from '@shared/table'
 // Map an aggregated slice to cytoscape element definitions. Node/edge `data`
 // carries just what the stylesheet and inspector need.
 export function sliceToElements(slice: GraphSlice): {
-  nodes: { data: { id: string; label: string; kind: string; count: number } }[]
+  nodes: { data: { id: string; label: string; kind: string; count: number }; classes: string }[]
   edges: { data: { id: string; source: string; target: string; count: number } }[]
 } {
   return {
-    nodes: slice.nodes.map(n => ({ data: { id: n.id, label: n.label, kind: n.kind, count: n.count } })),
+    // classes mirrors data.kind as a cytoscape class (`.java`/`.native`/`.syscall`)
+    // so RASP category selectors can combine `.native.suggested.rasp-<cat>`
+    // without a second data-attribute lookup per style rule.
+    nodes: slice.nodes.map(n => ({ data: { id: n.id, label: n.label, kind: n.kind, count: n.count }, classes: n.kind })),
     edges: slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, count: e.count } })),
   }
 }

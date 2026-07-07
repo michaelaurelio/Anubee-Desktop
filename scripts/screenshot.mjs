@@ -51,6 +51,15 @@ const boxOk = await win.evaluate(() => {
 })
 if (!boxOk) throw new Error('nodes are not non-draggable round-rectangle boxes')
 
+// RASP category coloring on native blocks (task 7): the fixture's root-check
+// syscalls resolve to a native frame, so the first subgraph render should have
+// picked up a suggested/confirmed class via recolorRasp().
+const raspOk = await win.evaluate(() => {
+  const cy = window.__cy
+  return cy.nodes('.native.suggested, .native.confirmed').length > 0
+})
+if (!raspOk) throw new Error('no native node received a RASP category class')
+
 await shot('02-subgraph.png')
 
 // 3. A node inspected: click the syscall node at its real rendered position.

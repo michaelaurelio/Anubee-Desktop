@@ -1,5 +1,5 @@
 import cytoscape from 'cytoscape'
-import { themeColors, parseTheme, serializeTheme, type Theme } from './theme'
+import { themeColors, categoryColors, parseTheme, serializeTheme, type Theme } from './theme'
 import { wirePanels } from './panels'
 import { sliceToElements, filterForRow } from './graph-view'
 import { runElkLayout } from './elk-layout'
@@ -10,6 +10,7 @@ import { badgeText, renderTagEditor } from './tag-view'
 import { renderSuggestions } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
+import { raspNodeStates } from './rasp-node-state'
 import { upsertTag, removeTag, tagsByTarget, orphanedTags, type Tag } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
 import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
@@ -56,7 +57,9 @@ const cy = cytoscape({
     { selector: 'node[kind = "java"]', style: { 'background-gradient-stop-colors': [tc.java, tc.labelBacking] } },
     { selector: 'node[kind = "native"]', style: { 'background-gradient-stop-colors': [tc.native, tc.labelBacking] } },
     { selector: 'node[kind = "syscall"]', style: { 'background-gradient-stop-colors': [tc.syscall, tc.labelBacking] } },
-    { selector: 'node[badge]', style: { 'border-width': 3, 'border-color': '#8e44ad' } },
+    // Badge border marks a tagged node; scoped to non-native so it doesn't
+    // double-mark native nodes, which use the RASP category accent instead.
+    { selector: 'node[badge][kind != "native"]', style: { 'border-width': 3, 'border-color': '#8e44ad' } },
     {
       selector: 'edge',
       style: {
@@ -75,6 +78,41 @@ const cy = cytoscape({
     { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
   ],
 })
+
+// RASP category style rules for native nodes: confirmed = solid tinted fill
+// accent, suggested = dashed category-color border. Built from categoryColors()
+// so no hex is hardcoded here; called at init and on theme toggle.
+function styleRaspCategories(t: Theme): void {
+  const cc = categoryColors(t)
+  let s = cy.style()
+  for (const [cat, color] of Object.entries(cc)) {
+    s = s.selector(`node.native.confirmed.rasp-${cat}`).style({
+      'background-gradient-stop-colors': [color, themeColors(t).labelBacking],
+      'border-color': color,
+    })
+    s = s.selector(`node.native.suggested.rasp-${cat}`).style({
+      'border-color': color,
+      'border-style': 'dashed',
+      'border-width': 2,
+    })
+  }
+  s.update()
+}
+styleRaspCategories(theme)
+
+// Fetch current suggestions, fold with confirmed tags, and re-point each native
+// node's class to its RASP category+state (Section C: coloring lives on native,
+// not the syscall aggregate or java frames).
+async function recolorRasp(): Promise<void> {
+  if (activeRunId === undefined) return
+  const suggestions = await window.ares.suggest(activeRunId)
+  const states = raspNodeStates(suggestions, tags)
+  cy.nodes().forEach(n => {
+    n.removeClass('suggested confirmed rasp-root rasp-debugger rasp-emulator rasp-integrity rasp-hook rasp-custom')
+    const st = states.get(n.id())
+    if (st && n.data('kind') === 'native') n.addClass(`${st.state} rasp-${st.category}`)
+  })
+}
 
 let activeRunId: number | undefined
 let tags: Tag[] = []
@@ -135,7 +173,9 @@ async function refreshSuggestions(): Promise<void> {
     await persistTags()
     void refreshTable()
     redrawBadges()
+    void recolorRasp()
   })
+  void recolorRasp()
 }
 
 async function refreshOrphans(): Promise<void> {
@@ -148,6 +188,7 @@ async function refreshOrphans(): Promise<void> {
     await persistTags()
     void refreshTable()
     redrawBadges()
+    void recolorRasp()
     void refreshOrphans()
   }
   renderOrphans(host, orphanedTags(tags, orphanSet), drop, async () => {
@@ -155,6 +196,7 @@ async function refreshOrphans(): Promise<void> {
     await persistTags()
     void refreshTable()
     redrawBadges()
+    void recolorRasp()
     void refreshOrphans()
   })
 }
@@ -196,6 +238,7 @@ async function selectRow(row: TableRow): Promise<void> {
   cy.fit(undefined, 48) // frame the slice with padding; consistent zoom per selection
   showBanner(slice.truncated)
   redrawBadges()
+  void recolorRasp()
 }
 
 // Exposed for the screenshot harness / debugging to drive the graph deterministically.
@@ -208,8 +251,8 @@ cy.on('tap', 'node', evt => {
     const host = document.getElementById('inspector')
     if (!host) return
     renderTagEditor(host, nodeId, undefined, tagsByTarget(tags, nodeId),
-      async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges() },
-      async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges() })
+      async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
+      async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() })
   })
 })
 
@@ -243,6 +286,7 @@ document.getElementById('theme-toggle')?.addEventListener('click', () => {
   localStorage.setItem('ares.theme', serializeTheme(theme))
   syncThemeToggleGlyph()
   applyGraphTheme(theme)
+  styleRaspCategories(theme)
   if (currentView === 'flame') void refreshFlame()
 })
 
