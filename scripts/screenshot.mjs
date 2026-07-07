@@ -7,7 +7,7 @@
 import { _electron as electron } from 'playwright'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -124,4 +124,12 @@ await win.waitForTimeout(300)
 await shot('09-resized-zoomed.png')
 
 await app.close()
+
+// Clean up the temp userData directory
+try {
+  rmSync(userDataDir, { recursive: true, force: true })
+} catch (e) {
+  console.warn('Failed to clean up temp directory:', e.message)
+}
+
 console.log('done')
