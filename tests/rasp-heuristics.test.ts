@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { candidateWhere, score, aggregate } from '../src/shared/rasp-heuristics'
+import { compileWhere, scoreWith, aggregate, BUILTIN_RULES, type Rule } from '../src/shared/rasp-heuristics'
 import type { SyscallEvent } from '../src/shared/events'
 
 const base: SyscallEvent = {
@@ -7,51 +7,85 @@ const base: SyscallEvent = {
   args: [], retval: 0, string_args: {}, fd_args: {}, decoded_args: {},
   backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!check_su+0x10' }],
 }
+const rules = BUILTIN_RULES
+const cats = (e: SyscallEvent) => scoreWith(rules, e).map(s => s.category).sort()
 
-describe('rasp-heuristics', () => {
-  it('flags ptrace(PTRACE_TRACEME) via raw args[0] === 0 as debugger', () => {
-    const s = score({ ...base, syscall: 'ptrace', args: ['0x0'], backtrace: [] })
-    expect(s).toEqual([{ target: 'sys:ptrace', category: 'debugger',
-      confidence: expect.any(Number), rationale: expect.stringContaining('TRACEME'), occurrences: 1 }])
-    expect(s[0].confidence).toBeGreaterThanOrEqual(0.8)
+describe('scoreWith over the built-in set', () => {
+  it('flags ptrace ATTACH (0x10) as debugger', () => {
+    expect(cats({ ...base, syscall: 'ptrace', args: ['0x10'], backtrace: [] })).toContain('debugger')
   })
-
-  it('does not flag ptrace with a non-zero request', () => {
-    expect(score({ ...base, syscall: 'ptrace', args: ['0x10'], backtrace: [] })).toEqual([])
+  it('flags ptrace TRACEME (0x0) as debugger', () => {
+    expect(cats({ ...base, syscall: 'ptrace', args: ['0x0'], backtrace: [] })).toContain('debugger')
   })
-
   it('flags an openat on an su path as root, targeting the nearest native frame', () => {
-    const s = score({ ...base, syscall: 'openat', string_args: { '1': '/system/bin/su' } })
-    expect(s[0]).toMatchObject({ target: 'nat:libexample.so!check_su', category: 'root' })
+    const s = scoreWith(rules, { ...base, syscall: 'openat', string_args: { '1': '/system/bin/su' } })
+    expect(s.find(x => x.category === 'root')!.target).toBe('nat:libexample.so!check_su')
   })
-
-  it('flags a magisk path as root', () => {
-    const s = score({ ...base, syscall: 'access', string_args: { '1': '/sbin/magisk' } })
-    expect(s[0].category).toBe('root')
+  it('flags magisk, busybox, and /data/adb paths as root', () => {
+    for (const p of ['/sbin/magisk', '/system/xbin/busybox', '/data/adb/magisk']) {
+      expect(cats({ ...base, syscall: 'access', string_args: { '1': p } })).toContain('root')
+    }
   })
-
-  it('flags a read of /proc/self/status as debugger', () => {
-    const s = score({ ...base, syscall: 'read', fd_args: { '0': '/proc/self/status' }, backtrace: [] })
-    expect(s[0]).toMatchObject({ target: 'sys:read', category: 'debugger' })
+  it('flags /sys/fs/selinux/enforce as root', () => {
+    expect(cats({ ...base, syscall: 'openat', string_args: { '1': '/sys/fs/selinux/enforce' } })).toContain('root')
   })
-
+  it('flags prctl(0xdeadbeef) as root', () => {
+    expect(cats({ ...base, syscall: 'prctl', args: ['0xdeadbeef'], backtrace: [] })).toContain('root')
+  })
+  it('flags openat /proc/self/status as debugger', () => {
+    expect(cats({ ...base, syscall: 'openat', string_args: { '1': '/proc/self/status' } })).toContain('debugger')
+  })
+  it('flags read of /proc/self/status as debugger (fd fallback)', () => {
+    expect(cats({ ...base, syscall: 'read', fd_args: { '0': '/proc/self/status' }, backtrace: [] })).toContain('debugger')
+  })
+  it('flags openat /proc/self/maps as hook', () => {
+    expect(cats({ ...base, syscall: 'openat', string_args: { '1': '/proc/self/maps' } })).toContain('hook')
+  })
+  it('flags a connect to a frida socket as hook', () => {
+    expect(cats({ ...base, syscall: 'connect', sock_addr: 'unix:@/frida-zymbiote-abc', backtrace: [] })).toContain('hook')
+  })
   it('returns nothing for a benign event', () => {
-    expect(score({ ...base, syscall: 'openat', string_args: { '1': '/data/app/lib.so' } })).toEqual([])
+    expect(scoreWith(rules, { ...base, syscall: 'openat', string_args: { '1': '/data/app/lib.so' } })).toEqual([])
   })
-
-  it('candidateWhere mentions the interesting syscalls', () => {
-    const w = candidateWhere()
-    for (const s of ['ptrace', 'openat', 'read']) expect(w).toContain(s)
+  it('does not flag connect to an unrelated socket', () => {
+    expect(scoreWith(rules, { ...base, syscall: 'connect', sock_addr: 'unix:@/some-app', backtrace: [] })).toEqual([])
   })
+})
 
-  it('candidateWhere pushes the actual rule predicates into SQL, not just syscall names', () => {
-    const w = candidateWhere()
-    expect(w).toContain('/proc/self/status')
-    expect(w.toLowerCase()).toContain('magisk')
+describe('compileWhere', () => {
+  it('emits an arg_hex_eq clause with both hex and decimal forms, 1-indexed', () => {
+    const r: Rule = BUILTIN_RULES.find(x => x.id === 'root-ksu-prctl')!
+    const w = compileWhere([r])
+    expect(w).toContain("syscall IN ('prctl')")
+    expect(w).toContain('args[1] IN')
+    expect(w).toContain("'0xdeadbeef'")
+    expect(w).toContain("'3735928559'") // 0xdeadbeef decimal
   })
+  it('emits a map path_matches clause for string_args', () => {
+    const r: Rule = BUILTIN_RULES.find(x => x.id === 'root-selinux')!
+    const w = compileWhere([r])
+    expect(w).toContain('map_values(string_args)')
+    expect(w).toContain('regexp_matches')
+  })
+  it('emits a scalar clause for sock_addr', () => {
+    const r: Rule = BUILTIN_RULES.find(x => x.id === 'hook-frida-sock')!
+    const w = compileWhere([r])
+    expect(w).toContain('regexp_matches(sock_addr')
+    expect(w).not.toContain('map_values(sock_addr)')
+  })
+  it('escapes single quotes in a value', () => {
+    const r: Rule = { id: 'q', category: 'custom', confidence: 0.5, rationale: '', enabled: true, source: 'global',
+      match: { syscalls: ['openat'], field: 'string_args', op: 'equals', value: "a'b" } }
+    expect(compileWhere([r])).toContain("'a''b'")
+  })
+  it('returns false for an empty rule list (matches nothing)', () => {
+    expect(compileWhere([])).toBe('false')
+  })
+})
 
-  it('aggregate collapses to one per target with summed occurrences and max confidence', () => {
-    const a = { target: 'sys:ptrace', category: 'debugger' as const, confidence: 0.8, rationale: 'x', occurrences: 1 }
+describe('aggregate (unchanged)', () => {
+  it('collapses to one per target with summed occurrences and max confidence', () => {
+    const a = { target: 'sys:ptrace', category: 'debugger' as const, confidence: 0.7, rationale: 'x', occurrences: 1 }
     const b = { target: 'sys:ptrace', category: 'debugger' as const, confidence: 0.9, rationale: 'y', occurrences: 1 }
     const out = aggregate([a, b])
     expect(out).toHaveLength(1)

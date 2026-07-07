@@ -6,10 +6,7 @@ import { chainOf } from './graph-shape'
 // analyst confirms each. Grounded in real ARES output (see the Phase-2 spec):
 // ptrace's request is NOT decoded to a name - it is raw args[0], and
 // PTRACE_TRACEME === 0. Path checks read string_args (openat/access path) and
-// fd_args (resolved fd path). Kept pure so the rules are unit-testable; the
-// candidateWhere() below pushes the same predicates into SQL, sharing
-// SUSPICIOUS_PATH_PATTERN with SUSPICIOUS_PATHS so the WHERE and the JS
-// predicate cannot drift apart.
+// fd_args (resolved fd path). Kept pure so the rules are unit-testable.
 
 export type RuleField = 'string_args' | 'fd_args' | 'sock_addr' | 'args'
 export type RuleOp = 'path_matches' | 'equals' | 'arg_hex_eq'
@@ -161,16 +158,6 @@ export interface Suggestion {
   occurrences: number
 }
 
-export const INTERESTING_SYSCALLS = ['ptrace', 'openat', 'access', 'newfstatat', 'faccessat', 'read']
-
-// su / magisk / known root paths, RE2-compatible (shared with the SQL
-// candidate filter in candidateWhere so the two can never drift). Case
-// sensitivity is applied separately by each consumer (JS flag / SQL flag arg).
-export const SUSPICIOUS_PATH_PATTERN = '(^|/)su$|magisk|/system/xbin|/sbin(/|$)'
-
-// su / magisk / known root paths. Case-insensitive.
-export const SUSPICIOUS_PATHS = new RegExp(SUSPICIOUS_PATH_PATTERN, 'i')
-
 // Parse a raw syscall arg ("0x0", "0", 16) to a number, or NaN.
 function argNum(v: string | undefined): number {
   if (v === undefined) return NaN
@@ -188,46 +175,74 @@ function nativeTargetOf(e: SyscallEvent): string {
   return `sys:${e.syscall}`
 }
 
-// Push the actual scoring predicates into SQL so only genuine RASP candidates
-// are pulled onto the JS heap - `score()` re-checks each one and remains the
-// authority, this only narrows what to_json(ev) has to reconstruct. Kept in
-// lockstep with score()'s three rules; the path pattern is shared via
-// SUSPICIOUS_PATH_PATTERN so the SQL and JS checks cannot drift apart.
-export function candidateWhere(): string {
-  const pathSyscalls = ['openat', 'access', 'newfstatat', 'faccessat'].map(s => `'${s}'`).join(', ')
-  const pattern = SUSPICIOUS_PATH_PATTERN.replace(/'/g, "''")
-  return (
-    `(syscall = 'ptrace' AND args[1] IN ('0x0', '0'))` +
-    ` OR (syscall IN (${pathSyscalls})` +
-    ` AND len(list_filter(map_values(string_args), v -> regexp_matches(v, '${pattern}', 'i'))) > 0)` +
-    ` OR (syscall = 'read' AND list_contains(map_values(fd_args), '/proc/self/status'))`
-  )
+function sqlLit(s: string): string {
+  return s.replace(/'/g, "''")
 }
 
-export function score(e: SyscallEvent): Suggestion[] {
+// Compile the enabled rules to a bounded DuckDB WHERE (OR of per-rule clauses).
+// Only genuine RASP candidates are pulled off DuckDB onto the JS heap; scoreWith
+// re-checks each and remains the scoring authority. An empty list matches
+// nothing. Values are single-quote escaped - the safety boundary (no raw SQL).
+export function compileWhere(rules: Rule[]): string {
+  if (rules.length === 0) return 'false'
+  return rules.map(clauseOf).join(' OR ')
+}
+
+function clauseOf(r: Rule): string {
+  const inSys = `syscall IN (${r.match.syscalls.map(s => `'${sqlLit(s)}'`).join(', ')})`
+  const v = sqlLit(r.match.value)
+  const f = r.match.field
+  let pred: string
+  if (r.match.op === 'arg_hex_eq') {
+    const idx = (r.match.argIndex ?? 0) + 1 // DuckDB list is 1-indexed
+    const dec = String(argNum(r.match.value))
+    pred = `args[${idx}] IN ('${v}', '${sqlLit(dec)}')`
+  } else if (f === 'sock_addr') {
+    pred = r.match.op === 'equals'
+      ? `sock_addr = '${v}'`
+      : `regexp_matches(sock_addr, '${v}', 'i')`
+  } else if (f === 'args') {
+    pred = r.match.op === 'equals'
+      ? `list_contains(args, '${v}')`
+      : `len(list_filter(args, x -> regexp_matches(x, '${v}', 'i'))) > 0`
+  } else { // string_args | fd_args are MAP(VARCHAR,VARCHAR)
+    pred = r.match.op === 'equals'
+      ? `list_contains(map_values(${f}), '${v}')`
+      : `len(list_filter(map_values(${f}), x -> regexp_matches(x, '${v}', 'i'))) > 0`
+  }
+  return `(${inSys} AND ${pred})`
+}
+
+function valuesOf(field: RuleField, e: SyscallEvent): string[] {
+  switch (field) {
+    case 'string_args': return Object.values(e.string_args)
+    case 'fd_args': return Object.values(e.fd_args)
+    case 'args': return e.args
+    case 'sock_addr': return e.sock_addr != null ? [e.sock_addr] : []
+  }
+}
+
+function matchOne(m: RuleMatch, e: SyscallEvent): boolean {
+  if (m.op === 'arg_hex_eq') {
+    const a = e.args[m.argIndex ?? 0]
+    return a !== undefined && argNum(a) === argNum(m.value)
+  }
+  const vals = valuesOf(m.field, e)
+  if (m.op === 'equals') return vals.some(v => v === m.value)
+  const re = new RegExp(m.value, 'i')
+  return vals.some(v => re.test(v))
+}
+
+// The scoring authority. One suggestion per rule whose syscall + predicate match;
+// target is the nearest native frame (nativeTargetOf), rationale verbatim.
+export function scoreWith(rules: Rule[], e: SyscallEvent): Suggestion[] {
   const out: Suggestion[] = []
-
-  if (e.syscall === 'ptrace' && argNum(e.args[0]) === 0) {
-    out.push({ target: `sys:ptrace`, category: 'debugger', confidence: 0.9,
-      rationale: 'ptrace(PTRACE_TRACEME) - classic anti-debug self-attach', occurrences: 1 })
-  }
-
-  if (['openat', 'access', 'newfstatat', 'faccessat'].includes(e.syscall)) {
-    const hit = Object.values(e.string_args).find(v => SUSPICIOUS_PATHS.test(v))
-    if (hit) {
-      out.push({ target: nativeTargetOf(e), category: 'root', confidence: 0.85,
-        rationale: `${e.syscall} on root-indicator path ${hit}`, occurrences: 1 })
+  for (const r of rules) {
+    if (!r.match.syscalls.includes(e.syscall)) continue
+    if (matchOne(r.match, e)) {
+      out.push({ target: nativeTargetOf(e), category: r.category, confidence: r.confidence, rationale: r.rationale, occurrences: 1 })
     }
   }
-
-  if (e.syscall === 'read') {
-    const status = Object.values(e.fd_args).find(v => v === '/proc/self/status')
-    if (status) {
-      out.push({ target: `sys:read`, category: 'debugger', confidence: 0.6,
-        rationale: 'read of /proc/self/status - likely TracerPid debugger check', occurrences: 1 })
-    }
-  }
-
   return out
 }
 
