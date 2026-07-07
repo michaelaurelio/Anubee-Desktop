@@ -2,8 +2,8 @@ import { layoutFlame, type FlameNode, type FlameTree } from '@shared/flame-shape
 import { themeColors, type Theme } from './theme'
 
 // Kind fills follow the active theme (single source: theme.ts). 'root' is the
-// synthetic top frame and stays theme-independent (matches the graph's
-// presence-neutral grey).
+// synthetic top frame with no graph equivalent in themeColors, so it keeps a
+// fixed neutral grey across both themes.
 export function kindFill(theme: Theme): Record<string, string> {
   const c = themeColors(theme)
   return { root: '#7f8c8d', java: c.java, native: c.native, syscall: c.syscall }

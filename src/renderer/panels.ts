@@ -54,6 +54,12 @@ export function wirePanels(root: HTMLElement): void {
     main.style.setProperty('--side-w', `${state.sideW}px`)
     table.classList.toggle('collapsed', state.tableCollapsed)
     side.classList.toggle('collapsed', state.sideCollapsed)
+    // Keep chevron glyphs in sync with collapsed state (incl. on restore from
+    // localStorage), so a persisted-collapsed panel doesn't show a backwards arrow.
+    for (const c of root.querySelectorAll<HTMLElement>('.panel-chevron')) {
+      if (c.dataset.target === 'table') c.textContent = state.tableCollapsed ? '›' : '‹'
+      if (c.dataset.target === 'side') c.textContent = state.sideCollapsed ? '‹' : '›'
+    }
   }
   const save = (): void => localStorage.setItem(LS_KEY, serializeLayout(state))
   apply()
@@ -85,9 +91,9 @@ export function wirePanels(root: HTMLElement): void {
   for (const c of root.querySelectorAll<HTMLElement>('.panel-chevron')) {
     c.addEventListener('click', () => {
       const t = c.dataset.target
-      if (t === 'table') { state.tableCollapsed = !state.tableCollapsed; c.textContent = state.tableCollapsed ? '›' : '‹' }
-      if (t === 'side') { state.sideCollapsed = !state.sideCollapsed; c.textContent = state.sideCollapsed ? '‹' : '›' }
-      apply(); save()
+      if (t === 'table') state.tableCollapsed = !state.tableCollapsed
+      if (t === 'side') state.sideCollapsed = !state.sideCollapsed
+      apply(); save() // apply() now syncs the chevron glyph
     })
   }
 }
