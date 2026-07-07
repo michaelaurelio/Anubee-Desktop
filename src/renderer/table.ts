@@ -7,7 +7,7 @@ export function renderTable(
   onSelect: (row: TableRow) => void,
   badgeFor: (row: TableRow) => string = () => '',
 ): void {
-  const host = document.getElementById('table')
+  const host = document.querySelector<HTMLElement>('#table .table-scroll')
   if (!host) return
   host.innerHTML = ''
 

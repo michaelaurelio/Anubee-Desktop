@@ -370,6 +370,7 @@ function wireExport(): void {
 window.ares.onProgress(pct => status(`Loading... ${pct}%`))
 window.ares.onLoaded(s => {
   activeRunId = s.runId
+  document.getElementById('empty-state')?.classList.add('hidden')
   status(`Loaded ${s.eventCount} events (${s.errors} parse errors)`)
   void refreshTags().then(() => {
     void refreshTable()
@@ -395,6 +396,16 @@ wireFilterControls(() => { void refreshTable(); refreshMiddle() })
 wireExport()
 wireDiff()
 wireCapture()
+
+function zoomBy(factor: number): void {
+  const c = cy.container()
+  if (!c) return
+  const b = c.getBoundingClientRect()
+  cy.zoom({ level: cy.zoom() * factor, renderedPosition: { x: b.width / 2, y: b.height / 2 } })
+}
+document.getElementById('zoom-in')?.addEventListener('click', () => zoomBy(1.2))
+document.getElementById('zoom-out')?.addEventListener('click', () => zoomBy(1 / 1.2))
+document.getElementById('zoom-fit')?.addEventListener('click', () => cy.fit(undefined, 48))
 
 document.getElementById('open-run')?.addEventListener('click', () => { void window.ares.openFile() })
 
