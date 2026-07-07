@@ -387,3 +387,73 @@ repo); the target package is user-entered at runtime, never hardcoded.
 ingested, 0 parse errors; graceful timeout stop (exit 124) and manual `pkill -INT`
 stop (exit 130) both flushed the sink; `lib` → 91 `[lib]` lines with `libc.so`
 resolved; `dump` → 5 rebuilt `.so` files pulled from the dump directory.
+
+## Native-block origin mapping - instruction offsets within native frames
+
+Locates concrete instruction addresses within native symbols by computing
+module-relative offsets from the ARES `lib` module-map records. The offset is the
+difference between the frame address and its module's load base (`addr - load_base`),
+which maps back into a ghidra-opened binary's image-base-relative offset for
+symbol-level drill-down and binary-level annotation.
+
+**Module map.** The ARES tracer's `lib` stdout lines record every library's load
+base per (pid, basename) when the tracer first observes it. The desktop `GraphStore`
+indexes these into a module map (`src/main/graph-store.ts`, `moduleById`). A
+`nodeOffsets` query on a native node computes the concrete offset for each event
+via `addr - load_base`; unmapped events (no matching lib record) are marked
+`[unmapped]` and show no offset, allowing analysts to identify frames missing from
+the tracer's library map.
+
+**Offset popup.** Clicking a native node opens an offset inspector in the node
+detail panel with a scrollable table: each row is an offset (hex), the count of
+events at that offset, and a `reaches` chip list showing which syscall names the
+offset's call-sites reach (a compact proxy for the callee's behaviour). Right-click
+a row for Copy (to paste into a hex editor or ghidra search bar) or Copy-as-JSON
+(for programmatic handling). Click a row to inline-expand it and reveal the
+ground-truth event (raw backtrace, syscall, args, etc.) that carries that offset,
+feeding the analyst's reasoning about what the address does.
+
+**Fan-in/fan-out selection highlight.** Selecting a graph node highlights its
+neighbourhood: syscall nodes show fan-in only (incoming Java calls); Java nodes
+show their entire subtree (Java callees + native frames + syscalls they invoke);
+native nodes show both directions (calling Java methods + reached syscalls). Nodes
+outside the selected path dim to background, drawing focus on the caller-callee
+chain. This is the **litNeighborhood** highlight, distinct from the earlier
+whole-graph coloring.
+
+**RASP category coloring on native blocks.** When a native node is tagged with a
+RASP category (debugger, root, hook, etc.), the node's box gains a visual marker
+- a dashed category-color border for `suggested` (heuristic not yet confirmed) and
+a solid tinted fill for `confirmed` (analyst-approved tag). Coloring lives on the
+**native node itself**, not on the aggregate syscall node above it, because a
+suggestion targets the nearest native frame in the backtrace; the syscall node
+aggregates all calls through all native intermediaries, so its category would
+conflate unrelated calls. The master table and flame view reserve a badge marker
+on the Java/syscall nodes; native-scoped categories are visible only on the graph.
+
+**Node-box redesign.** The graph's node rendering changed from draggable circles
+with separate labels to a uniform **non-draggable** design: rounded-rectangle
+boxes with a left-edge color accent (the node's `kind` color - green for Java,
+blue for native, red for syscall - or the RASP category color when tagged) and
+the label text rendered inside the box. Boxes are laid out by ELK and do not
+respond to drag; the accent is a uniform left border rather than a full-perimeter
+stroke, reducing visual noise and avoiding label-backing conflicts. The layout
+respects label width via ELK's `width: 'label'` sizing hint; see Limitations below.
+
+**Limitations**
+- The offset aggregation caps at 5000 events per node (spec §14.1), so very hot
+  nodes may under-report offset diversity and reach-chip counts with no visible
+  truncation signal.
+- APK-embedded modules (e.g. `base.apk -> libinner.so`) do not match the module
+  map's basename key and get no offset.
+- Unload/reload of the same library at a different base address (rare in the
+  traced scope but theoretically possible) uses the global lowest base and mis-maps
+  events after the reload.
+
+**Phase 2 deferrals.**
+- Per-call-site drill-down canvas nodes (`nat:module@0xVADDR`) with a two-level
+  graph-shape identity change to support true per-offset navigation.
+- Cross-selection bolding (select an offset → bold all the syscalls it reaches
+  across the graph).
+- Session-MCP `origins(syscall | tag)` query for programmatic offset inspection.
+- "Open in ghidra" staging to launch ghidra with the module and offset pre-loaded.
