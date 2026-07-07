@@ -52,7 +52,10 @@ Design reference: overall spec §13.
     `rasp-rules-store.ts` + `project-store.ts` - fold into the shared module.
     (The separate java/native/syscall **color** triplication across
     cytoscape/`#legend`/flame is now **resolved** - single-sourced via
-    `themeColors` in `src/renderer/theme.ts`.)
+    `themeColors` in `src/renderer/theme.ts`, which also owns `labelBacking`
+    and `labelText`. Intentionally left theme-fixed, not missed conversions:
+    the `node[badge]` purple border, flame `root` grey, and the capture
+    console colors - they read acceptably on both canvases.)
   - `aggregate()` collapses multiple same-target categories to the
     highest-confidence one (both rationales are concatenated, but the
     lower-confidence `category` is overwritten) - revisit when a native frame

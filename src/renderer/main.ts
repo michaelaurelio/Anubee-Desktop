@@ -42,7 +42,7 @@ const cy = cytoscape({
         'text-background-opacity': 0.82,
         'text-background-shape': 'roundrectangle',
         'text-background-padding': '2',
-        color: theme === 'dark' ? '#c9d1e0' : '#1e2530',
+        color: tc.labelText,
         width: 18,
         height: 18,
       },
@@ -210,7 +210,7 @@ cy.on('tap', 'node', evt => {
 function applyGraphTheme(next: Theme): void {
   const c = themeColors(next)
   cy.style()
-    .selector('node').style({ 'text-background-color': c.labelBacking, color: next === 'dark' ? '#c9d1e0' : '#1e2530' })
+    .selector('node').style({ 'text-background-color': c.labelBacking, color: c.labelText })
     .selector('node[kind = "java"]').style({ 'background-color': c.java })
     .selector('node[kind = "native"]').style({ 'background-color': c.native })
     .selector('node[kind = "syscall"]').style({ 'background-color': c.syscall })
@@ -218,12 +218,19 @@ function applyGraphTheme(next: Theme): void {
     .update()
 }
 
+// Glyph shows the current theme (dark -> moon, light -> sun), matching the
+// index.html default so a light-theme reload isn't stuck on the moon.
+function syncThemeToggleGlyph(): void {
+  const btn = document.getElementById('theme-toggle')
+  if (btn) btn.textContent = theme === 'dark' ? '☾' : '☀'
+}
+syncThemeToggleGlyph() // init from the restored theme so a light-theme reload isn't stuck on the moon
+
 document.getElementById('theme-toggle')?.addEventListener('click', () => {
   theme = theme === 'dark' ? 'light' : 'dark'
   document.documentElement.setAttribute('data-theme', theme)
   localStorage.setItem('ares.theme', serializeTheme(theme))
-  const btn = document.getElementById('theme-toggle')
-  if (btn) btn.textContent = theme === 'dark' ? '☾' : '☀' // moon / sun
+  syncThemeToggleGlyph()
   applyGraphTheme(theme)
   if (currentView === 'flame') void refreshFlame()
 })
