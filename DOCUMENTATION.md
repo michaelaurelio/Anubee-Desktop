@@ -169,8 +169,8 @@ globally disabled.
 A `#rules` floating panel (`src/renderer/rules-view.ts`, opened by the "Rules"
 toolbar button) lists `resolveRules`' effective set with a `[builtin|global|
 project]` source badge per row, an enable/disable checkbox, and Edit /
-Delete (writable scopes) / Reset (builtins) actions - no scope's rules are
-edited directly; every action reads the current effective list, mutates a
+Delete (writable scopes) / Reset (builtins) actions - every action reads the
+raw stored global/project scope (not the merged effective list), mutates a
 copy, and calls `rasp:rules:save`.
 
 The editor is a predicate-builder form (`id`, `category`, `confidence`,
@@ -185,10 +185,9 @@ the form's scope radio has selected, and `resolveRules`' later-scope-wins
 merge makes that shadow rule take over from the builtin at read time. Reset
 reverses this: it deletes the same `id` from *both* global and project scopes
 (`deleteRule` x2), so the row falls back to the plain builtin. The builtin
-row's enable-toggle behaves the same way - it doesn't flip a flag on the
+row's enable-toggle works similarly - it doesn't flip a flag on the
 builtin (there is none to flip); it writes an `enabledOverrides` entry into
-the panel's current form scope, forking the override in exactly the same
-place an edit would.
+the project (run-local) scope, which `resolveRules` applies at read time.
 
 **Live preview.** While the form is open, every field edit (debounced ~250ms)
 revalidates the draft and, if valid, calls `rasp:rules:preview` ->

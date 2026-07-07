@@ -124,7 +124,7 @@ export async function renderRules(
 
   async function toggle(id: string, source: string, enabled: boolean): Promise<void> {
     // Global/project rules toggle in their own scope; a builtin's override
-    // follows the panel's current form scope (defaults to project).
+    // goes to the project (run-local) scope.
     const scope: 'global' | 'project' = source === 'global' ? 'global' : 'project'
     const base = scope === 'global' ? data.global : data.project
     await persist(scope, setEnabled(base, id, enabled))
