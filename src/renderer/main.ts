@@ -104,6 +104,8 @@ function styleRaspCategories(t: Theme): void {
 }
 styleRaspCategories(theme)
 
+const RASP_CLASSES = ['suggested', 'confirmed', ...Object.keys(categoryColors('dark')).map(c => `rasp-${c}`)].join(' ')
+
 // Fetch current suggestions, fold with confirmed tags, and re-point each native
 // node's class to its RASP category+state (Section C: coloring lives on native,
 // not the syscall aggregate or java frames).
@@ -112,7 +114,7 @@ async function recolorRasp(): Promise<void> {
   const suggestions = await window.ares.suggest(activeRunId)
   const states = raspNodeStates(suggestions, tags)
   cy.nodes().forEach(n => {
-    n.removeClass('suggested confirmed rasp-root rasp-debugger rasp-emulator rasp-integrity rasp-hook rasp-custom')
+    n.removeClass(RASP_CLASSES)
     const st = states.get(n.id())
     if (st && n.data('kind') === 'native') n.addClass(`${st.state} rasp-${st.category}`)
   })
@@ -253,6 +255,7 @@ cy.on('tap', 'node', evt => {
   const nodeId = node.id()
   highlightNeighborhood(cy, node)
   if (node.data('kind') === 'native') {
+    document.getElementById('inspector')?.replaceChildren()
     void Promise.all([
       window.ares.nodeOffsets(nodeId, currentFilter(), activeRunId),
       window.ares.nodeEvents(nodeId, currentFilter(), activeRunId),
