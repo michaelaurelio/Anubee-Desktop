@@ -84,6 +84,8 @@ await win.click('.panel-chevron[data-target="side"]')  // expand back
 await win.click('.panel-chevron[data-target="table"]')
 
 // 9. Resize the table panel by dragging its handle right, then zoom the graph.
+const widthBefore = await win.evaluate(() =>
+  getComputedStyle(document.getElementById('main')).getPropertyValue('--table-w').trim())
 const hb = await win.evaluate(() => {
   const h = document.querySelector('.resize-handle[data-resize="table"]')
   const r = h.getBoundingClientRect()
@@ -93,6 +95,14 @@ await win.mouse.move(hb.x, hb.y)
 await win.mouse.down()
 await win.mouse.move(hb.x + 140, hb.y, { steps: 8 })
 await win.mouse.up()
+await win.waitForTimeout(100)
+const widthAfter = await win.evaluate(() =>
+  getComputedStyle(document.getElementById('main')).getPropertyValue('--table-w').trim())
+// Fail loudly instead of emitting a screenshot that silently proves nothing.
+if (widthAfter === widthBefore) {
+  throw new Error(`resize drag no-op: --table-w unchanged at ${widthBefore}`)
+}
+console.log(`resize: --table-w ${widthBefore} -> ${widthAfter}`)
 await win.click('#zoom-in')
 await win.click('#zoom-in')
 await win.waitForTimeout(300)

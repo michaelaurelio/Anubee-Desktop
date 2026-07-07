@@ -68,9 +68,11 @@ export function wirePanels(root: HTMLElement): void {
     const which = h.dataset.resize as 'table' | 'side'
     h.addEventListener('pointerdown', down => {
       down.preventDefault()
-      h.setPointerCapture(down.pointerId)
       const startX = down.clientX
       const startW = which === 'table' ? state.tableW : state.sideW
+      // Listen on window (not the 5px handle) for the duration of the drag: the
+      // pointer leaves the handle immediately, and window delivery is robust for
+      // both real input and synthetic (CDP/Playwright) events - no pointer capture.
       const move = (e: PointerEvent): void => {
         // table grows as the pointer moves right; side grows as it moves left.
         const delta = which === 'table' ? e.clientX - startX : startX - e.clientX
@@ -79,12 +81,12 @@ export function wirePanels(root: HTMLElement): void {
         apply()
       }
       const up = (): void => {
-        h.removeEventListener('pointermove', move)
-        h.removeEventListener('pointerup', up)
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', up)
         save()
       }
-      h.addEventListener('pointermove', move)
-      h.addEventListener('pointerup', up)
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', up)
     })
   }
 
