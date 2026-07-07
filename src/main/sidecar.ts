@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { parseSidecar, serializeSidecar, type Tag } from '@shared/project-store'
-import type { RuleScope } from '@shared/rasp-heuristics'
+import type { RuleScope, Rule } from '@shared/rasp-heuristics'
 
 // The tag sidecar sits alongside the loaded run: <run>.ares-desktop.json.
 export function sidecarPath(runFile: string): string {
@@ -27,5 +27,17 @@ export function loadSidecarRules(runFile: string): RuleScope {
 export function saveTags(runFile: string, ingestedAt: string, tags: Tag[]): void {
   const existing = loadSidecarRules(runFile)
   const text = serializeSidecar({ file: runFile, ingestedAt }, tags, existing.rules, existing.enabledOverrides)
+  writeFileSync(sidecarPath(runFile), text)
+}
+
+// Writing project rules must not drop authored tags: re-read and carry them.
+export function saveSidecarRules(
+  runFile: string,
+  ingestedAt: string,
+  rules: Rule[],
+  enabledOverrides: Record<string, boolean>,
+): void {
+  const existingTags = loadTags(runFile).tags
+  const text = serializeSidecar({ file: runFile, ingestedAt }, existingTags, rules, enabledOverrides)
   writeFileSync(sidecarPath(runFile), text)
 }

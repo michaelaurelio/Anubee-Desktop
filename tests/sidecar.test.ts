@@ -1,13 +1,20 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { sidecarPath, loadTags, saveTags } from '../src/main/sidecar'
+import { sidecarPath, loadTags, saveTags, loadSidecarRules, saveSidecarRules } from '../src/main/sidecar'
 import type { Tag } from '../src/shared/project-store'
+import type { Rule } from '@shared/rasp-heuristics'
 
 const tag: Tag = {
   target: 'nat:libexample.so!check_su', category: 'root', source: 'manual',
   createdAt: '2026-07-06T00:00:00.000Z',
+}
+
+const RULE: Rule = {
+  id: 'proj-1', category: 'root', confidence: 0.8, rationale: 'test',
+  enabled: true, source: 'project',
+  match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'magisk' },
 }
 
 describe('sidecar fs', () => {
@@ -27,5 +34,19 @@ describe('sidecar fs', () => {
     saveTags(run, 'T', [tag])
     expect(existsSync(sidecarPath(run))).toBe(true)
     expect(loadTags(run)).toEqual({ tags: [tag], errors: [] })
+  })
+
+  it('saveSidecarRules writes rules and preserves existing tags', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ares-sidecar-'))
+    const run = join(dir, 'run.jsonl')
+    writeFileSync(run, '')
+    // seed a tag first
+    saveTags(run, '2026-07-07T00:00:00Z', [{ target: 'sys:openat', category: 'root', source: 'manual', createdAt: 'T' }])
+    // then author a project rule
+    saveSidecarRules(run, '2026-07-07T00:00:00Z', [RULE], { 'dbg-ptrace-attach': false })
+    expect(loadSidecarRules(run).rules).toEqual([RULE])
+    expect(loadSidecarRules(run).enabledOverrides).toEqual({ 'dbg-ptrace-attach': false })
+    expect(loadTags(run).tags).toHaveLength(1) // tag survived the rule write
+    rmSync(dir, { recursive: true, force: true })
   })
 })
