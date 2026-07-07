@@ -35,7 +35,6 @@ describe('GraphStore module map', () => {
     store = new GraphStore()
     const { runId, eventCount } = await store.ingest(fixture())
     expect(eventCount).toBe(3) // 3 syscalls; 2 lib records are not events
-    // @ts-expect-error - reach into the private helper for a white-box check
     expect(store.moduleBase(runId, 100, 'libexample.so')).toBe(0x1000n)
   })
 })
