@@ -7,6 +7,7 @@ import { showNodeInspector } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
 import { renderSuggestions } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
+import { renderRules } from './rules-view'
 import { upsertTag, removeTag, tagsByTarget, orphanedTags, type Tag } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
 import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
@@ -348,6 +349,15 @@ window.ares.onLoaded(s => {
 document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))
 document.getElementById('tab-flame')?.addEventListener('click', () => showView('flame'))
 document.getElementById('tab-capture')?.addEventListener('click', () => showView('capture'))
+document.getElementById('rules-btn')?.addEventListener('click', () => {
+  const host = document.getElementById('rules')
+  if (!host) return
+  const opening = host.style.display === 'none' || host.style.display === ''
+  host.style.display = opening ? 'block' : 'none'
+  if (opening) {
+    void renderRules(host, activeRunId, () => { void refreshSuggestions() })
+  }
+})
 wireFilterControls(() => { void refreshTable(); refreshMiddle() })
 wireExport()
 wireDiff()
