@@ -7,6 +7,7 @@ import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
 import { compileWhere, scoreWith, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
 import { presenceOf, type DiffRow, type MergedSlice, type MergedNode } from '@shared/diff'
+import { parseHexAddr } from '@shared/origins'
 
 export type { TableRow }
 
@@ -21,6 +22,7 @@ const COLS =
   "'string_args':'MAP(VARCHAR,VARCHAR)','fd_args':'MAP(VARCHAR,VARCHAR)'," +
   "'decoded_args':'MAP(VARCHAR,VARCHAR)','sock_addr':'VARCHAR','stack_id':'BIGINT'," +
   "'java_stack':'VARCHAR[]'," +
+  "'library':'VARCHAR','start':'VARCHAR','end':'VARCHAR','pgoff':'BIGINT'," +
   "'backtrace':'STRUCT(frame INTEGER, addr VARCHAR, symbol VARCHAR)[]'}"
 
 function sqlStr(s: string): string {
@@ -81,6 +83,20 @@ export class GraphStore {
   private nextRunId = 1
   private activeRunId?: number
 
+  // runId -> ("<pid>|<basename>" -> load base). Built from `lib` records at
+  // ingest; the basis for module-relative (ghidra) offsets. Kept in JS memory
+  // (lib records are sparse) rather than in DuckDB, which cannot cleanly cast
+  // the quoted-hex `start` strings.
+  private modmap = new Map<number, Map<string, bigint>>()
+
+  private static baseKey(pid: number, module: string): string {
+    return `${pid}|${module}`
+  }
+
+  moduleBase(runId: number, pid: number, module: string): bigint | undefined {
+    return this.modmap.get(runId)?.get(GraphStore.baseKey(pid, module))
+  }
+
   private conn(): DuckDBConnection {
     if (!this.con) throw new Error('GraphStore: no run loaded (call ingest first)')
     return this.con
@@ -126,6 +142,24 @@ export class GraphStore {
     const eventCount = await this.scalar(
       `SELECT count(*) n FROM ev WHERE run_id = ${runId} AND type = 'syscall'`,
     )
+
+    // Build the per-run module map from `lib` records before they are deleted.
+    // Load base = the lowest segment start for a (pid, library basename).
+    const libRows = await this.rows(
+      `SELECT pid, library, start FROM ev
+       WHERE run_id = ${runId} AND type = 'lib' AND library IS NOT NULL AND start IS NOT NULL`,
+    )
+    const rmap = new Map<string, bigint>()
+    for (const r of libRows) {
+      const start = parseHexAddr(String(r.start))
+      if (start === null) continue
+      const basename = String(r.library).split('/').pop() as string
+      const key = GraphStore.baseKey(num(r.pid)!, basename)
+      const prev = rmap.get(key)
+      if (prev === undefined || start < prev) rmap.set(key, start)
+    }
+    this.modmap.set(runId, rmap)
+
     await this.conn().run(
       `DELETE FROM ev WHERE run_id = ${runId} AND type IS DISTINCT FROM 'syscall'`,
     )
@@ -419,6 +453,7 @@ export class GraphStore {
     this.con = undefined
     this.instance = undefined
     this.runsMap.clear()
+    this.modmap.clear()
     this.activeRunId = undefined
     this.nextRunId = 1
   }
