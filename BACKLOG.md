@@ -37,6 +37,14 @@ Design reference: overall spec §13.
   - **Coherent layout + visual pass** - floating-panel → single-sidebar refactor,
     consistent spacing/typography, clear empty/loading/error states, presentation
     theme.
+- **Final-review residual minors (not urgent, tracked for follow-up):**
+  - Dedup: `CATEGORIES` array duplicated in `rasp-heuristics.ts` +
+    `project-store.ts`; `coerceOverrides` helper duplicated in
+    `rasp-rules-store.ts` + `project-store.ts` - fold into the shared module.
+  - `aggregate()` collapses multiple same-target categories to the
+    highest-confidence one (both rationales are concatenated, but the
+    lower-confidence `category` is overwritten) - revisit when a native frame
+    is legitimately both root and hook.
 
 ## Shipped in Phase 2 (features 5, 6, 7)
 - **5** RASP semantic tagging + heuristic pre-tagging - `project-store` sidecar

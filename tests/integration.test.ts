@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterAll, vi } from 'vitest'
 import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
@@ -163,6 +163,21 @@ describe('compiler lockstep (real DuckDB admits exactly what scoreWith scores)',
         expect(admitted.has(e.id), `${rule.id} vs event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
       }
     }
+    await store.close()
+  })
+})
+
+describe('suggest fail-safe', () => {
+  it('returns [] (not throw) when a rule compiles to SQL DuckDB rejects', async () => {
+    const store = new GraphStore()
+    await store.ingest(fixture([evA]))
+    // A rule that bypassed validation with an RE2-incompatible regex -> DuckDB rejects the WHERE.
+    const badRule = { id: 'bad', category: 'custom', confidence: 0.5, rationale: 'x', enabled: true, source: 'global',
+      match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo(?=bar)' } } as any
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const out = await store.suggest(undefined, [badRule])
+    expect(out).toEqual([])
+    spy.mockRestore()
     await store.close()
   })
 })

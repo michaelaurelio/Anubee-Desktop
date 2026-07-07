@@ -39,6 +39,11 @@ const CATEGORIES: RaspCategory[] = ['root', 'debugger', 'emulator', 'integrity',
 const FIELDS: RuleField[] = ['string_args', 'fd_args', 'sock_addr', 'args']
 const OPS: RuleOp[] = ['path_matches', 'equals', 'arg_hex_eq']
 const HEX = /^0x[0-9a-f]+$/i
+// Constructs valid in a JS RegExp but unsupported by DuckDB's RE2 engine
+// (lookahead/lookbehind/backreference). A path_matches value using one would pass
+// JS validation and work in scoreWith, but make compileWhere emit SQL that DuckDB
+// rejects at runtime - reject it at authoring time so the two compilers stay in lockstep.
+const RE2_INCOMPATIBLE = /\(\?<?[=!]|\\[1-9]/
 
 // Built-in rules expressed in the same schema as user rules. Corrected + extended
 // against a real 245,760-event RASP capture (see the session spec): the shipped
@@ -103,8 +108,10 @@ export function validateRule(v: unknown, source: RuleSource): { rule: Rule | nul
   }
   if (m.op === 'path_matches') {
     try { new RegExp(m.value) } catch { return { rule: null, error: `bad regex on ${o.id}` } }
+    if (RE2_INCOMPATIBLE.test(m.value)) return { rule: null, error: `regex uses an RE2-incompatible construct (lookaround/backreference) on ${o.id}` }
   }
-  const match: RuleMatch = { syscalls: m.syscalls as string[], field: m.field as RuleField, op: m.op as RuleOp, value: m.value }
+  const value = m.op === 'arg_hex_eq' ? '0x' + argNum(m.value as string).toString(16) : (m.value as string)
+  const match: RuleMatch = { syscalls: m.syscalls as string[], field: m.field as RuleField, op: m.op as RuleOp, value }
   if (typeof m.argIndex === 'number') match.argIndex = m.argIndex
   const rule: Rule = {
     id: o.id, category: o.category as RaspCategory, confidence: o.confidence, rationale: o.rationale,

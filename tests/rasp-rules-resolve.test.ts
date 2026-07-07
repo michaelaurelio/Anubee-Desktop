@@ -60,6 +60,21 @@ describe('validateRule', () => {
     expect(r!.enabled).toBe(true)
     expect(r!.source).toBe('project')
   })
+  it('rejects a path_matches value using an RE2-incompatible lookahead', () => {
+    expect(validateRule(userRule({ match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo(?=bar)' } }), 'global').rule).toBeNull()
+  })
+  it('rejects a path_matches value using a backreference', () => {
+    expect(validateRule(userRule({ match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '(a)\\1' } }), 'global').rule).toBeNull()
+  })
+  it('accepts a normal path_matches regex (alternation, anchors, char classes)', () => {
+    expect(validateRule(userRule({ match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '(^|/)su$|/data/adb' } }), 'global').rule).not.toBeNull()
+  })
+  it('canonicalizes an arg_hex_eq value to lowercase minimal hex', () => {
+    const upper = validateRule(userRule({ match: { syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0xDEADBEEF' } }), 'global').rule
+    expect(upper!.match.value).toBe('0xdeadbeef')
+    const padded = validateRule(userRule({ match: { syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x0010' } }), 'global').rule
+    expect(padded!.match.value).toBe('0x10')
+  })
 })
 
 describe('coerceRules', () => {

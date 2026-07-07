@@ -285,9 +285,17 @@ export class GraphStore {
     const effective = (rules ?? resolveRules(BUILTIN_RULES, EMPTY_SCOPE, EMPTY_SCOPE)).filter(r => r.enabled)
     if (effective.length === 0) return []
     const where = compileWhere(effective)
-    const rows = await this.rows(
-      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND (${where})`,
-    )
+    let rows
+    try {
+      rows = await this.rows(
+        `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND (${where})`,
+      )
+    } catch (e) {
+      // Defense in depth: a compiled rule DuckDB rejects (e.g. an RE2-incompatible
+      // regex that bypassed validation) must not break the whole suggestions panel.
+      console.error(`suggest: rule query failed, returning no suggestions: ${(e as Error).message}`)
+      return []
+    }
     const all: Suggestion[] = []
     for (const r of rows) {
       const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
