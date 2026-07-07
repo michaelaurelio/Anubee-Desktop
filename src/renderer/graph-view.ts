@@ -39,7 +39,7 @@ export interface ElkLaidOut {
 // Approximate a node's rendered width from its label (the dot plus the label to
 // its right) so ELK spaces columns without overlap.
 function nodeWidth(label: string): number {
-  return Math.min(240, Math.max(60, label.length * 6 + 24))
+  return Math.min(230, Math.max(70, label.length * 6.2 + 26))
 }
 
 // Map cytoscape element defs to an ELK graph. Pure; the worker runs the layout.
@@ -50,7 +50,7 @@ export function sliceToElkGraph(elements: {
   return {
     id: 'root',
     layoutOptions: ELK_LAYOUT_OPTIONS,
-    children: elements.nodes.map(n => ({ id: n.data.id, width: nodeWidth(n.data.label), height: 24 })),
+    children: elements.nodes.map(n => ({ id: n.data.id, width: nodeWidth(n.data.label), height: 34 })),
     edges: elements.edges.map(e => ({ id: e.data.id, sources: [e.data.source], targets: [e.data.target] })),
   }
 }

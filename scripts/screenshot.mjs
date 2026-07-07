@@ -7,15 +7,21 @@
 import { _electron as electron } from 'playwright'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const shots = resolve(root, 'screenshots')
 mkdirSync(shots, { recursive: true })
 const fixture = resolve(root, 'tests/fixtures/sample.jsonl')
 
+// Fresh userData dir per run: otherwise localStorage (panel widths, theme) persists
+// across invocations and the resize-drag step below can start already clamped at
+// MAX_W, making the "did it move" assertion a false failure on a re-run.
+const userDataDir = mkdtempSync(resolve(tmpdir(), 'ares-desktop-shots-'))
+
 const app = await electron.launch({
-  args: [resolve(root, 'out/main/index.js'), '--no-sandbox', '--disable-gpu'],
+  args: [resolve(root, 'out/main/index.js'), '--no-sandbox', '--disable-gpu', `--user-data-dir=${userDataDir}`],
   env: { ...process.env, ARES_OPEN_FILE: fixture },
 })
 
@@ -36,6 +42,15 @@ await shot('01-loaded-table.png')
 await win.click('#table table tr:nth-child(2)') // first data row (row 1 is header)
 await win.waitForSelector('#cy canvas', { timeout: 15000 })
 await win.waitForTimeout(1200) // let ELK layout settle
+
+// Nodes render as non-draggable round-rectangle boxes (task 6: node-box redesign).
+const boxOk = await win.evaluate(() => {
+  const cy = window.__cy
+  const n = cy.nodes()[0]
+  return n && n.style('shape') === 'round-rectangle' && !n.grabbable()
+})
+if (!boxOk) throw new Error('nodes are not non-draggable round-rectangle boxes')
+
 await shot('02-subgraph.png')
 
 // 3. A node inspected: click the syscall node at its real rendered position.

@@ -25,6 +25,7 @@ const tc = themeColors(theme)
 
 const cy = cytoscape({
   container: document.getElementById('cy'),
+  autoungrabify: true, // uniform boxes are not draggable; pan/zoom still work
   style: [
     {
       selector: 'node',
@@ -32,24 +33,29 @@ const cy = cytoscape({
         label: 'data(label)',
         'font-size': 10,
         'text-wrap': 'wrap',
-        'text-max-width': '200px',
-        // Place the label beside the node (not on it) so the edge/arrow never
-        // crosses the text; a light backing keeps it legible over edges.
-        'text-halign': 'right',
+        'text-max-width': '150px',
+        'text-halign': 'center',
         'text-valign': 'center',
-        'text-margin-x': 8,
-        'text-background-color': tc.labelBacking,
-        'text-background-opacity': 0.82,
-        'text-background-shape': 'roundrectangle',
-        'text-background-padding': '2',
         color: tc.labelText,
-        width: 18,
-        height: 18,
+        shape: 'round-rectangle',
+        width: 'label',
+        height: 'label',
+        padding: '8px',
+        // Left accent bar: a hard-stop gradient (kind color for the first ~7%,
+        // then the node body color) - cytoscape has no per-side border, so a
+        // gradient with a sharp stop position simulates one.
+        'background-color': tc.labelBacking,
+        'background-fill': 'linear-gradient',
+        'background-gradient-stop-colors': [tc.native, tc.labelBacking],
+        'background-gradient-stop-positions': [7, 7],
+        'background-gradient-direction': 'to-right',
+        'border-width': 1,
+        'border-color': tc.edge,
       },
     },
-    { selector: 'node[kind = "java"]', style: { 'background-color': tc.java, shape: 'diamond' } },
-    { selector: 'node[kind = "native"]', style: { 'background-color': tc.native } },
-    { selector: 'node[kind = "syscall"]', style: { 'background-color': tc.syscall, shape: 'round-rectangle' } },
+    { selector: 'node[kind = "java"]', style: { 'background-gradient-stop-colors': [tc.java, tc.labelBacking] } },
+    { selector: 'node[kind = "native"]', style: { 'background-gradient-stop-colors': [tc.native, tc.labelBacking] } },
+    { selector: 'node[kind = "syscall"]', style: { 'background-gradient-stop-colors': [tc.syscall, tc.labelBacking] } },
     { selector: 'node[badge]', style: { 'border-width': 3, 'border-color': '#8e44ad' } },
     {
       selector: 'edge',
@@ -210,10 +216,15 @@ cy.on('tap', 'node', evt => {
 function applyGraphTheme(next: Theme): void {
   const c = themeColors(next)
   cy.style()
-    .selector('node').style({ 'text-background-color': c.labelBacking, color: c.labelText })
-    .selector('node[kind = "java"]').style({ 'background-color': c.java })
-    .selector('node[kind = "native"]').style({ 'background-color': c.native })
-    .selector('node[kind = "syscall"]').style({ 'background-color': c.syscall })
+    .selector('node').style({
+      color: c.labelText,
+      'background-color': c.labelBacking,
+      'background-gradient-stop-colors': [c.native, c.labelBacking],
+      'border-color': c.edge,
+    })
+    .selector('node[kind = "java"]').style({ 'background-gradient-stop-colors': [c.java, c.labelBacking] })
+    .selector('node[kind = "native"]').style({ 'background-gradient-stop-colors': [c.native, c.labelBacking] })
+    .selector('node[kind = "syscall"]').style({ 'background-gradient-stop-colors': [c.syscall, c.labelBacking] })
     .selector('edge').style({ 'line-color': c.edge, 'target-arrow-color': c.edge })
     .update()
 }
