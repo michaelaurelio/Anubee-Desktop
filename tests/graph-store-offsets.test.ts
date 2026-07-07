@@ -64,4 +64,53 @@ describe('GraphStore.nodeOffsets', () => {
     // libc.so was never mapped by a lib record -> no base -> no offsets.
     expect(await store.nodeOffsets('nat:libc.so!read')).toEqual([])
   })
+
+  it('is empty when the frame module is unmapped (node still appears in a chain)', async () => {
+    // libother.so has no `lib` record, so nodeEvents finds the event (the node
+    // appears in the chain) but moduleBase() returns undefined - this drives the
+    // `base === undefined` branch, unlike the fixture-wide "no load base" case
+    // above where nodeEvents already returns [] before that branch is reached.
+    const noBaseLines = [
+      JSON.stringify({ type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 56, syscall: 'openat', args: [], retval: 3, string_args: {}, fd_args: {}, decoded_args: {}, java_stack: [], backtrace: [{ frame: 0, addr: '0x500', symbol: 'libother.so!bar+0x10' }] }),
+    ]
+    dir = mkdtempSync(join(tmpdir(), 'ares-offsets-nobase-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, noBaseLines.join('\n') + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const events = await store.nodeEvents('nat:libother.so!bar')
+    expect(events).toHaveLength(1) // the node does appear in a chain
+    expect(await store.nodeOffsets('nat:libother.so!bar')).toEqual([])
+  })
+})
+
+// A single event whose backtrace has both a symbolized and an unsymbolized
+// frame in the SAME mapped module, so nat:module (bare) and nat:module!symbol
+// are distinct nodes fed by distinct frames. Load base 0x1000.
+const MIXED_LINES = [
+  JSON.stringify({ type: 'lib', pid: 200, library: '/data/app/libexample.so', start: '0x1000', end: '0x2000', pgoff: 0 }),
+  JSON.stringify({ type: 'syscall', id: 1, pid: 200, tid: 201, syscall_nr: 56, syscall: 'openat', args: [], retval: 3, string_args: {}, fd_args: {}, decoded_args: {}, java_stack: [], backtrace: [
+    { frame: 0, addr: '0x1900', symbol: 'libexample.so+0x900' },
+    { frame: 1, addr: '0x1050', symbol: 'libexample.so!foo+0x50' },
+  ] }),
+]
+
+describe('GraphStore.nodeOffsets - bare-module node vs symbolized node', () => {
+  it('bare-module node only includes the unsymbolized call site', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'ares-offsets-mixed-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, MIXED_LINES.join('\n') + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+
+    const bareRows = await store.nodeOffsets('nat:libexample.so')
+    expect(bareRows.map(r => r.offset)).toEqual(['0x900'])
+    expect(bareRows[0].symbol).toBeNull()
+
+    const fooRows = await store.nodeOffsets('nat:libexample.so!foo')
+    expect(fooRows.map(r => r.offset)).toEqual(['0x50'])
+    expect(fooRows[0].symbol).toBe('foo')
+  })
 })

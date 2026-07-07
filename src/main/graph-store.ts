@@ -324,6 +324,8 @@ export class GraphStore {
     const bang = rest.indexOf('!')
     const wantSymbol = bang >= 0 ? rest.slice(bang + 1) : null
 
+    // Capped at 5000 events: for a very hot node this silently under-aggregates
+    // `count`/`reaches` past the cap (tracked in BACKLOG).
     const events = await this.nodeEvents(nodeId, filter, 5000, rid)
 
     // vaddr(hex) -> accumulating row.
@@ -336,7 +338,7 @@ export class GraphStore {
       for (const f of ev.backtrace) {
         const p = parseFrameSymbol(f.symbol)
         if (p.module !== meta.module) continue
-        if (wantSymbol !== null && p.symbol !== wantSymbol) continue
+        if (wantSymbol === null ? p.symbol !== null : p.symbol !== wantSymbol) continue
         const addr = parseHexAddr(f.addr)
         if (addr === null) continue
         const offset = moduleRelative(addr, base)
