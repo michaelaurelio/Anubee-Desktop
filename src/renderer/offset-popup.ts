@@ -13,10 +13,20 @@ export function popupState(rows: OffsetRow[]): { kind: 'rows' | 'empty'; rows: O
 
 let host: HTMLDivElement | undefined
 let menu: HTMLDivElement | undefined
+let onDocDown: ((e: MouseEvent) => void) | undefined
+let onKeyDown: ((e: KeyboardEvent) => void) | undefined
+let onMenuDown: ((e: MouseEvent) => void) | undefined
+
+function closeRowMenu(): void {
+  menu?.remove(); menu = undefined
+  if (onMenuDown) { document.removeEventListener('mousedown', onMenuDown); onMenuDown = undefined }
+}
 
 export function closeOffsetPopup(): void {
   host?.remove(); host = undefined
-  menu?.remove(); menu = undefined
+  if (onDocDown) { document.removeEventListener('mousedown', onDocDown); onDocDown = undefined }
+  if (onKeyDown) { document.removeEventListener('keydown', onKeyDown); onKeyDown = undefined }
+  closeRowMenu()
 }
 
 interface ShowOpts {
@@ -87,27 +97,28 @@ export function showOffsetPopup(opts: ShowOpts): void {
 
   // Dismiss on outside-click / Esc.
   setTimeout(() => {
-    const onDoc = (e: MouseEvent) => { if (host && !host.contains(e.target as Node)) { closeOffsetPopup(); document.removeEventListener('mousedown', onDoc) } }
-    document.addEventListener('mousedown', onDoc)
+    onDocDown = (e: MouseEvent) => { if (host && !host.contains(e.target as Node)) closeOffsetPopup() }
+    onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') closeOffsetPopup() }
+    document.addEventListener('mousedown', onDocDown)
+    document.addEventListener('keydown', onKeyDown)
   }, 0)
-  document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { closeOffsetPopup(); document.removeEventListener('keydown', esc) } })
 }
 
 function openRowMenu(x: number, y: number, row: OffsetRow): void {
-  menu?.remove()
+  closeRowMenu()
   menu = document.createElement('div')
   menu.className = 'offset-row-menu'
   Object.assign(menu.style, { position: 'fixed', left: x + 'px', top: y + 'px', zIndex: '60' })
   const item = (text: string, fn: () => void) => {
     const b = document.createElement('div'); b.className = 'offset-menu-item'; b.textContent = text
-    b.onclick = () => { fn(); menu?.remove(); menu = undefined }
+    b.onclick = () => { fn(); closeRowMenu() }
     menu!.appendChild(b)
   }
   item('Copy', () => void navigator.clipboard.writeText(copyText(row)))
   item('Copy as JSON', () => void navigator.clipboard.writeText(rowJson(row)))
   document.body.appendChild(menu)
   setTimeout(() => {
-    const onDoc = (e: MouseEvent) => { if (menu && !menu.contains(e.target as Node)) { menu.remove(); menu = undefined; document.removeEventListener('mousedown', onDoc) } }
-    document.addEventListener('mousedown', onDoc)
+    onMenuDown = (e: MouseEvent) => { if (menu && !menu.contains(e.target as Node)) closeRowMenu() }
+    document.addEventListener('mousedown', onMenuDown)
   }, 0)
 }
