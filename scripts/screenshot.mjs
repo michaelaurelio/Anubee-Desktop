@@ -51,6 +51,13 @@ const boxOk = await win.evaluate(() => {
 })
 if (!boxOk) throw new Error('nodes are not non-draggable round-rectangle boxes')
 
+// Node accent is now a uniform border, not a left-stripe gradient (task 4).
+const borderOk = await win.evaluate(() => {
+  const n = window.__cy.nodes()[0]
+  return n && parseFloat(n.style('border-width')) >= 2
+})
+if (!borderOk) throw new Error('node accent border missing')
+
 // RASP category coloring on native blocks (task 7): the fixture's root-check
 // syscalls resolve to a native frame, so the first subgraph render should have
 // picked up a suggested/confirmed class via recolorRasp().

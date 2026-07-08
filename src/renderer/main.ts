@@ -44,38 +44,31 @@ const cy = cytoscape({
         width: 'label',
         height: 'label',
         padding: '8px',
-        // Left accent bar: a hard-stop gradient (kind color for the first ~7%,
-        // then the node body color) - cytoscape has no per-side border, so a
-        // gradient with a sharp stop position simulates one.
         'background-color': tc.labelBacking,
-        'background-fill': 'linear-gradient',
-        'background-gradient-stop-colors': [tc.native, tc.labelBacking],
-        'background-gradient-stop-positions': [7, 7],
-        'background-gradient-direction': 'to-right',
-        'border-width': 1,
-        'border-color': tc.edge,
+        'border-width': 2,
+        'border-color': tc.native, // default; per-kind rules below override
       },
     },
-    { selector: 'node[kind = "java"]', style: { 'background-gradient-stop-colors': [tc.java, tc.labelBacking] } },
-    { selector: 'node[kind = "native"]', style: { 'background-gradient-stop-colors': [tc.native, tc.labelBacking] } },
-    { selector: 'node[kind = "syscall"]', style: { 'background-gradient-stop-colors': [tc.syscall, tc.labelBacking] } },
+    { selector: 'node[kind = "java"]', style: { 'border-color': tc.java } },
+    { selector: 'node[kind = "native"]', style: { 'border-color': tc.native } },
+    { selector: 'node[kind = "syscall"]', style: { 'border-color': tc.syscall } },
     // Badge border marks a tagged node; scoped to non-native so it doesn't
     // double-mark native nodes, which use the RASP category accent instead.
     { selector: 'node[badge][kind != "native"]', style: { 'border-width': 3, 'border-color': '#8e44ad' } },
     {
       selector: 'edge',
       style: {
-        width: 'mapData(count, 1, 50, 1, 5)',
+        width: 'mapData(count, 1, 50, 1, 4)',
         'curve-style': 'bezier',
         'target-arrow-shape': 'triangle',
-        'arrow-scale': 0.8,
+        'arrow-scale': 0.5,
         'line-color': tc.edge,
         'target-arrow-color': tc.edge,
       },
     },
-    { selector: 'node[presence = "A-only"]', style: { 'background-fill': 'solid', 'background-color': '#c0392b' } },
-    { selector: 'node[presence = "B-only"]', style: { 'background-fill': 'solid', 'background-color': '#27ae60' } },
-    { selector: 'node[presence = "both"]', style: { 'background-fill': 'solid', 'background-color': '#95a5a6' } },
+    { selector: 'node[presence = "A-only"]', style: { 'background-color': '#c0392b' } },
+    { selector: 'node[presence = "B-only"]', style: { 'background-color': '#27ae60' } },
+    { selector: 'node[presence = "both"]', style: { 'background-color': '#95a5a6' } },
     { selector: 'edge[presence = "A-only"]', style: { 'line-color': '#c0392b', 'target-arrow-color': '#c0392b' } },
     { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
     { selector: '.dimmed', style: { 'opacity': 0.15 } },
@@ -91,8 +84,9 @@ function styleRaspCategories(t: Theme): void {
   let s = cy.style()
   for (const [cat, color] of Object.entries(cc)) {
     s = s.selector(`node.native.confirmed.rasp-${cat}`).style({
-      'background-gradient-stop-colors': [color, themeColors(t).labelBacking],
+      'background-color': themeColors(t).labelBacking,
       'border-color': color,
+      'border-width': 2,
     })
     s = s.selector(`node.native.suggested.rasp-${cat}`).style({
       'border-color': color,
@@ -288,15 +282,10 @@ cy.on('tap', evt => { if (evt.target === cy) { clearHighlight(cy); closeOffsetPo
 function applyGraphTheme(next: Theme): void {
   const c = themeColors(next)
   cy.style()
-    .selector('node').style({
-      color: c.labelText,
-      'background-color': c.labelBacking,
-      'background-gradient-stop-colors': [c.native, c.labelBacking],
-      'border-color': c.edge,
-    })
-    .selector('node[kind = "java"]').style({ 'background-gradient-stop-colors': [c.java, c.labelBacking] })
-    .selector('node[kind = "native"]').style({ 'background-gradient-stop-colors': [c.native, c.labelBacking] })
-    .selector('node[kind = "syscall"]').style({ 'background-gradient-stop-colors': [c.syscall, c.labelBacking] })
+    .selector('node').style({ color: c.labelText, 'background-color': c.labelBacking, 'border-color': c.native })
+    .selector('node[kind = "java"]').style({ 'border-color': c.java })
+    .selector('node[kind = "native"]').style({ 'border-color': c.native })
+    .selector('node[kind = "syscall"]').style({ 'border-color': c.syscall })
     .selector('edge').style({ 'line-color': c.edge, 'target-arrow-color': c.edge })
     .update()
 }
