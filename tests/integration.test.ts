@@ -9,7 +9,12 @@ import { presenceOf } from '../src/shared/diff'
 import type { StackRollup } from '../src/shared/flame-shape'
 import { compileWhere, scoreWith, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
 
-const FIXTURE = resolve(__dirname, 'fixtures/sample.jsonl')
+// oracle.jsonl is the tiny deterministic fixture these exact-value assertions pin
+// to. sample.jsonl is a real dev.ares.detector capture (see REAL_FIXTURE) used by
+// the screenshot harness and the real-data smoke below; it is too large/nondeterministic
+// to assert exact ids/counts against.
+const FIXTURE = resolve(__dirname, 'fixtures/oracle.jsonl')
+const REAL_FIXTURE = resolve(__dirname, 'fixtures/sample.jsonl')
 const store = new GraphStore()
 
 afterAll(() => store.close())
@@ -40,6 +45,23 @@ describe('integration: load the fixture end to end', () => {
     expect(ids(slice.nodes)).toEqual(ids(oracle.nodes))
     expect(ids(slice.edges)).toEqual(ids(oracle.edges))
     expect(slice.eventCount).toBe(oracle.eventCount)
+  })
+
+  it('ingests the real capture and the DuckDB slice still matches the foldEvents oracle', async () => {
+    // Content-agnostic invariant run over a real dev.ares.detector capture: the
+    // SQL slice and the pure-TS fold must agree on any input, not just the toy one.
+    const real = new GraphStore()
+    const r = await real.ingest(REAL_FIXTURE)
+    expect(r.eventCount).toBeGreaterThan(0)
+    expect(r.errors).toBe(0) // a clean tracer file has no malformed lines
+    const oracle = foldEvents(parseJsonl(readFileSync(REAL_FIXTURE, 'utf-8')).events.filter(isSyscall))
+    const slice = await real.slice()
+    const ids = (xs: { id: string }[]) => xs.map(x => x.id).sort()
+    expect(ids(slice.nodes)).toEqual(ids(oracle.nodes))
+    expect(ids(slice.edges)).toEqual(ids(oracle.edges))
+    // The capture carries real RASP bridges, so the has-java_stack slice is non-empty.
+    expect((await real.slice({ hasJavaStack: true })).eventCount).toBeGreaterThan(0)
+    await real.close()
   })
 
   it('filters by library and by tid', async () => {
