@@ -10,6 +10,7 @@ export interface OffsetRow {
   reaches: string[]                    // distinct syscalls this call-site leads to
   argsSample: Record<string, string>   // decoded args of a representative event
   count: number                        // events in which this call-site appears
+  sampleEventId: number                // id of a representative event for row-expand
 }
 
 export interface OriginBlob {

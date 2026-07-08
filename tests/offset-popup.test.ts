@@ -3,7 +3,7 @@ import { popupState } from '../src/renderer/offset-popup'
 import type { OffsetRow } from '@shared/origins'
 
 const row: OffsetRow = { module: 'libexample.so', offset: '0x10', symbol: 'check_su',
-  reaches: ['openat'], argsSample: {}, count: 3 }
+  reaches: ['openat'], argsSample: {}, count: 3, sampleEventId: 1 }
 
 describe('popupState', () => {
   it('reports empty when there are no rows', () => {

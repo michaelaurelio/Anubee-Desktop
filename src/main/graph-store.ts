@@ -351,7 +351,7 @@ export class GraphStore {
         let row = acc.get(offset)
         if (!row) {
           row = { module: meta.module, offset, symbol: p.symbol,
-                  reaches: [], argsSample: ev.decoded_args ?? {}, count: 0 }
+                  reaches: [], argsSample: ev.decoded_args ?? {}, count: 0, sampleEventId: ev.id }
           acc.set(offset, row)
         }
         if (!row.reaches.includes(ev.syscall)) row.reaches.push(ev.syscall)

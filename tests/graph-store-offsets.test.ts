@@ -55,6 +55,10 @@ describe('GraphStore.nodeOffsets', () => {
     // addr 0x1020 - base 0x1000 = 0x20, hit by openat (id 2) only.
     expect(byOffset['0x20'].reaches).toEqual(['openat'])
     expect(byOffset['0x20'].count).toBe(1)
+
+    // Row's sample event = the first event that contributed that offset.
+    expect(byOffset['0x10'].sampleEventId).toBe(1) // event id 1 (addr 0x1010) hits 0x10 first
+    expect(byOffset['0x20'].sampleEventId).toBe(2) // event id 2 (addr 0x1020)
   })
 
   it('is empty when the module has no load base', async () => {
