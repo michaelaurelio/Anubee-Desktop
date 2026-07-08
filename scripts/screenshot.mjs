@@ -133,16 +133,42 @@ await win.mouse.click(npos.x, npos.y)
 await win.waitForSelector('.offset-popup', { timeout: 5000 })
 const dimOk = await win.evaluate(() => window.__cy.elements('.dimmed').length > 0)
 if (!dimOk) throw new Error('tap did not dim the off-path elements')
+// The inspector fills with the node's filtered records (not cleared).
+const inspOk = await win.evaluate(() => !!document.querySelector('#inspector .insp-table tbody tr'))
+if (!inspOk) throw new Error('native tap did not fill the inspector with records')
+// The offset popup carries no tag editor (tagging is right-click now).
+const noTag = await win.evaluate(() => !document.querySelector('.offset-popup .tag-editor'))
+if (!noTag) throw new Error('offset popup still contains a tag editor')
+// The popup sits to the right of (or flipped left of) the node - never over it.
+const clearOk = await win.evaluate(() => {
+  const cy = window.__cy
+  const n = cy.nodes('[kind = "native"]')[0]
+  const bb = n.renderedBoundingBox()
+  const rect = cy.container().getBoundingClientRect()
+  const nodeRight = rect.left + bb.x2, nodeLeft = rect.left + bb.x1
+  const pop = document.querySelector('.offset-popup').getBoundingClientRect()
+  return pop.left >= nodeRight - 1 || pop.right <= nodeLeft + 1
+})
+if (!clearOk) throw new Error('offset popup overlaps the node instead of sitting beside it')
 await win.waitForTimeout(300)
 await shot('03b-offset-popup.png')
 
-// 3c. Right-click a node -> context menu (Copy / Tag), for any node kind.
+// 3c. Right-click a node -> context menu (Copy / Add Tag); Add Tag opens the tag popup.
 await win.keyboard.press('Escape') // close the offset popup first
 await win.waitForTimeout(150)
 await win.mouse.click(npos.x, npos.y, { button: 'right' })
 await win.waitForSelector('.node-menu', { timeout: 5000 })
+const hasAddTag = await win.evaluate(() =>
+  [...document.querySelectorAll('.node-menu-item')].some(el => el.textContent === 'Add Tag'))
+if (!hasAddTag) throw new Error('right-click menu has no Add Tag item')
 await win.waitForTimeout(150)
 await shot('03c-node-menu.png')
+// Activate Add Tag -> the themed tag popup opens.
+await win.evaluate(() =>
+  [...document.querySelectorAll('.node-menu-item')].find(el => el.textContent === 'Add Tag')?.click())
+await win.waitForSelector('.tag-popup .tag-editor', { timeout: 5000 })
+await win.waitForTimeout(150)
+await shot('03d-tag-popup.png')
 await win.keyboard.press('Escape')
 
 // 4. Filtered: has-java_stack only, re-run.
