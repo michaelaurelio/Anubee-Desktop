@@ -21,6 +21,31 @@ describe('scoreWith over the built-in set', () => {
     const s = scoreWith(rules, { ...base, syscall: 'openat', string_args: { '1': '/system/bin/su' } })
     expect(s.find(x => x.category === 'root')!.target).toBe('nat:libexample.so!check_su')
   })
+
+  it('targets the innermost NON-system native block, skipping the libc wrapper', () => {
+    // backtrace[0] = innermost (libc syscall wrapper); the app's RASP block is
+    // one frame out; libart is outermost. The suggestion must name the app block.
+    const s = scoreWith(rules, {
+      ...base, syscall: 'openat', string_args: { '1': '/system/bin/su' },
+      backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libc.so!__openat+0x8' },
+        { frame: 1, addr: '0x2', symbol: 'librasp.so!detect_root+0x4c' },
+        { frame: 2, addr: '0x3', symbol: 'libart.so!_ZN3artEv+0x10' },
+      ],
+    })
+    expect(s.find(x => x.category === 'root')!.target).toBe('nat:librasp.so!detect_root')
+  })
+
+  it('falls back to the innermost native when the whole path is system libs', () => {
+    const s = scoreWith(rules, {
+      ...base, syscall: 'openat', string_args: { '1': '/system/bin/su' },
+      backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libc.so!__openat+0x8' },
+        { frame: 1, addr: '0x2', symbol: 'libart.so!_ZN3artEv+0x10' },
+      ],
+    })
+    expect(s.find(x => x.category === 'root')!.target).toBe('nat:libc.so!__openat')
+  })
   it('flags magisk, busybox, and /data/adb paths as root', () => {
     for (const p of ['/sbin/magisk', '/system/xbin/busybox', '/data/adb/magisk']) {
       expect(cats({ ...base, syscall: 'access', string_args: { '1': p } })).toContain('root')
