@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sliceToElements, sliceToElkGraph, elkResultToPositions, filterForRow } from '../src/renderer/graph-view'
+import { sliceToElements, sliceToElkGraph, elkResultToPositions, filterForRow, truncateLabel } from '../src/renderer/graph-view'
 import type { GraphSlice } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
 
@@ -64,5 +64,19 @@ describe('filterForRow', () => {
   it('ANDs the currently active toolbar filter', () => {
     expect(filterForRow(row(), { library: 'libexample' }))
       .toEqual({ library: 'libexample', text: 'com.example.Sec.check', hasJavaStack: true })
+  })
+})
+
+describe('truncateLabel', () => {
+  it('leaves a short label unchanged', () => {
+    expect(truncateLabel('openat', 22)).toBe('openat')
+  })
+  it('truncates a long label with an ellipsis at the cap', () => {
+    const out = truncateLabel('check_su (libexample.so)', 22)
+    expect(out).toBe('check_su (libexample.…')
+    expect(out.length).toBe(22)
+  })
+  it('defaults the cap to 22', () => {
+    expect(truncateLabel('x'.repeat(30)).length).toBe(22)
   })
 })
