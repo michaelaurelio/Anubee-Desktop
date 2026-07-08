@@ -9,6 +9,7 @@ import { showNodeInspector } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
 import { highlightNeighborhood, clearHighlight } from './graph-highlight'
 import { showOffsetPopup, closeOffsetPopup, eventForOffset } from './offset-popup'
+import { showNodeMenu, closeNodeMenu } from './node-menu'
 import { renderSuggestions } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
@@ -304,7 +305,20 @@ cy.on('tap', 'node', evt => {
   }
 })
 
-cy.on('tap', evt => { if (evt.target === cy) { clearHighlight(cy); closeOffsetPopup() } })
+// Right-click any node -> Copy the identifier / Tag it, for any node kind.
+cy.on('cxttap', 'node', evt => {
+  const nodeId = evt.target.id()
+  showNodeMenu({
+    nodeId,
+    anchor: { x: evt.originalEvent.clientX, y: evt.originalEvent.clientY },
+    onCopy: text => void window.ares.copyToClipboard(text),
+    tagHost: h => renderTagEditor(h, nodeId, undefined, tagsByTarget(tags, nodeId),
+      async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
+      async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() }),
+  })
+})
+
+cy.on('tap', evt => { if (evt.target === cy) { clearHighlight(cy); closeOffsetPopup(); closeNodeMenu() } })
 
 function applyGraphTheme(next: Theme): void {
   const c = themeColors(next)

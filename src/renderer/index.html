@@ -227,6 +227,12 @@
       .sug-btns { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
       .sug-confirm { border-color: #2ea043; color: #7ee2a0; }
       .sug-reject { border-color: #c94f4f; color: #f2a3a3; }
+      /* right-click node context menu */
+      .node-menu { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+        box-shadow: var(--shadow); min-width: 160px; padding: 4px; }
+      .node-menu-item { padding: 6px 10px; cursor: pointer; font-size: 12px; color: var(--text); border-radius: 4px; }
+      .node-menu-item:hover { background: var(--hover); }
+      .node-menu-tag { padding: 6px; min-width: 240px; }
     </style>
   </head>
   <body>

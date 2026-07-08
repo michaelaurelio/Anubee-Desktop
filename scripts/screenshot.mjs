@@ -136,6 +136,15 @@ if (!dimOk) throw new Error('tap did not dim the off-path elements')
 await win.waitForTimeout(300)
 await shot('03b-offset-popup.png')
 
+// 3c. Right-click a node -> context menu (Copy / Tag), for any node kind.
+await win.keyboard.press('Escape') // close the offset popup first
+await win.waitForTimeout(150)
+await win.mouse.click(npos.x, npos.y, { button: 'right' })
+await win.waitForSelector('.node-menu', { timeout: 5000 })
+await win.waitForTimeout(150)
+await shot('03c-node-menu.png')
+await win.keyboard.press('Escape')
+
 // 4. Filtered: has-java_stack only, re-run.
 await win.check('#f-hasjava')
 await win.click('#apply')
