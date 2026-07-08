@@ -7,6 +7,23 @@ import { copyText, rowJson } from '@shared/origins'
 import type { SyscallEvent } from '@shared/events'
 import { formatEvent } from './inspector'
 
+export interface NodeBox { left: number; top: number; right: number; bottom: number }
+export interface PopupPlacement { left: number; top: number }
+
+// Place a popup of (w,h) just right of the node box, flipping to its left when
+// the right would overflow the viewport; vertically center on the node, clamped
+// into the viewport. Pure - unit-tested without a DOM. See design s3.3.
+export function placePopup(
+  box: NodeBox, w: number, h: number, viewport: { w: number; h: number }, gap = 12,
+): PopupPlacement {
+  const left = box.right + gap + w <= viewport.w
+    ? box.right + gap
+    : Math.max(8, box.left - gap - w)
+  const centered = box.top + (box.bottom - box.top - h) / 2
+  const top = Math.max(8, Math.min(centered, viewport.h - h - 8))
+  return { left, top }
+}
+
 export function popupState(rows: OffsetRow[]): { kind: 'rows' | 'empty'; rows: OffsetRow[] } {
   return { kind: rows.length ? 'rows' : 'empty', rows }
 }
