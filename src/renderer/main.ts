@@ -76,8 +76,8 @@ const cy = cytoscape({
   ],
 })
 
-// RASP category style rules for native nodes: confirmed = solid tinted fill
-// accent, suggested = dashed category-color border. Built from categoryColors()
+// RASP category style rules for native nodes: confirmed = solid category-color
+// border (flat body), suggested = dashed category-color border. Built from categoryColors()
 // so no hex is hardcoded here; called at init and on theme toggle.
 function styleRaspCategories(t: Theme): void {
   const cc = categoryColors(t)

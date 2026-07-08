@@ -410,8 +410,8 @@ events at that offset, and a `reaches` chip list showing which syscall names the
 offset's call-sites reach (a compact proxy for the callee's behaviour). Right-click
 a row for Copy (to paste into a hex editor or ghidra search bar) or Copy-as-JSON
 (for programmatic handling). Click a row to inline-expand it and reveal the
-ground-truth event (raw backtrace, syscall, args, etc.) that carries that offset,
-feeding the analyst's reasoning about what the address does.
+exact per-offset event (raw backtrace, syscall, args, etc.) via a store-provided
+sample event id, feeding the analyst's reasoning about what the address does.
 
 **Fan-in/fan-out selection highlight.** Selecting a graph node highlights its
 neighbourhood: syscall nodes show fan-in only (incoming Java calls); Java nodes
@@ -433,12 +433,14 @@ on the Java/syscall nodes; native-scoped categories are visible only on the grap
 
 **Node-box redesign.** The graph's node rendering changed from draggable circles
 with separate labels to a uniform **non-draggable** design: rounded-rectangle
-boxes with a left-edge color accent (the node's `kind` color - green for Java,
-blue for native, red for syscall - or the RASP category color when tagged) and
-the label text rendered inside the box. Boxes are laid out by ELK and do not
-respond to drag; the accent is a uniform left border rather than a full-perimeter
-stroke, reducing visual noise and avoiding label-backing conflicts. The layout
-respects label width via ELK's `width: 'label'` sizing hint; see Limitations below.
+boxes with a 2px border accent in the node's `kind` color (green for Java, blue
+for native, red for syscall), or the RASP category border when tagged (dashed
+for suggested, solid for confirmed) and the label text rendered inside the box,
+truncated to approximately 22 characters with ellipsis (full text visible in the
+offset popup header and node inspector). Boxes are laid out by ELK and do not
+respond to drag; the uniform border reduces visual noise and avoids
+label-backing conflicts. The layout respects label width via ELK's `width:
+'label'` sizing hint; see Limitations below.
 
 **Limitations**
 - The offset aggregation caps at 5000 events per node (spec §14.1), so very hot
