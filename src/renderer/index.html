@@ -191,6 +191,17 @@
       .offset-menu-item:last-child { border-bottom: 0; }
       .offset-menu-item:hover { background: var(--hover); }
       .offset-popup-empty { color: var(--muted); padding: 8px; font-size: 12px; text-align: center; }
+      /* tag editor: category + note + save + existing tags (right-click Add Tag) */
+      .tag-editor { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px;
+                    display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text); }
+      .tag-editor .tag-editor-title { font-weight: 600; }
+      .tag-editor .tag-editor-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .tag-editor select, .tag-editor input, .tag-editor button {
+        background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+        border-radius: 5px; padding: 3px 6px; font: inherit; }
+      .tag-editor button { cursor: pointer; }
+      .tag-editor button:hover { background: var(--hover); }
+      .tag-editor .tag-existing { display: flex; flex-direction: column; gap: 3px; color: var(--muted); }
       /* inspector: records-behind-a-node table + detail */
       .insp-head { font-weight: 600; color: var(--text); margin-bottom: 6px; word-break: break-all; font-size: 12px; }
       .insp-table-wrap { max-height: 40vh; overflow: auto; border: 1px solid var(--border-soft); border-radius: 6px; }

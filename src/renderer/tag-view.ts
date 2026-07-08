@@ -37,14 +37,15 @@ export function renderTagEditor(
   onRemove: (target: string, offset?: string) => void,
 ): void {
   const box = document.createElement('div')
-  box.style.marginTop = '8px'
-  box.style.borderTop = '1px solid #eee'
-  box.style.paddingTop = '6px'
+  box.className = 'tag-editor'
 
   const label = document.createElement('div')
-  label.style.fontWeight = 'bold'
+  label.className = 'tag-editor-title'
   label.textContent = offset ? `Tag ${target} @ ${offset}` : `Tag ${target}`
   box.appendChild(label)
+
+  const controls = document.createElement('div')
+  controls.className = 'tag-editor-controls'
 
   const select = document.createElement('select')
   for (const c of CATEGORIES) {
@@ -53,24 +54,24 @@ export function renderTagEditor(
     opt.textContent = c
     select.appendChild(opt)
   }
-  box.appendChild(select)
+  controls.appendChild(select)
 
   const note = document.createElement('input')
   note.type = 'text'
   note.placeholder = 'note (optional)'
-  note.style.marginLeft = '6px'
-  box.appendChild(note)
+  controls.appendChild(note)
 
   const save = document.createElement('button')
   save.textContent = 'Save tag'
-  save.style.marginLeft = '6px'
   save.onclick = () =>
     onSave(newManualTag(target, select.value as RaspCategory, offset, note.value, new Date().toISOString()))
-  box.appendChild(save)
+  controls.appendChild(save)
+
+  box.appendChild(controls)
 
   if (current.length) {
     const existing = document.createElement('div')
-    existing.style.marginTop = '4px'
+    existing.className = 'tag-existing'
     for (const t of current) {
       const row = document.createElement('div')
       row.textContent = `${badgeText([t])}${t.offset ? ' @ ' + t.offset : ''}${t.note ? ' - ' + t.note : ''} (${t.source})`
