@@ -159,6 +159,30 @@
       .loud-warn { color: var(--k-syscall); font-weight: 600; }
       .cap-input { display: flex; gap: 6px; align-items: center; }
       .preflight-ok { color: var(--k-java); } .preflight-bad { color: var(--k-syscall); }
+
+      /* offset-popup: floating table for native node offsets */
+      .offset-popup { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+        padding: 8px; max-height: 300px; overflow: auto; box-shadow: var(--shadow); }
+      .offset-popup-head { font-family: var(--mono); font-weight: 600; padding: 0 0 6px 0; margin-bottom: 6px;
+        border-bottom: 1px solid var(--border-soft); color: var(--text); }
+      .offset-popup-rows { display: flex; flex-direction: column; gap: 4px; }
+      .offset-row { cursor: pointer; }
+      .offset-row-line { display: flex; gap: 12px; align-items: center; padding: 4px; border-radius: 4px;
+        cursor: pointer; }
+      .offset-row-line:hover { background: var(--hover); }
+      .offset-cell { font-family: var(--mono); color: var(--text); flex: 0 0 auto; }
+      .reaches-cell { color: var(--text); flex: 1 1 auto; font-size: 12px; }
+      .count-cell { font-family: var(--mono); color: var(--muted); text-align: right; flex: 0 0 40px;
+        background: var(--hover); padding: 2px 6px; border-radius: 3px; }
+      .offset-row-detail { margin: 4px 0 0 0; padding: 6px; background: var(--hover); border-radius: 4px;
+        color: var(--text); font-size: 11px; border: 1px solid var(--border-soft); }
+      .offset-row-menu { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+        box-shadow: var(--shadow); min-width: 120px; z-index: 60; }
+      .offset-menu-item { padding: 4px 8px; cursor: pointer; font-size: 12px; color: var(--text);
+        border-bottom: 1px solid var(--border-soft); }
+      .offset-menu-item:last-child { border-bottom: 0; }
+      .offset-menu-item:hover { background: var(--hover); }
+      .offset-popup-empty { color: var(--muted); padding: 8px; font-size: 12px; text-align: center; }
     </style>
   </head>
   <body>

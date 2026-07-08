@@ -232,6 +232,24 @@ Design reference: overall spec §13.
   runs auto-switch to the table; `lib`/`dump` leave the result in the console /
   `userData/runs/` with no in-app artifact browser yet.
 
+## Known drawbacks from Phase 1b (native-block origin mapping)
+- **`offset-popup` `eventForOffset` row-expand sample** - the popup shows the
+  node's first event as the row-expand sample rather than the event whose
+  backtrace carries that exact offset. Refine to match the per-offset event
+  rather than a fixed node-level sample.
+- **Offset popup `reaches` chips are unstyled** - the syscall names in the
+  `reaches` chip list are plain text. Color them by the reached syscall's
+  category (via `categoryColors`) to visually link offset behaviour to syscall
+  intent.
+- **Node-box label overflow risk** - ELK sizing via `width: 'label'` can reserve
+  a box narrower than the actual rendered label on long-label slices, causing
+  text to spill and overlap adjacent nodes. Revisit ELK's sizing heuristic or
+  add label truncation to keep boxes tight.
+- **Node accent style cross-platform** - the left-edge accent shipped as a
+  hard-stripe linear-gradient (`linear-gradient(90deg, ...)`). Revisit against a
+  uniform-border fallback if the gradient renders inconsistently on any platform,
+  or if the border approach improves readability on high-DPI displays.
+
 ## Deferred features (post-core, spec §7)
 - **8** Session-only MCP (stdio) exposing the tagged graph. Decision C: headless
   analytics + device tools stay in `tools/ares-mcp`.

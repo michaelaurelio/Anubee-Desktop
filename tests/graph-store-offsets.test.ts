@@ -35,7 +35,6 @@ describe('GraphStore module map', () => {
     store = new GraphStore()
     const { runId, eventCount } = await store.ingest(fixture())
     expect(eventCount).toBe(3) // 3 syscalls; 2 lib records are not events
-    // @ts-expect-error - reach into the private helper for a white-box check
     expect(store.moduleBase(runId, 100, 'libexample.so')).toBe(0x1000n)
   })
 })
@@ -65,7 +64,7 @@ describe('GraphStore.nodeOffsets', () => {
     expect(await store.nodeOffsets('nat:libc.so!read')).toEqual([])
   })
 
-  it('is empty when the frame module is unmapped (node still appears in a chain)', async () => {
+  it('emits [unmapped] row when the frame module is unmapped (node still appears in a chain)', async () => {
     // libother.so has no `lib` record, so nodeEvents finds the event (the node
     // appears in the chain) but moduleBase() returns undefined - this drives the
     // `base === undefined` branch, unlike the fixture-wide "no load base" case
@@ -81,7 +80,12 @@ describe('GraphStore.nodeOffsets', () => {
     await store.ingest(p)
     const events = await store.nodeEvents('nat:libother.so!bar')
     expect(events).toHaveLength(1) // the node does appear in a chain
-    expect(await store.nodeOffsets('nat:libother.so!bar')).toEqual([])
+    const rows = await store.nodeOffsets('nat:libother.so!bar')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].offset).toBe('[unmapped]')
+    expect(rows[0].module).toBe('libother.so')
+    expect(rows[0].reaches.length).toBeGreaterThan(0)
+    expect(rows[0].count).toBe(1)
   })
 })
 

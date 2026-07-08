@@ -1,5 +1,5 @@
 import cytoscape from 'cytoscape'
-import { themeColors, parseTheme, serializeTheme, type Theme } from './theme'
+import { themeColors, categoryColors, parseTheme, serializeTheme, type Theme } from './theme'
 import { wirePanels } from './panels'
 import { sliceToElements, filterForRow } from './graph-view'
 import { runElkLayout } from './elk-layout'
@@ -7,9 +7,12 @@ import { renderTable } from './table'
 import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
+import { highlightNeighborhood, clearHighlight } from './graph-highlight'
+import { showOffsetPopup, closeOffsetPopup } from './offset-popup'
 import { renderSuggestions } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
+import { raspNodeStates } from './rasp-node-state'
 import { upsertTag, removeTag, tagsByTarget, orphanedTags, type Tag } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
 import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
@@ -25,6 +28,7 @@ const tc = themeColors(theme)
 
 const cy = cytoscape({
   container: document.getElementById('cy'),
+  autoungrabify: true, // uniform boxes are not draggable; pan/zoom still work
   style: [
     {
       selector: 'node',
@@ -32,25 +36,32 @@ const cy = cytoscape({
         label: 'data(label)',
         'font-size': 10,
         'text-wrap': 'wrap',
-        'text-max-width': '200px',
-        // Place the label beside the node (not on it) so the edge/arrow never
-        // crosses the text; a light backing keeps it legible over edges.
-        'text-halign': 'right',
+        'text-max-width': '150px',
+        'text-halign': 'center',
         'text-valign': 'center',
-        'text-margin-x': 8,
-        'text-background-color': tc.labelBacking,
-        'text-background-opacity': 0.82,
-        'text-background-shape': 'roundrectangle',
-        'text-background-padding': '2',
         color: tc.labelText,
-        width: 18,
-        height: 18,
+        shape: 'round-rectangle',
+        width: 'label',
+        height: 'label',
+        padding: '8px',
+        // Left accent bar: a hard-stop gradient (kind color for the first ~7%,
+        // then the node body color) - cytoscape has no per-side border, so a
+        // gradient with a sharp stop position simulates one.
+        'background-color': tc.labelBacking,
+        'background-fill': 'linear-gradient',
+        'background-gradient-stop-colors': [tc.native, tc.labelBacking],
+        'background-gradient-stop-positions': [7, 7],
+        'background-gradient-direction': 'to-right',
+        'border-width': 1,
+        'border-color': tc.edge,
       },
     },
-    { selector: 'node[kind = "java"]', style: { 'background-color': tc.java, shape: 'diamond' } },
-    { selector: 'node[kind = "native"]', style: { 'background-color': tc.native } },
-    { selector: 'node[kind = "syscall"]', style: { 'background-color': tc.syscall, shape: 'round-rectangle' } },
-    { selector: 'node[badge]', style: { 'border-width': 3, 'border-color': '#8e44ad' } },
+    { selector: 'node[kind = "java"]', style: { 'background-gradient-stop-colors': [tc.java, tc.labelBacking] } },
+    { selector: 'node[kind = "native"]', style: { 'background-gradient-stop-colors': [tc.native, tc.labelBacking] } },
+    { selector: 'node[kind = "syscall"]', style: { 'background-gradient-stop-colors': [tc.syscall, tc.labelBacking] } },
+    // Badge border marks a tagged node; scoped to non-native so it doesn't
+    // double-mark native nodes, which use the RASP category accent instead.
+    { selector: 'node[badge][kind != "native"]', style: { 'border-width': 3, 'border-color': '#8e44ad' } },
     {
       selector: 'edge',
       style: {
@@ -62,13 +73,52 @@ const cy = cytoscape({
         'target-arrow-color': tc.edge,
       },
     },
-    { selector: 'node[presence = "A-only"]', style: { 'background-color': '#c0392b' } },
-    { selector: 'node[presence = "B-only"]', style: { 'background-color': '#27ae60' } },
-    { selector: 'node[presence = "both"]', style: { 'background-color': '#95a5a6' } },
+    { selector: 'node[presence = "A-only"]', style: { 'background-fill': 'solid', 'background-color': '#c0392b' } },
+    { selector: 'node[presence = "B-only"]', style: { 'background-fill': 'solid', 'background-color': '#27ae60' } },
+    { selector: 'node[presence = "both"]', style: { 'background-fill': 'solid', 'background-color': '#95a5a6' } },
     { selector: 'edge[presence = "A-only"]', style: { 'line-color': '#c0392b', 'target-arrow-color': '#c0392b' } },
     { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
+    { selector: '.dimmed', style: { 'opacity': 0.15 } },
+    { selector: 'node.highlighted', style: { 'z-index': 10 } },
   ],
 })
+
+// RASP category style rules for native nodes: confirmed = solid tinted fill
+// accent, suggested = dashed category-color border. Built from categoryColors()
+// so no hex is hardcoded here; called at init and on theme toggle.
+function styleRaspCategories(t: Theme): void {
+  const cc = categoryColors(t)
+  let s = cy.style()
+  for (const [cat, color] of Object.entries(cc)) {
+    s = s.selector(`node.native.confirmed.rasp-${cat}`).style({
+      'background-gradient-stop-colors': [color, themeColors(t).labelBacking],
+      'border-color': color,
+    })
+    s = s.selector(`node.native.suggested.rasp-${cat}`).style({
+      'border-color': color,
+      'border-style': 'dashed',
+      'border-width': 2,
+    })
+  }
+  s.update()
+}
+styleRaspCategories(theme)
+
+const RASP_CLASSES = ['suggested', 'confirmed', ...Object.keys(categoryColors('dark')).map(c => `rasp-${c}`)].join(' ')
+
+// Fetch current suggestions, fold with confirmed tags, and re-point each native
+// node's class to its RASP category+state (Section C: coloring lives on native,
+// not the syscall aggregate or java frames).
+async function recolorRasp(): Promise<void> {
+  if (activeRunId === undefined) return
+  const suggestions = await window.ares.suggest(activeRunId)
+  const states = raspNodeStates(suggestions, tags)
+  cy.nodes().forEach(n => {
+    n.removeClass(RASP_CLASSES)
+    const st = states.get(n.id())
+    if (st && n.data('kind') === 'native') n.addClass(`${st.state} rasp-${st.category}`)
+  })
+}
 
 let activeRunId: number | undefined
 let tags: Tag[] = []
@@ -129,7 +179,9 @@ async function refreshSuggestions(): Promise<void> {
     await persistTags()
     void refreshTable()
     redrawBadges()
+    void recolorRasp()
   })
+  void recolorRasp()
 }
 
 async function refreshOrphans(): Promise<void> {
@@ -142,6 +194,7 @@ async function refreshOrphans(): Promise<void> {
     await persistTags()
     void refreshTable()
     redrawBadges()
+    void recolorRasp()
     void refreshOrphans()
   }
   renderOrphans(host, orphanedTags(tags, orphanSet), drop, async () => {
@@ -149,6 +202,7 @@ async function refreshOrphans(): Promise<void> {
     await persistTags()
     void refreshTable()
     redrawBadges()
+    void recolorRasp()
     void refreshOrphans()
   })
 }
@@ -190,30 +244,59 @@ async function selectRow(row: TableRow): Promise<void> {
   cy.fit(undefined, 48) // frame the slice with padding; consistent zoom per selection
   showBanner(slice.truncated)
   redrawBadges()
+  void recolorRasp()
 }
 
 // Exposed for the screenshot harness / debugging to drive the graph deterministically.
 ;(window as unknown as { __cy: typeof cy }).__cy = cy
 
 cy.on('tap', 'node', evt => {
-  const nodeId = evt.target.id()
-  void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(events => {
-    showNodeInspector(nodeId, events)
-    const host = document.getElementById('inspector')
-    if (!host) return
-    renderTagEditor(host, nodeId, undefined, tagsByTarget(tags, nodeId),
-      async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges() },
-      async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges() })
-  })
+  const node = evt.target
+  const nodeId = node.id()
+  highlightNeighborhood(cy, node)
+  if (node.data('kind') === 'native') {
+    document.getElementById('inspector')?.replaceChildren()
+    void Promise.all([
+      window.ares.nodeOffsets(nodeId, currentFilter(), activeRunId),
+      window.ares.nodeEvents(nodeId, currentFilter(), activeRunId),
+    ]).then(([rows, events]) => {
+      showOffsetPopup({
+        nodeId,
+        rows,
+        anchor: { x: evt.originalEvent.clientX, y: evt.originalEvent.clientY },
+        tagHost: h => renderTagEditor(h, nodeId, undefined, tagsByTarget(tags, nodeId),
+          async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
+          async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() }),
+        eventForOffset: () => events[0],
+      })
+    })
+  } else {
+    closeOffsetPopup()
+    void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(events => {
+      showNodeInspector(nodeId, events)
+      const host = document.getElementById('inspector')
+      if (!host) return
+      renderTagEditor(host, nodeId, undefined, tagsByTarget(tags, nodeId),
+        async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
+        async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() })
+    })
+  }
 })
+
+cy.on('tap', evt => { if (evt.target === cy) { clearHighlight(cy); closeOffsetPopup() } })
 
 function applyGraphTheme(next: Theme): void {
   const c = themeColors(next)
   cy.style()
-    .selector('node').style({ 'text-background-color': c.labelBacking, color: c.labelText })
-    .selector('node[kind = "java"]').style({ 'background-color': c.java })
-    .selector('node[kind = "native"]').style({ 'background-color': c.native })
-    .selector('node[kind = "syscall"]').style({ 'background-color': c.syscall })
+    .selector('node').style({
+      color: c.labelText,
+      'background-color': c.labelBacking,
+      'background-gradient-stop-colors': [c.native, c.labelBacking],
+      'border-color': c.edge,
+    })
+    .selector('node[kind = "java"]').style({ 'background-gradient-stop-colors': [c.java, c.labelBacking] })
+    .selector('node[kind = "native"]').style({ 'background-gradient-stop-colors': [c.native, c.labelBacking] })
+    .selector('node[kind = "syscall"]').style({ 'background-gradient-stop-colors': [c.syscall, c.labelBacking] })
     .selector('edge').style({ 'line-color': c.edge, 'target-arrow-color': c.edge })
     .update()
 }
@@ -232,6 +315,7 @@ document.getElementById('theme-toggle')?.addEventListener('click', () => {
   localStorage.setItem('ares.theme', serializeTheme(theme))
   syncThemeToggleGlyph()
   applyGraphTheme(theme)
+  styleRaspCategories(theme)
   if (currentView === 'flame') void refreshFlame()
 })
 

@@ -332,16 +332,20 @@ export class GraphStore {
     const acc = new Map<string, OffsetRow>()
     for (const ev of events) {
       const base = this.moduleBase(rid, ev.pid, meta.module)
-      if (base === undefined) continue
       // Distinct offsets this event contributes (one event counts an offset once).
       const seen = new Set<string>()
       for (const f of ev.backtrace) {
         const p = parseFrameSymbol(f.symbol)
         if (p.module !== meta.module) continue
         if (wantSymbol === null ? p.symbol !== null : p.symbol !== wantSymbol) continue
-        const addr = parseHexAddr(f.addr)
-        if (addr === null) continue
-        const offset = moduleRelative(addr, base)
+        let offset: string
+        if (base === undefined) {
+          offset = '[unmapped]'
+        } else {
+          const addr = parseHexAddr(f.addr)
+          if (addr === null) continue
+          offset = moduleRelative(addr, base)
+        }
         if (seen.has(offset)) continue
         seen.add(offset)
         let row = acc.get(offset)

@@ -1,3 +1,5 @@
+import type { RaspCategory } from '@shared/project-store'
+
 // Single source of truth for the graph + flame kind colors per theme. index.html
 // carries the CSS-token equivalents; cytoscape and the flame SVG can't read CSS
 // vars, so they consume these. Keeping one map here removes the old triplication
@@ -32,4 +34,19 @@ export function parseTheme(raw: string | null): Theme {
 
 export function serializeTheme(theme: Theme): string {
   return theme
+}
+
+// Per-category RASP colors for native block nodes (root check / debugger / ...).
+// Single source like KindColors; cytoscape consumes these (can't read CSS vars).
+const CAT_DARK: Record<RaspCategory, string> = {
+  root: '#e5484d', debugger: '#e08c3b', emulator: '#b072e0',
+  integrity: '#4aa3ff', hook: '#26c2a6', custom: '#8b97a4',
+}
+const CAT_LIGHT: Record<RaspCategory, string> = {
+  root: '#c0392b', debugger: '#b9770e', emulator: '#8e44ad',
+  integrity: '#2980b9', hook: '#0e8f7e', custom: '#5c6773',
+}
+
+export function categoryColors(theme: Theme): Record<RaspCategory, string> {
+  return theme === 'light' ? CAT_LIGHT : CAT_DARK
 }

@@ -5,11 +5,14 @@ import type { TableRow } from '@shared/table'
 // Map an aggregated slice to cytoscape element definitions. Node/edge `data`
 // carries just what the stylesheet and inspector need.
 export function sliceToElements(slice: GraphSlice): {
-  nodes: { data: { id: string; label: string; kind: string; count: number } }[]
+  nodes: { data: { id: string; label: string; kind: string; count: number }; classes: string }[]
   edges: { data: { id: string; source: string; target: string; count: number } }[]
 } {
   return {
-    nodes: slice.nodes.map(n => ({ data: { id: n.id, label: n.label, kind: n.kind, count: n.count } })),
+    // classes mirrors data.kind as a cytoscape class (`.java`/`.native`/`.syscall`)
+    // so RASP category selectors can combine `.native.suggested.rasp-<cat>`
+    // without a second data-attribute lookup per style rule.
+    nodes: slice.nodes.map(n => ({ data: { id: n.id, label: n.label, kind: n.kind, count: n.count }, classes: n.kind })),
     edges: slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, count: e.count } })),
   }
 }
@@ -39,7 +42,7 @@ export interface ElkLaidOut {
 // Approximate a node's rendered width from its label (the dot plus the label to
 // its right) so ELK spaces columns without overlap.
 function nodeWidth(label: string): number {
-  return Math.min(240, Math.max(60, label.length * 6 + 24))
+  return Math.min(230, Math.max(70, label.length * 6.2 + 26))
 }
 
 // Map cytoscape element defs to an ELK graph. Pure; the worker runs the layout.
@@ -50,7 +53,7 @@ export function sliceToElkGraph(elements: {
   return {
     id: 'root',
     layoutOptions: ELK_LAYOUT_OPTIONS,
-    children: elements.nodes.map(n => ({ id: n.data.id, width: nodeWidth(n.data.label), height: 24 })),
+    children: elements.nodes.map(n => ({ id: n.data.id, width: nodeWidth(n.data.label), height: 34 })),
     edges: elements.edges.map(e => ({ id: e.data.id, sources: [e.data.source], targets: [e.data.target] })),
   }
 }
