@@ -76,7 +76,7 @@ export function showTagPopup(opts: TagOpts): void {
   closeTagPopup()
   tagPopup = document.createElement('div')
   tagPopup.className = 'tag-popup'
-  const x = Math.min(opts.anchor.x, window.innerWidth - 300)
+  const x = Math.min(opts.anchor.x, window.innerWidth - 380)
   const y = Math.min(opts.anchor.y, window.innerHeight - 240)
   Object.assign(tagPopup.style, { position: 'fixed', left: Math.max(8, x) + 'px', top: Math.max(8, y) + 'px', zIndex: '60' })
   opts.tagHost(tagPopup)
