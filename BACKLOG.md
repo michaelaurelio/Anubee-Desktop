@@ -3,42 +3,6 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
-## Deferred (2026-07-08) - ingest the `.stacks` sidecar for managed/Kotlin frames
-Chosen this session to surface app Java/Kotlin method names in the graph. Not yet
-built. The current ingest reads only the main jsonl, whose inline `java_stack` does
-**not** carry app managed frames for real Kotlin apps (see root cause below), so the
-graph shows native frames only for interpreted/Compose call sites.
-
-- **Why the main jsonl is not enough.** ARES only fills inline `java_stack` from a
-  bounded fragment cache with a hard **208-byte cap** (`JC_FRAG`,
-  `../ARES/src/common/managed_frame.c`). When a managed chain's serialized JSON
-  exceeds 208 bytes the **whole** chain is dropped (all-or-nothing, not truncated),
-  and Kotlin/Compose names are long enough that this fires on essentially every app
-  stack. Measured on the `dev.ares.detector` capture: app managed-chain fragments are
-  215-420 bytes (median 290), so **0/27** distinct app chains fit - inline
-  `java_stack` shows only short Zygote/boot-image methods. The `.stacks` sidecar has
-  no such cap and carries the full names (22 distinct `dev.ares.detector.*` methods on
-  the same run). This is an ARES-side limitation; ARES-Desktop works around it by
-  reading the sidecar rather than waiting on an ARES fix.
-- **Ingestion contract (verified on the fixture).** ARES writes the sidecar as
-  `<out>.stacks` only under `ares --snapshot`; it is JSONL, same as the main file.
-  Records: `{"type":"stack",...}` (raw register+stack blob, ignore) and
-  `{"type":"cfi_stack","stack_id":<u64>,"cfi_backtrace":[{"frame","kind","symbol"},...]}`.
-  Join **`syscall.stack_id == cfi_stack.stack_id`** (the main jsonl's syscall records
-  already carry `stack_id`). In `cfi_backtrace`: `kind:"interp"` = a managed method
-  (dotted `pkg.Class.method`, optional `+0x<dexpc>` suffix); `kind:"native"` = a lib
-  frame; `kind:"jni-trampoline"`/`"managed"` also appear. Coverage on the sample run
-  was 1207/1242 syscall `stack_id`s matched (~97%); the rest are dropped/truncated
-  snapshots and should degrade gracefully (native-only for those events).
-- **Scope notes.** The main jsonl already carries an inline native `backtrace` per
-  syscall (the existing lib<->syscall interconnection); the sidecar `cfi_backtrace` is
-  the richer CFI-unwound stack that crosses into managed frames - decide whether to
-  augment the existing native backtrace or replace it for `--snapshot` runs. Sidecar
-  is optional per run: absent it, keep today's native-only behaviour. Watch the
-  schema-drift guard - a second file/record-type is now part of the ingest surface.
-- **Fixtures.** `tests/fixtures/detector_snap.jsonl` (+ `.stacks`) are a real
-  `dev.ares.detector` `--snapshot` run with the names present, ready for a test.
-
 ## Known drawbacks from Phase 1a (native offset popup - `GraphStore.nodeOffsets`)
 - **`unlib`/library reload not handled** - the module map takes the global
   lowest `start` per (pid, basename), so offsets are wrong for events on the

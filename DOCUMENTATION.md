@@ -424,7 +424,7 @@ whole-graph coloring.
 **RASP category coloring on native blocks.** When a native node is tagged with a
 RASP category (debugger, root, hook, etc.), the node's box gains a visual marker
 - a dashed category-color border for `suggested` (heuristic not yet confirmed) and
-a solid tinted fill for `confirmed` (analyst-approved tag). Coloring lives on the
+a solid category-color border for `confirmed` (analyst-approved tag). Coloring lives on the
 **native node itself**, not on the aggregate syscall node above it, because a
 suggestion targets the nearest native frame in the backtrace; the syscall node
 aggregates all calls through all native intermediaries, so its category would
