@@ -1,6 +1,6 @@
 // Right-click (cxttap) context menu for a graph node: Copy the node identifier,
-// or Tag the node (opens the tag editor inline in the menu). A floating panel at
-// the cursor, dismissed on outside-click / Esc. DOM side-effect, not unit-tested.
+// or Add Tag (opens a dedicated tag popup). A floating panel at the cursor,
+// dismissed on outside-click / Esc. DOM side-effect, not unit-tested.
 
 // Strip the kind prefix so the copied text is the bare identifier
 // (module!symbol / java method / syscall name), pasteable into a filter or an
@@ -23,7 +23,7 @@ interface ShowOpts {
   nodeId: string
   anchor: { x: number; y: number }
   onCopy: (text: string) => void
-  tagHost: (h: HTMLElement) => void
+  onAddTag: () => void
 }
 
 export function showNodeMenu(opts: ShowOpts): void {
@@ -42,14 +42,7 @@ export function showNodeMenu(opts: ShowOpts): void {
     menu!.appendChild(b)
   }
   item('Copy', () => { opts.onCopy(nodeCopyText(opts.nodeId)); closeNodeMenu() })
-  item('Tag…', () => {
-    // Swap the menu contents for the tag editor, keep the panel open.
-    menu!.innerHTML = ''
-    const box = document.createElement('div')
-    box.className = 'node-menu-tag'
-    opts.tagHost(box)
-    menu!.appendChild(box)
-  })
+  item('Add Tag', () => { closeNodeMenu(); opts.onAddTag() })
 
   document.body.appendChild(menu)
   setTimeout(() => {
@@ -57,5 +50,41 @@ export function showNodeMenu(opts: ShowOpts): void {
     onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeNodeMenu() }
     document.addEventListener('mousedown', onDoc)
     document.addEventListener('keydown', onKey)
+  }, 0)
+}
+
+// The dedicated Add-Tag popup: a themed floating panel hosting the tag editor,
+// opened from the right-click menu's Add Tag item. Same lifecycle as the menu
+// (fixed position, viewport clamp, dismiss on outside-click / Esc).
+let tagPopup: HTMLDivElement | undefined
+let onTagDoc: ((e: MouseEvent) => void) | undefined
+let onTagKey: ((e: KeyboardEvent) => void) | undefined
+
+export function closeTagPopup(): void {
+  tagPopup?.remove(); tagPopup = undefined
+  if (onTagDoc) { document.removeEventListener('mousedown', onTagDoc); onTagDoc = undefined }
+  if (onTagKey) { document.removeEventListener('keydown', onTagKey); onTagKey = undefined }
+}
+
+interface TagOpts {
+  nodeId: string
+  anchor: { x: number; y: number }
+  tagHost: (h: HTMLElement) => void
+}
+
+export function showTagPopup(opts: TagOpts): void {
+  closeTagPopup()
+  tagPopup = document.createElement('div')
+  tagPopup.className = 'tag-popup'
+  const x = Math.min(opts.anchor.x, window.innerWidth - 300)
+  const y = Math.min(opts.anchor.y, window.innerHeight - 240)
+  Object.assign(tagPopup.style, { position: 'fixed', left: Math.max(8, x) + 'px', top: Math.max(8, y) + 'px', zIndex: '60' })
+  opts.tagHost(tagPopup)
+  document.body.appendChild(tagPopup)
+  setTimeout(() => {
+    onTagDoc = (e: MouseEvent) => { if (tagPopup && !tagPopup.contains(e.target as Node)) closeTagPopup() }
+    onTagKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeTagPopup() }
+    document.addEventListener('mousedown', onTagDoc)
+    document.addEventListener('keydown', onTagKey)
   }, 0)
 }
