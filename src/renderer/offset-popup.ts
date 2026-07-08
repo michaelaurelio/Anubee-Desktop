@@ -11,6 +11,12 @@ export function popupState(rows: OffsetRow[]): { kind: 'rows' | 'empty'; rows: O
   return { kind: rows.length ? 'rows' : 'empty', rows }
 }
 
+// The event behind a row's inline expand: the row's representative event
+// (store-chosen via sampleEventId), else the first fetched event.
+export function eventForOffset(events: SyscallEvent[], row: OffsetRow): SyscallEvent | undefined {
+  return events.find(e => e.id === row.sampleEventId) ?? events[0]
+}
+
 let host: HTMLDivElement | undefined
 let menu: HTMLDivElement | undefined
 let onDocDown: ((e: MouseEvent) => void) | undefined
@@ -34,7 +40,7 @@ interface ShowOpts {
   rows: OffsetRow[]
   anchor: { x: number; y: number }
   tagHost: (h: HTMLElement) => void
-  eventForOffset: (offset: string) => SyscallEvent | undefined
+  eventForOffset: (row: OffsetRow) => SyscallEvent | undefined
 }
 
 export function showOffsetPopup(opts: ShowOpts): void {
@@ -77,7 +83,7 @@ export function showOffsetPopup(opts: ShowOpts): void {
         const open = detail.style.display !== 'none'
         table.querySelectorAll('pre.offset-row-detail').forEach(p => ((p as HTMLElement).style.display = 'none'))
         if (!open) {
-          const ev = opts.eventForOffset(r.offset)
+          const ev = opts.eventForOffset(r)
           detail.textContent = ev ? formatEvent(ev) : '(no sample event)'
           detail.style.display = 'block'
         }

@@ -8,7 +8,7 @@ import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
 import { highlightNeighborhood, clearHighlight } from './graph-highlight'
-import { showOffsetPopup, closeOffsetPopup } from './offset-popup'
+import { showOffsetPopup, closeOffsetPopup, eventForOffset } from './offset-popup'
 import { renderSuggestions } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
@@ -267,7 +267,7 @@ cy.on('tap', 'node', evt => {
         tagHost: h => renderTagEditor(h, nodeId, undefined, tagsByTarget(tags, nodeId),
           async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
           async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() }),
-        eventForOffset: () => events[0],
+        eventForOffset: (row) => eventForOffset(events, row),
       })
     })
   } else {
