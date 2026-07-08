@@ -411,14 +411,25 @@ via `addr - load_base`; unmapped events (no matching lib record) are marked
 `[unmapped]` and show no offset, allowing analysts to identify frames missing from
 the tracer's library map.
 
-**Offset popup.** Clicking a native node opens an offset inspector in the node
-detail panel with a scrollable table: each row is an offset (hex), the count of
-events at that offset, and a `reaches` chip list showing which syscall names the
-offset's call-sites reach (a compact proxy for the callee's behaviour). Right-click
-a row for Copy (to paste into a hex editor or ghidra search bar) or Copy-as-JSON
-(for programmatic handling). Click a row to inline-expand it and reveal the
-exact per-offset event (raw backtrace, syscall, args, etc.) via a store-provided
-sample event id, feeding the analyst's reasoning about what the address does.
+**Node selection and tagging.** Clicking a native node highlights its fan-in/out
+neighbourhood, fills the right inspector panel with the node's filtered syscall
+records (via `nodeEvents`—the syscalls whose backtraces target that node), and
+opens an offset popup positioned to the right of the node; the popup flips to the
+left at the viewport edge via the pure `placePopup` layout helper. Clicking a
+syscall or Java node fills the inspector with the selected node's records only,
+with no offset popup. Tagging is now a single path: right-click any node to open
+a context menu (Copy / Add Tag), select Add Tag to open a themed floating tag popup
+(`showTagPopup`), and confirm to save. Inline tag editors were removed from the
+offset popup and inspector; `renderTagEditor` is re-themed onto CSS shell tokens.
+
+**Offset popup.** The offset popup displays a scrollable table of per-call-site
+instruction offsets: each row shows the offset (hex), the count of events at that
+offset, and a `reaches` chip list showing which syscall names the offset's
+call-sites invoke (a compact proxy for the callee's behaviour). Right-click a row
+for Copy (to paste into a hex editor or ghidra search bar) or Copy-as-JSON (for
+programmatic handling). The offset column is clickable to reveal the exact per-offset
+event (raw backtrace, syscall, args, etc.) via a store-provided sample event id,
+feeding the analyst's reasoning about what the address does.
 
 **Fan-in/fan-out selection highlight.** Selecting a graph node highlights its
 neighbourhood: syscall nodes show fan-in only (incoming Java calls); Java nodes

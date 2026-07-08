@@ -3,6 +3,16 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Known drawbacks from node-interaction rework (offset/tag popup placement)
+- **Offset popup size estimates** - `placePopup` uses a fixed 400×300 estimate to
+  compute right/left anchor placement; if the actual rendered popup size drifts
+  (e.g. from label wrapping or content changes), revisit the estimate constants
+  to keep the popup positioned correctly relative to the node.
+- **Offset popup-inspector overlap (cosmetic)** - when a node is centered in the
+  viewport, the offset popup can overlap the right inspector panel transiently;
+  z-order keeps the popup readable. Revisit if the overlap becomes distracting
+  in daily use.
+
 ## Known drawbacks from Phase 1a (native offset popup - `GraphStore.nodeOffsets`)
 - **`unlib`/library reload not handled** - the module map takes the global
   lowest `start` per (pid, basename), so offsets are wrong for events on the
