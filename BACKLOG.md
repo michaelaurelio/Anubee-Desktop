@@ -12,6 +12,15 @@ and open verification items. Newest concerns first.
   viewport, the offset popup can overlap the right inspector panel transiently;
   z-order keeps the popup readable. Revisit if the overlap becomes distracting
   in daily use.
+- **Stale async re-open of the offset popup** - a native tap fires `nodeOffsets`
+  + `nodeEvents` and, on resolve, unconditionally fills the inspector and opens
+  the popup. If the user dismisses (empty-canvas tap) or selects another node
+  during a slow IPC round-trip, the resolved promise can repaint the inspector /
+  re-open the popup at the old node. Guard with a selection token before showing.
+- **Harness coverage niceties** - the shots harness does not yet assert that a
+  syscall/java tap leaves no inline tag editor, nor that the tag popup's computed
+  background is themed (both are visually covered by the captures); add explicit
+  assertions if the DOM regresses.
 
 ## Known drawbacks from Phase 1a (native offset popup - `GraphStore.nodeOffsets`)
 - **`unlib`/library reload not handled** - the module map takes the global
