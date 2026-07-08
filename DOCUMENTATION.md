@@ -170,13 +170,20 @@ real-DuckDB integration test:
   authority**; the SQL pre-filter is purely a bounded narrowing, never the
   source of truth for what matches.
 
-Every suggestion is attributed to the nearest native frame (`nativeTargetOf`).
-Matching events are aggregated per target (`aggregate()`: sums occurrences,
-keeps the highest-confidence rationale) into `Suggestion` rows (target,
-category, confidence, rationale, occurrence count) and listed in a suggestions
-panel (`src/renderer/suggestions-view.ts`). A suggestion is never turned into a
-tag automatically - the analyst reviews it and clicks Confirm, which mints a
-`source: 'heuristic'` tag through the same tag editor path.
+Every suggestion is attributed to the innermost **non-system** native frame
+(`nativeTargetOf`) - the app's own RASP block (e.g.
+`base.apk -> libsentinel.so!sentinel_check_root`), skipping the bionic / ART /
+framework wrappers; it falls back to the innermost native frame (the libc
+syscall wrapper) only when the whole native path is system libs (a pure-Java
+check). Matching events are aggregated per target (`aggregate()`: sums
+occurrences, keeps the highest-confidence rationale) into `Suggestion` rows
+(target, category, confidence, rationale, occurrence count) and surfaced in a
+**Suggestions popup** opened from the chrome-bar button
+(`src/renderer/suggestions-view.ts`); the right side panel stays details-only. A
+suggestion is never turned into a tag automatically - the analyst clicks
+**Confirm** (mints a `source: 'heuristic'` tag through the tag editor path) or
+**Reject** (persists a dismissal in the sidecar `dismissed` list so it never
+returns); either removes the row.
 
 **Built-in rules** (`BUILTIN_RULES`):
 
@@ -426,8 +433,8 @@ RASP category (debugger, root, hook, etc.), the node's box gains a visual marker
 - a dashed category-color border for `suggested` (heuristic not yet confirmed) and
 a solid category-color border for `confirmed` (analyst-approved tag). Coloring lives on the
 **native node itself**, not on the aggregate syscall node above it, because a
-suggestion targets the nearest native frame in the backtrace; the syscall node
-aggregates all calls through all native intermediaries, so its category would
+suggestion targets the innermost non-system native frame (the app's own block);
+the syscall node aggregates all calls through all native intermediaries, so its category would
 conflate unrelated calls. The master table and flame view reserve a badge marker
 on the Java/syscall nodes; native-scoped categories are visible only on the graph.
 
