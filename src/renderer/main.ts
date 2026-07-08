@@ -8,7 +8,7 @@ import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
 import { highlightNeighborhood, clearHighlight } from './graph-highlight'
-import { showOffsetPopup, closeOffsetPopup, eventForOffset } from './offset-popup'
+import { showOffsetPopup, closeOffsetPopup, eventForOffset, type NodeBox } from './offset-popup'
 import { showNodeMenu, closeNodeMenu, showTagPopup, closeTagPopup } from './node-menu'
 import { renderSuggestions } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
@@ -272,35 +272,32 @@ async function selectRow(row: TableRow): Promise<void> {
 // Exposed for the screenshot harness / debugging to drive the graph deterministically.
 ;(window as unknown as { __cy: typeof cy }).__cy = cy
 
+// The selected node's on-screen box in viewport coordinates, so the offset
+// popup can be placed to its right (renderedBoundingBox is canvas-relative;
+// add the container's viewport offset).
+function nodeBox(node: cytoscape.NodeSingular): NodeBox {
+  const bb = node.renderedBoundingBox()
+  const rect = cy.container()!.getBoundingClientRect()
+  return { left: rect.left + bb.x1, top: rect.top + bb.y1, right: rect.left + bb.x2, bottom: rect.top + bb.y2 }
+}
+
 cy.on('tap', 'node', evt => {
   const node = evt.target
   const nodeId = node.id()
   highlightNeighborhood(cy, node)
   if (node.data('kind') === 'native') {
-    document.getElementById('inspector')?.replaceChildren()
+    const box = nodeBox(node)
     void Promise.all([
       window.ares.nodeOffsets(nodeId, currentFilter(), activeRunId),
       window.ares.nodeEvents(nodeId, currentFilter(), activeRunId),
     ]).then(([rows, events]) => {
-      showOffsetPopup({
-        nodeId,
-        rows,
-        anchor: { x: evt.originalEvent.clientX, y: evt.originalEvent.clientY },
-        tagHost: h => renderTagEditor(h, nodeId, undefined, tagsByTarget(tags, nodeId),
-          async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
-          async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() }),
-        eventForOffset: (row) => eventForOffset(events, row),
-      })
+      showNodeInspector(nodeId, events)
+      showOffsetPopup({ nodeId, rows, anchor: box, eventForOffset: (row) => eventForOffset(events, row) })
     })
   } else {
     closeOffsetPopup()
     void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(events => {
       showNodeInspector(nodeId, events)
-      const host = document.getElementById('inspector')
-      if (!host) return
-      renderTagEditor(host, nodeId, undefined, tagsByTarget(tags, nodeId),
-        async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
-        async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() })
     })
   }
 })

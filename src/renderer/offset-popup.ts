@@ -55,8 +55,7 @@ export function closeOffsetPopup(): void {
 interface ShowOpts {
   nodeId: string
   rows: OffsetRow[]
-  anchor: { x: number; y: number }
-  tagHost: (h: HTMLElement) => void
+  anchor: NodeBox // the selected node's on-screen box; the popup sits to its right
   eventForOffset: (row: OffsetRow) => SyscallEvent | undefined
 }
 
@@ -64,10 +63,8 @@ export function showOffsetPopup(opts: ShowOpts): void {
   closeOffsetPopup()
   host = document.createElement('div')
   host.className = 'offset-popup'
-  // Static position at the click, clamped to the viewport (approx size 360x300).
-  const x = Math.min(opts.anchor.x, window.innerWidth - 408)
-  const y = Math.min(opts.anchor.y, window.innerHeight - 312)
-  Object.assign(host.style, { position: 'fixed', left: Math.max(8, x) + 'px', top: Math.max(8, y) + 'px', zIndex: '50' })
+  const { left, top } = placePopup(opts.anchor, 400, 300, { w: window.innerWidth, h: window.innerHeight })
+  Object.assign(host.style, { position: 'fixed', left: left + 'px', top: top + 'px', zIndex: '50' })
 
   const head = document.createElement('div')
   head.className = 'offset-popup-head'
@@ -111,10 +108,6 @@ export function showOffsetPopup(opts: ShowOpts): void {
     }
     host.appendChild(table)
   }
-
-  const tagBox = document.createElement('div')
-  opts.tagHost(tagBox)
-  host.appendChild(tagBox)
 
   document.body.appendChild(host)
 
