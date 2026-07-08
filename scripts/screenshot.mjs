@@ -58,16 +58,35 @@ const borderOk = await win.evaluate(() => {
 })
 if (!borderOk) throw new Error('node accent border missing')
 
-// RASP category coloring on native blocks (task 7): the fixture's root-check
-// syscalls resolve to a native frame, so the first subgraph render should have
-// picked up a suggested/confirmed class via recolorRasp().
-const raspOk = await win.evaluate(() => {
-  const cy = window.__cy
-  return cy.nodes('.native.suggested, .native.confirmed').length > 0
-})
-if (!raspOk) throw new Error('no native node received a RASP category class')
-
 await shot('02-subgraph.png')
+
+// RASP category coloring on native blocks (task 7). The heuristic run must
+// produce suggestions, and when a suggested native block is rendered it must pick
+// up a category class. An arbitrary first-row subgraph need not contain a
+// suggested node (true for a real capture), so drive it deterministically: read
+// the run's suggestions, filter the table by the suggested block's symbol (free
+// text matches backtrace symbols), select that bridge, and assert the class.
+const sugTarget = await win.evaluate(async () => {
+  const s = await window.ares.suggest()
+  if (!s.length) return null
+  const id = s[0].target // 'nat:<module>!<symbol>' or 'nat:<module>'
+  const rest = id.slice(4)
+  const bang = rest.indexOf('!')
+  return bang >= 0 ? rest.slice(bang + 1) : rest // symbol, else module
+})
+if (!sugTarget) throw new Error('heuristic engine produced no suggestions on the capture')
+await win.fill('#f-text', sugTarget)
+await win.click('#apply')
+await win.waitForTimeout(400)
+await win.click('#table table tr:nth-child(2)')
+await win.waitForTimeout(1200) // ELK settle + recolorRasp
+const raspOk = await win.evaluate(() => window.__cy.nodes('.native.suggested, .native.confirmed').length > 0)
+if (!raspOk) throw new Error('a rendered suggested native block did not receive a RASP category class')
+await shot('02b-rasp-colored.png')
+// Clear the filter so later steps see the full run again.
+await win.fill('#f-text', '')
+await win.click('#apply')
+await win.waitForTimeout(300)
 
 // 3. A node inspected: click the syscall node at its real rendered position.
 const pos = await win.evaluate(() => {
@@ -89,17 +108,23 @@ await shot('03-inspector.png')
 // dim assertion is meaningful.
 await win.evaluate(async () => {
   const cy = window.__cy
-  const slice = await window.ares.slice({}, 500)
+  // A small, bounded slice: enough disconnected bridges that fan-in/out dims
+  // something, few enough that nodes stay large and clickable in the harness.
+  const slice = await window.ares.slice({}, 60)
   cy.elements().remove()
-  cy.add(slice.nodes.map(n => ({ data: { id: n.id, kind: n.kind, label: n.label } })))
+  cy.add(slice.nodes.map(n => ({ data: { id: n.id, kind: n.kind, label: n.label }, classes: n.kind })))
   cy.add(slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target } })))
-  cy.layout({ name: 'grid', rows: 2 }).run()
+  cy.layout({ name: 'grid' }).run()
   cy.fit(undefined, 48)
 })
 await win.waitForTimeout(200)
 const npos = await win.evaluate(() => {
   const cy = window.__cy
+  // Centre + enlarge the native node so the coordinate click lands squarely.
   const n = cy.nodes('[kind = "native"]')[0]
+  cy.center(n)
+  cy.zoom(cy.zoom() * 1.6)
+  cy.center(n)
   const p = n.renderedPosition()
   const bb = cy.container().getBoundingClientRect()
   return { x: bb.left + p.x, y: bb.top + p.y }
@@ -128,6 +153,13 @@ await win.click('#rules-btn')
 await win.waitForTimeout(300)
 await shot('06-rules-panel.png')
 await win.click('#rules-btn') // close
+
+// 6b. Suggestions popup (chrome-bar button) with Confirm / Reject rows.
+await win.click('#suggest-btn')
+await win.waitForSelector('#suggestions-popup .sug-row', { timeout: 5000 })
+await win.waitForTimeout(200)
+await shot('06b-suggestions.png')
+await win.click('#suggest-btn') // close
 
 // 7. Light theme via the toggle.
 await win.click('#tab-graph')

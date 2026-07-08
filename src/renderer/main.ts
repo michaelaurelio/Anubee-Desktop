@@ -13,7 +13,7 @@ import { renderSuggestions } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
 import { raspNodeStates } from './rasp-node-state'
-import { upsertTag, removeTag, tagsByTarget, orphanedTags, type Tag } from '@shared/project-store'
+import { upsertTag, removeTag, tagsByTarget, orphanedTags, isDismissed, addDismissed, type Tag, type Dismissed } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
 import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
 import { renderFlame } from './flame-view'
@@ -58,10 +58,10 @@ const cy = cytoscape({
     {
       selector: 'edge',
       style: {
-        width: 'mapData(count, 1, 50, 1, 4)',
+        width: 'mapData(count, 1, 50, 2, 6)',
         'curve-style': 'bezier',
         'target-arrow-shape': 'triangle',
-        'arrow-scale': 0.5,
+        'arrow-scale': 1.2,
         'line-color': tc.edge,
         'target-arrow-color': tc.edge,
       },
@@ -71,8 +71,13 @@ const cy = cytoscape({
     { selector: 'node[presence = "both"]', style: { 'background-color': '#95a5a6' } },
     { selector: 'edge[presence = "A-only"]', style: { 'line-color': '#c0392b', 'target-arrow-color': '#c0392b' } },
     { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
-    { selector: '.dimmed', style: { 'opacity': 0.15 } },
+    { selector: '.dimmed', style: { 'opacity': 0.12 } },
     { selector: 'node.highlighted', style: { 'z-index': 10 } },
+    // Edges read grey by default; the selected node's fan-in/out lights them.
+    { selector: 'edge.highlighted', style: {
+      'line-color': tc.labelText, 'target-arrow-color': tc.labelText,
+      'width': 2.5, 'opacity': 1, 'z-index': 10,
+    } },
   ],
 })
 
@@ -105,7 +110,8 @@ const RASP_CLASSES = ['suggested', 'confirmed', ...Object.keys(categoryColors('d
 // not the syscall aggregate or java frames).
 async function recolorRasp(): Promise<void> {
   if (activeRunId === undefined) return
-  const suggestions = await window.ares.suggest(activeRunId)
+  const suggestions = (await window.ares.suggest(activeRunId))
+    .filter(s => !isDismissed(dismissed, s.target, s.category))
   const states = raspNodeStates(suggestions, tags)
   cy.nodes().forEach(n => {
     n.removeClass(RASP_CLASSES)
@@ -116,6 +122,7 @@ async function recolorRasp(): Promise<void> {
 
 let activeRunId: number | undefined
 let tags: Tag[] = []
+let dismissed: Dismissed[] = []
 let runB: number | undefined
 let diffMode: DiffMode = 'all'
 let currentView: 'graph' | 'flame' | 'capture' = 'graph'
@@ -123,8 +130,8 @@ let currentView: 'graph' | 'flame' | 'capture' = 'graph'
 async function refreshTags(): Promise<void> {
   const rid = activeRunId
   if (rid === undefined) return
-  const r = await window.ares.loadTags(rid)
-  if (activeRunId === rid) tags = r.tags
+  const [r, dm] = await Promise.all([window.ares.loadTags(rid), window.ares.dismissedGet(rid)])
+  if (activeRunId === rid) { tags = r.tags; dismissed = dm }
 }
 
 async function persistTags(): Promise<void> {
@@ -163,20 +170,40 @@ async function refreshTable(): Promise<void> {
   status(`${rows.length} rows`)
 }
 
+// Populate the suggestions popup. A suggestion drops off the list once it is
+// confirmed (already a tag of that category) or rejected (dismissed) - both
+// persisted, so it never returns.
 async function refreshSuggestions(): Promise<void> {
   if (activeRunId === undefined) return
-  const host = document.getElementById('suggestions')
+  const host = document.getElementById('suggestions-popup')
   if (!host) return
-  const suggestions = await window.ares.suggest(activeRunId)
-  renderSuggestions(host, suggestions, async tag => {
-    tags = upsertTag(tags, tag)
-    await persistTags()
-    void refreshTable()
-    redrawBadges()
-    void recolorRasp()
-  })
+  const all = await window.ares.suggest(activeRunId)
+  const open = all.filter(s =>
+    !isDismissed(dismissed, s.target, s.category) &&
+    !tags.some(t => t.target === s.target && t.category === s.category))
+  renderSuggestions(host, open,
+    async tag => {
+      tags = upsertTag(tags, tag)
+      await persistTags()
+      void refreshTable()
+      redrawBadges()
+      void recolorRasp()
+    },
+    async s => {
+      dismissed = addDismissed(dismissed, s.target, s.category)
+      await window.ares.dismissedSave(activeRunId!, dismissed)
+      void recolorRasp()
+    })
   void recolorRasp()
 }
+
+// Toggle the suggestions popup from the chrome-bar button; refresh on open.
+document.getElementById('suggest-btn')?.addEventListener('click', () => {
+  const host = document.getElementById('suggestions-popup')
+  if (!host) return
+  if (host.hidden) { host.hidden = false; void refreshSuggestions() }
+  else host.hidden = true
+})
 
 async function refreshOrphans(): Promise<void> {
   const host = document.getElementById('orphans')
@@ -287,6 +314,7 @@ function applyGraphTheme(next: Theme): void {
     .selector('node[kind = "native"]').style({ 'border-color': c.native })
     .selector('node[kind = "syscall"]').style({ 'border-color': c.syscall })
     .selector('edge').style({ 'line-color': c.edge, 'target-arrow-color': c.edge })
+    .selector('edge.highlighted').style({ 'line-color': c.labelText, 'target-arrow-color': c.labelText })
     .update()
 }
 
@@ -486,6 +514,14 @@ function zoomBy(factor: number): void {
 document.getElementById('zoom-in')?.addEventListener('click', () => zoomBy(1.2))
 document.getElementById('zoom-out')?.addEventListener('click', () => zoomBy(1 / 1.2))
 document.getElementById('zoom-fit')?.addEventListener('click', () => cy.fit(undefined, 48))
+
+// Ctrl/Cmd +/- zoom the graph (only in graph view), overriding the browser's
+// page zoom. Accepts '=' (unshifted '+'), '+', numpad, and '-'.
+window.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || currentView !== 'graph') return
+  if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') { e.preventDefault(); zoomBy(1.2) }
+  else if (e.key === '-' || e.code === 'NumpadSubtract') { e.preventDefault(); zoomBy(1 / 1.2) }
+})
 
 document.getElementById('open-run')?.addEventListener('click', () => { void window.ares.openFile() })
 

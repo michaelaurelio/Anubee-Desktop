@@ -30,8 +30,11 @@ export function sliceToElements(slice: GraphSlice): {
 const ELK_LAYOUT_OPTIONS: Record<string, string> = {
   'elk.algorithm': 'layered',
   'elk.direction': 'DOWN',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '60',
-  'elk.spacing.nodeNode': '30',
+  // Roomier tiers so edges bend cleanly instead of scattering; network-simplex
+  // placement keeps nodes aligned per layer.
+  'elk.layered.spacing.nodeNodeBetweenLayers': '90',
+  'elk.spacing.nodeNode': '48',
+  'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
 }
 
 export interface ElkGraph {

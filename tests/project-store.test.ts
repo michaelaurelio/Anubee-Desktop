@@ -86,3 +86,20 @@ describe('sidecar rules', () => {
     expect(back.enabledOverrides).toEqual({})
   })
 })
+
+describe('dismissed suggestions', () => {
+  it('addDismissed is idempotent and isDismissed matches (target, category)', async () => {
+    const { addDismissed, isDismissed } = await import('@shared/project-store')
+    let d = addDismissed([], 'nat:libsentinel.so!chk', 'root')
+    d = addDismissed(d, 'nat:libsentinel.so!chk', 'root') // dup
+    expect(d).toHaveLength(1)
+    expect(isDismissed(d, 'nat:libsentinel.so!chk', 'root')).toBe(true)
+    expect(isDismissed(d, 'nat:libsentinel.so!chk', 'debugger')).toBe(false)
+  })
+  it('serialize -> parse round-trips the dismissed list', async () => {
+    const { serializeSidecar, parseSidecar } = await import('@shared/project-store')
+    const text = serializeSidecar({ file: 'r.jsonl', ingestedAt: 'now' }, [], [], {}, [{ target: 'nat:x', category: 'hook' }])
+    const back = parseSidecar(text)
+    expect(back.dismissed).toEqual([{ target: 'nat:x', category: 'hook' }])
+  })
+})

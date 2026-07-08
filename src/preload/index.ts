@@ -7,6 +7,7 @@ import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 // this bridge except the single record fetched by id for the inspector.
 contextBridge.exposeInMainWorld('ares', {
   openFile: () => ipcRenderer.invoke('trace:open'),
+  copyToClipboard: (text: string) => ipcRenderer.invoke('clipboard:write', text),
   runs: () => ipcRenderer.invoke('graph:runs'),
   table: (filter: Filter, page: { limit: number; offset: number }, runId?: number) =>
     ipcRenderer.invoke('graph:table', filter, page, runId),
@@ -30,6 +31,9 @@ contextBridge.exposeInMainWorld('ares', {
     ipcRenderer.invoke('graph:diffSlice', runA, runB, nodeId, filter),
   loadTags: (runId: number) => ipcRenderer.invoke('tags:load', runId),
   saveTags: (runId: number, tags: Tag[]) => ipcRenderer.invoke('tags:save', runId, tags),
+  dismissedGet: (runId: number) => ipcRenderer.invoke('suggest:dismissed:get', runId),
+  dismissedSave: (runId: number, dismissed: { target: string; category: string }[]) =>
+    ipcRenderer.invoke('suggest:dismissed:save', runId, dismissed),
   orphans: (runId: number, targets: string[]) => ipcRenderer.invoke('tags:orphans', runId, targets),
   exportFindings: (runId: number, format: 'md' | 'json') =>
     ipcRenderer.invoke('findings:export', runId, format),

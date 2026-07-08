@@ -32,6 +32,13 @@
       }
 
       html, body { margin: 0; height: 100%; font: var(--font); background: var(--surface); color: var(--text); }
+      /* theme-matched scrollbars (Chromium/Electron) so they don't read as OS-default */
+      * { scrollbar-color: var(--border) transparent; scrollbar-width: thin; }
+      *::-webkit-scrollbar { width: 10px; height: 10px; }
+      *::-webkit-scrollbar-track { background: transparent; }
+      *::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; border: 2px solid var(--surface); }
+      *::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+      *::-webkit-scrollbar-corner { background: transparent; }
       button, input, select { font: inherit; color: inherit; }
 
       /* --- chrome bar --- */
@@ -162,9 +169,10 @@
 
       /* offset-popup: floating table for native node offsets */
       .offset-popup { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-        padding: 8px; max-height: 300px; overflow: auto; box-shadow: var(--shadow); }
+        padding: 8px; max-height: 300px; max-width: 400px; overflow: auto; box-shadow: var(--shadow);
+        overflow-wrap: anywhere; }
       .offset-popup-head { font-family: var(--mono); font-weight: 600; padding: 0 0 6px 0; margin-bottom: 6px;
-        border-bottom: 1px solid var(--border-soft); color: var(--text); }
+        border-bottom: 1px solid var(--border-soft); color: var(--text); word-break: break-all; font-size: 12px; }
       .offset-popup-rows { display: flex; flex-direction: column; gap: 4px; }
       .offset-row { cursor: pointer; }
       .offset-row-line { display: flex; gap: 12px; align-items: center; padding: 4px; border-radius: 4px;
@@ -183,6 +191,42 @@
       .offset-menu-item:last-child { border-bottom: 0; }
       .offset-menu-item:hover { background: var(--hover); }
       .offset-popup-empty { color: var(--muted); padding: 8px; font-size: 12px; text-align: center; }
+      /* inspector: records-behind-a-node table + detail */
+      .insp-head { font-weight: 600; color: var(--text); margin-bottom: 6px; word-break: break-all; font-size: 12px; }
+      .insp-table-wrap { max-height: 40vh; overflow: auto; border: 1px solid var(--border-soft); border-radius: 6px; }
+      .insp-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+      .insp-table th { position: sticky; top: 0; background: var(--bar); color: var(--muted); text-align: left;
+        font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+      .insp-table td { padding: 3px 6px; color: var(--text); border-bottom: 1px solid var(--border-soft);
+        white-space: nowrap; font-family: var(--mono); }
+      .insp-table td.insp-arg { white-space: normal; word-break: break-all; color: var(--muted); font-family: var(--font); max-width: 220px; }
+      .insp-table tbody tr { cursor: pointer; }
+      .insp-table tbody tr:hover { background: var(--hover); }
+      .insp-table tbody tr.sel { background: var(--hover); outline: 1px solid var(--border); }
+      .insp-detail { white-space: pre-wrap; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border-soft);
+        color: var(--text); font-family: var(--mono); font-size: 11px; }
+      /* suggestions popup (opened from the chrome-bar button) */
+      .sug-popup { position: fixed; top: 46px; right: 12px; width: 440px; max-height: 70vh; overflow: auto;
+        background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+        box-shadow: var(--shadow); z-index: 40; padding: 10px; }
+      .sug-popup[hidden] { display: none; }
+      .sug-head { font-weight: 600; color: var(--text); margin-bottom: 8px; }
+      .sug-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }
+      .sug-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 4px;
+        border-bottom: 1px solid var(--border-soft); }
+      .sug-info { flex: 1 1 auto; min-width: 0; }
+      .sug-line1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .sug-cat { font: 600 10px/1 var(--mono); letter-spacing: .04em; text-transform: uppercase;
+        color: #0d1117; border-radius: 4px; padding: 3px 6px; }
+      .sug-cat.rasp-root { background: #e5484d; } .sug-cat.rasp-debugger { background: #e08c3b; }
+      .sug-cat.rasp-emulator { background: #b072e0; } .sug-cat.rasp-integrity { background: #4aa3ff; }
+      .sug-cat.rasp-hook { background: #26c2a6; } .sug-cat.rasp-custom { background: #8b97a4; }
+      .sug-target { font: 12px var(--mono); color: var(--text); word-break: break-all; }
+      .sug-conf { font: 11px var(--mono); color: var(--muted); margin-left: auto; }
+      .sug-rationale { font-size: 11px; color: var(--muted); margin-top: 3px; }
+      .sug-btns { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
+      .sug-confirm { border-color: #2ea043; color: #7ee2a0; }
+      .sug-reject { border-color: #c94f4f; color: #f2a3a3; }
     </style>
   </head>
   <body>
@@ -196,6 +240,7 @@
         <button id="tab-flame" class="btn">Flame</button>
         <button id="tab-capture" class="btn">Capture</button>
       </div>
+      <button id="suggest-btn" class="btn">Suggestions</button>
       <button id="rules-btn" class="btn">Rules</button>
       <div class="menu" id="export-menu">
         <button class="btn" data-menu-toggle>Export &#9662;</button>
@@ -277,10 +322,10 @@
         <div id="orphans"></div>
         <div id="inspector"></div>
         <div id="diff-table"></div>
-        <div id="suggestions"></div>
         <div id="rules"></div>
       </div>
     </div>
+    <div id="suggestions-popup" class="sug-popup" hidden></div>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

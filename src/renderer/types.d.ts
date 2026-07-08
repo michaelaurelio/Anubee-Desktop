@@ -8,6 +8,7 @@ declare global {
   interface Window {
     ares: {
       openFile(): Promise<{ runId: number; eventCount: number; errors: number } | null>
+      copyToClipboard(text: string): Promise<void>
       runs(): Promise<{ runId: number; file: string; ingestedAt: string; eventCount: number }[]>
       table(filter: Filter, page: { limit: number; offset: number }, runId?: number): Promise<TableRow[]>
       slice(filter: Filter, cap?: number, runId?: number): Promise<GraphSlice>
@@ -31,6 +32,8 @@ declare global {
         Promise<import('@shared/diff').MergedSlice>
       loadTags(runId: number): Promise<{ tags: import('@shared/project-store').Tag[]; errors: string[] }>
       saveTags(runId: number, tags: import('@shared/project-store').Tag[]): Promise<void>
+      dismissedGet(runId: number): Promise<import('@shared/project-store').Dismissed[]>
+      dismissedSave(runId: number, dismissed: import('@shared/project-store').Dismissed[]): Promise<void>
       orphans(runId: number, targets: string[]): Promise<string[]>
       exportFindings: (runId: number, format: 'md' | 'json') => Promise<string | null>
       onProgress(cb: (pct: number) => void): void

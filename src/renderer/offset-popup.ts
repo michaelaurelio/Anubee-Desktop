@@ -48,7 +48,7 @@ export function showOffsetPopup(opts: ShowOpts): void {
   host = document.createElement('div')
   host.className = 'offset-popup'
   // Static position at the click, clamped to the viewport (approx size 360x300).
-  const x = Math.min(opts.anchor.x, window.innerWidth - 372)
+  const x = Math.min(opts.anchor.x, window.innerWidth - 408)
   const y = Math.min(opts.anchor.y, window.innerHeight - 312)
   Object.assign(host.style, { position: 'fixed', left: Math.max(8, x) + 'px', top: Math.max(8, y) + 'px', zIndex: '50' })
 
@@ -120,8 +120,8 @@ function openRowMenu(x: number, y: number, row: OffsetRow): void {
     b.onclick = () => { fn(); closeRowMenu() }
     menu!.appendChild(b)
   }
-  item('Copy', () => void navigator.clipboard.writeText(copyText(row)))
-  item('Copy as JSON', () => void navigator.clipboard.writeText(rowJson(row)))
+  item('Copy', () => void window.ares.copyToClipboard(copyText(row)))
+  item('Copy as JSON', () => void window.ares.copyToClipboard(rowJson(row)))
   document.body.appendChild(menu)
   setTimeout(() => {
     onMenuDown = (e: MouseEvent) => { if (menu && !menu.contains(e.target as Node)) closeRowMenu() }
