@@ -60,6 +60,16 @@ describe('GraphStore.table', () => {
   })
 })
 
+describe('GraphStore.count', () => {
+  it('counts all matching events regardless of the table page window', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    expect(await store.count()).toBe(3) // 3 syscalls; lib + bad line excluded
+    expect(await store.count({ tid: 202 })).toBe(1)
+    expect(await store.count({ hasJavaStack: true })).toBe(2)
+  })
+})
+
 describe('GraphStore.eventById', () => {
   it('returns one raw record as a plain SyscallEvent', async () => {
     store = new GraphStore()

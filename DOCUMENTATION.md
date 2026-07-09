@@ -42,6 +42,14 @@ coding used on the nodes themselves and reused verbatim by the flame view's
 `KIND_FILL` map (`src/renderer/flame-view.ts`) so the two views read as one
 system.
 
+### Master table paging
+
+The table renders one page - the first `TABLE_PAGE` (500) events matching the
+filter, ordered by id. `refreshTable` also asks the store for the full filtered
+`count`, so when more than a page matches the status line reads "showing first
+500 of `<count>` rows" (else just "`<count>` rows") - the hidden remainder is
+never silent. Narrow the filter to bring a target into the page.
+
 ### Master table column widths
 
 The master table's `top java` / `top native` columns are widened (96px / 110px,

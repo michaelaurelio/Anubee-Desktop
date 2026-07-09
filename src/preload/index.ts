@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('ares', {
   runs: () => ipcRenderer.invoke('graph:runs'),
   table: (filter: Filter, page: { limit: number; offset: number }, runId?: number) =>
     ipcRenderer.invoke('graph:table', filter, page, runId),
+  count: (filter: Filter, runId?: number) => ipcRenderer.invoke('graph:count', filter, runId),
   slice: (filter: Filter, cap?: number, runId?: number) =>
     ipcRenderer.invoke('graph:slice', filter, cap, runId),
   stackRollup: (filter: Filter, maxChains?: number, runId?: number) =>

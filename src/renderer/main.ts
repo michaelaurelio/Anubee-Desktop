@@ -162,15 +162,23 @@ function showBanner(truncated: boolean): void {
   if (truncated) b.textContent = 'Graph truncated - narrow the filter to see the full slice.'
 }
 
+// The master table renders at most one page; a filter matching more than this
+// shows "first <PAGE> of <total>" so the hidden remainder is never silent.
+const TABLE_PAGE = 500
+
 async function refreshTable(): Promise<void> {
-  const rows = await window.ares.table(currentFilter(), { limit: 500, offset: 0 }, activeRunId)
+  const filter = currentFilter()
+  const [rows, total] = await Promise.all([
+    window.ares.table(filter, { limit: TABLE_PAGE, offset: 0 }, activeRunId),
+    window.ares.count(filter, activeRunId),
+  ])
   renderTable(rows, selectRow, row => {
     const ids = [`sys:${row.syscall}`]
     if (row.topJava) ids.push(`java:${row.topJava}`)
     const rowTags = ids.flatMap(id => tagsByTarget(tags, id))
     return badgeText(rowTags)
   })
-  status(`${rows.length} rows`)
+  status(total > rows.length ? `showing first ${rows.length} of ${total} rows` : `${total} rows`)
 }
 
 // Populate the suggestions list into a given host. A suggestion drops off the

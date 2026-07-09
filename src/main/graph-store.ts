@@ -217,6 +217,14 @@ export class GraphStore {
     }))
   }
 
+  // Total events matching the filter. The table page is a capped window over
+  // this, so the renderer shows "first N of <count>" when the two diverge.
+  async count(filter: Filter = {}, runId?: number): Promise<number> {
+    const rid = this.resolveRun(runId)
+    const { where, params } = filterToSql(filter)
+    return this.scalar(`SELECT count(*) n FROM ev WHERE run_id = ${rid} AND (${where})`, params)
+  }
+
   // Aggregated syscall->native->java graph over the filtered events, capped.
   // Reconstructs identity + counts in SQL, then assembles GraphNodes with the
   // shared labelling - matched node-for-node against the foldEvents oracle.

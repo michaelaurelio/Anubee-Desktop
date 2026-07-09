@@ -151,6 +151,7 @@ ipcMain.handle('trace:openCompare', () => openViaDialog(false))
 ipcMain.handle('app:quit', () => app.quit())
 ipcMain.handle('graph:runs', () => store.runs())
 ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }, runId?: number) => store.table(filter, page, runId))
+ipcMain.handle('graph:count', (_e, filter: Filter, runId?: number) => store.count(filter, runId))
 ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number, runId?: number) => store.slice(filter, cap, runId))
 ipcMain.handle('graph:stackRollup', (_e, filter: Filter, maxChains?: number, runId?: number) =>
   store.stackRollup(filter, maxChains, runId))
