@@ -8,6 +8,7 @@ declare global {
   interface Window {
     ares: {
       openFile(): Promise<{ runId: number; eventCount: number; errors: number } | null>
+      quit(): Promise<void>
       copyToClipboard(text: string): Promise<void>
       runs(): Promise<{ runId: number; file: string; ingestedAt: string; eventCount: number }[]>
       table(filter: Filter, page: { limit: number; offset: number }, runId?: number): Promise<TableRow[]>

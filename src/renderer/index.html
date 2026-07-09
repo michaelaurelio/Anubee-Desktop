@@ -271,23 +271,24 @@
   <body>
     <div id="chrome">
       <span class="mark">&#9670; ARES</span>
-      <button id="open-run" class="btn pri">Open run</button>
+      <div class="menu" id="file-menu">
+        <button class="btn" data-menu-toggle>File &#9662;</button>
+        <div class="menu-body">
+          <button id="file-open" class="btn">Open JSONL&hellip;</button>
+          <button id="file-capture" class="btn">Capture&hellip;</button>
+          <button id="export-md" class="btn">Export Markdown</button>
+          <button id="export-json" class="btn">Export JSON</button>
+          <button id="file-quit" class="btn">Quit</button>
+        </div>
+      </div>
       <span id="status">No run loaded</span>
       <span class="spacer"></span>
       <div class="segment">
         <button id="tab-graph" class="btn on">Graph</button>
         <button id="tab-flame" class="btn">Flame</button>
-        <button id="tab-capture" class="btn">Capture</button>
       </div>
       <button id="suggest-btn" class="btn">Suggestions</button>
       <button id="rules-btn" class="btn">Rules</button>
-      <div class="menu" id="export-menu">
-        <button class="btn" data-menu-toggle>Export &#9662;</button>
-        <div class="menu-body">
-          <button id="export-md" class="btn">Export Markdown</button>
-          <button id="export-json" class="btn">Export JSON</button>
-        </div>
-      </div>
       <div class="menu" id="diff-menu">
         <button class="btn" data-menu-toggle>Diff &#9662;</button>
         <div class="menu-body">
@@ -334,25 +335,9 @@
           </div>
         </div>
         <div id="flame"></div>
-        <div id="capture" class="hidden">
-          <div id="capture-config">
-            <label>ares binary <input id="cfg-binary" type="text" placeholder="/host/build/ares" /></label>
-            <label>specs dir <input id="cfg-specs" type="text" placeholder="/host/specs" /></label>
-          </div>
-          <div id="capture-form-row">
-            <select id="cap-select"></select>
-            <input id="cap-timeout" type="text" size="4" placeholder="secs" title="timeout window (blank = run until Stop)" />
-            <button id="cap-preflight" class="btn">Preflight</button>
-            <button id="cap-start" class="btn" disabled>Start</button>
-            <button id="cap-stop" class="btn" disabled>Stop</button>
-          </div>
-          <div id="cap-form"></div>
-          <div id="cap-preflight-status"></div>
-          <div id="cap-console"></div>
-        </div>
         <div id="empty-state">
           <div class="es-title">No run loaded</div>
-          <div>Open a run to begin - use <b>Open run</b> above.</div>
+          <div>Open a run to begin - use <b>File &#9662; Open JSONL</b> above.</div>
         </div>
       </div>
       <div class="resize-handle" data-resize="side" title="drag to resize"></div>
@@ -365,6 +350,24 @@
       </div>
     </div>
     <div id="suggestions-popup" class="sug-popup" hidden></div>
+    <template id="capture-template">
+      <div id="capture">
+        <div id="capture-config">
+          <label>ares binary <input id="cfg-binary" type="text" placeholder="/host/build/ares" /></label>
+          <label>specs dir <input id="cfg-specs" type="text" placeholder="/host/specs" /></label>
+        </div>
+        <div id="capture-form-row">
+          <select id="cap-select"></select>
+          <input id="cap-timeout" type="text" size="4" placeholder="secs" title="timeout window (blank = run until Stop)" />
+          <button id="cap-preflight" class="btn">Preflight</button>
+          <button id="cap-start" class="btn" disabled>Start</button>
+          <button id="cap-stop" class="btn" disabled>Stop</button>
+        </div>
+        <div id="cap-form"></div>
+        <div id="cap-preflight-status"></div>
+        <div id="cap-console"></div>
+      </div>
+    </template>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

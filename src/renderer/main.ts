@@ -22,6 +22,7 @@ import { buildFlame } from '@shared/flame-shape'
 import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
 import { renderCapabilityForm, appendConsoleLine } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, type CapValues } from '@shared/tracer-caps'
+import { showModal } from './modal'
 
 let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
 document.documentElement.setAttribute('data-theme', theme)
@@ -127,7 +128,7 @@ let tags: Tag[] = []
 let dismissed: Dismissed[] = []
 let runB: number | undefined
 let diffMode: DiffMode = 'all'
-let currentView: 'graph' | 'flame' | 'capture' = 'graph'
+let currentView: 'graph' | 'flame' = 'graph'
 
 async function refreshTags(): Promise<void> {
   const rid = activeRunId
@@ -238,14 +239,13 @@ async function refreshFlame(): Promise<void> {
   renderFlame(host, tree, rollup.truncated || tree.truncated, theme)
 }
 
-function showView(view: 'graph' | 'flame' | 'capture'): void {
+function showView(view: 'graph' | 'flame'): void {
   currentView = view
   document.getElementById('cy')?.classList.toggle('hidden', view !== 'graph')
   document.getElementById('flame')?.classList.toggle('active', view === 'flame')
   document.getElementById('flame')?.classList.toggle('hidden', view !== 'flame')
-  document.getElementById('capture')?.classList.toggle('hidden', view !== 'capture')
   if (view === 'flame') void refreshFlame()
-  for (const [id, v] of [['tab-graph', 'graph'], ['tab-flame', 'flame'], ['tab-capture', 'capture']] as const) {
+  for (const [id, v] of [['tab-graph', 'graph'], ['tab-flame', 'flame']] as const) {
     document.getElementById(id)?.classList.toggle('on', currentView === v)
   }
 }
@@ -481,6 +481,18 @@ function wireCapture(): void {
   }
 }
 
+function openCaptureModal(): void {
+  showModal({
+    title: 'Capture',
+    width: 620,
+    render: host => {
+      const tpl = document.getElementById('capture-template') as HTMLTemplateElement | null
+      if (tpl) host.appendChild(tpl.content.cloneNode(true))
+      wireCapture() // binds the cap-* controls now present in the modal
+    },
+  })
+}
+
 function wireExport(): void {
   const md = document.getElementById('export-md')
   const json = document.getElementById('export-json')
@@ -507,7 +519,6 @@ window.ares.onLoaded(s => {
 })
 document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))
 document.getElementById('tab-flame')?.addEventListener('click', () => showView('flame'))
-document.getElementById('tab-capture')?.addEventListener('click', () => showView('capture'))
 document.getElementById('rules-btn')?.addEventListener('click', () => {
   const host = document.getElementById('rules')
   if (!host) return
@@ -520,7 +531,6 @@ document.getElementById('rules-btn')?.addEventListener('click', () => {
 wireFilterControls(() => { void refreshTable(); refreshMiddle() })
 wireExport()
 wireDiff()
-wireCapture()
 
 function zoomBy(factor: number): void {
   const c = cy.container()
@@ -540,7 +550,14 @@ window.addEventListener('keydown', e => {
   else if (e.key === '-' || e.code === 'NumpadSubtract') { e.preventDefault(); zoomBy(1 / 1.2) }
 })
 
-document.getElementById('open-run')?.addEventListener('click', () => { void window.ares.openFile() })
+document.getElementById('file-open')?.addEventListener('click', () => { void window.ares.openFile() })
+document.getElementById('file-quit')?.addEventListener('click', () => { void window.ares.quit() })
+document.getElementById('file-capture')?.addEventListener('click', () => openCaptureModal())
+
+// Ctrl/Cmd+O opens a run (replaces the removed native-menu accelerator).
+window.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); void window.ares.openFile() }
+})
 
 for (const toggle of document.querySelectorAll<HTMLElement>('[data-menu-toggle]')) {
   toggle.addEventListener('click', e => {

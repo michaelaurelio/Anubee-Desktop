@@ -60,16 +60,7 @@ function createWindow(): void {
   const preload = process.env.ARES_OPEN_FILE
   if (preload) win.webContents.once('did-finish-load', () => void loadPath(preload))
 
-  const menu = Menu.buildFromTemplate([
-    {
-      label: 'File',
-      submenu: [
-        { label: 'Open JSONL...', accelerator: 'CmdOrCtrl+O', click: () => void openViaDialog() },
-        { role: 'quit' },
-      ],
-    },
-  ])
-  Menu.setApplicationMenu(menu)
+  Menu.setApplicationMenu(null) // single in-app File▾ toolbar; no native menu bar
 }
 
 async function loadPath(path: string): Promise<{ runId: number; eventCount: number; errors: number }> {
@@ -137,6 +128,7 @@ ipcMain.handle('tracer:stop', async () => {
 })
 
 ipcMain.handle('trace:open', () => openViaDialog())
+ipcMain.handle('app:quit', () => app.quit())
 ipcMain.handle('graph:runs', () => store.runs())
 ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }, runId?: number) => store.table(filter, page, runId))
 ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number, runId?: number) => store.slice(filter, cap, runId))

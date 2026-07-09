@@ -38,6 +38,14 @@ await win.waitForSelector('#table table tr', { timeout: 30000 })
 await win.waitForTimeout(300)
 await shot('01-loaded-table.png')
 
+// Single-toolbar shape (task 5): no native-menu leftovers, one File▾ menu, no
+// Capture tab in the view segment.
+const barOk = await win.evaluate(() =>
+  !document.getElementById('open-run') &&
+  !!document.getElementById('file-menu') &&
+  !document.getElementById('tab-capture'))
+if (!barOk) throw new Error('toolbar not in Variant B shape (File menu / no open-run / no capture tab)')
+
 // 2. A bridge selected: the focused java -> native -> syscall subgraph.
 await win.click('#table table tr:nth-child(2)') // first data row (row 1 is header)
 await win.waitForSelector('#cy canvas', { timeout: 15000 })
@@ -214,6 +222,15 @@ await win.waitForSelector('#suggestions-popup .sug-row', { timeout: 5000 })
 await win.waitForTimeout(200)
 await shot('06b-suggestions.png')
 await win.click('#suggest-btn') // close
+
+// 6c. Capture as a centered modal (task 5), opened from File▾.
+await win.click('#file-menu [data-menu-toggle]')
+await win.click('#file-capture')
+await win.waitForSelector('.modal-backdrop .modal', { timeout: 5000 })
+const capOk = await win.evaluate(() => !!document.querySelector('.modal-body #cap-select'))
+if (!capOk) throw new Error('Capture modal did not host the capture form')
+await shot('06-capture-modal.png')
+await win.keyboard.press('Escape')
 
 // 7. Light theme via the toggle.
 await win.click('#tab-graph')

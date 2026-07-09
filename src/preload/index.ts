@@ -7,6 +7,7 @@ import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 // this bridge except the single record fetched by id for the inspector.
 contextBridge.exposeInMainWorld('ares', {
   openFile: () => ipcRenderer.invoke('trace:open'),
+  quit: () => ipcRenderer.invoke('app:quit'),
   copyToClipboard: (text: string) => ipcRenderer.invoke('clipboard:write', text),
   runs: () => ipcRenderer.invoke('graph:runs'),
   table: (filter: Filter, page: { limit: number; offset: number }, runId?: number) =>
