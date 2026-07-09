@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "run": {
+    "file": "/home/lyo/self-project/migration/ARES-Desktop/tests/fixtures/detector_snap.jsonl",
+    "ingestedAt": "2026-07-09T01:30:38.922Z"
+  },
+  "tags": [
+    {
+      "target": "nat:base.apk -> libsentinel.so!sentinel_check_props",
+      "category": "custom",
+      "source": "manual",
+      "createdAt": "2026-07-09T04:36:52.633Z",
+      "note": "environment"
+    }
+  ],
+  "rules": [],
+  "enabledOverrides": {},
+  "dismissed": []
+}
