@@ -108,21 +108,29 @@ await shot('03-inspector.png')
 // dim assertion is meaningful.
 await win.evaluate(async () => {
   const cy = window.__cy
-  // A small, bounded slice: enough disconnected bridges that fan-in/out dims
-  // something, few enough that nodes stay large and clickable in the harness.
-  const slice = await window.ares.slice({}, 60)
-  cy.elements().remove()
-  cy.add(slice.nodes.map(n => ({ data: { id: n.id, kind: n.kind, label: n.label }, classes: n.kind })))
-  // The fixture may not have explicit edges; create a minimal set for testing
-  // by connecting each native node to its two nearest neighbors to create
-  // enough connectivity for fan-in/out highlighting.
-  const nodes = slice.nodes.filter(n => n.kind === 'native')
-  const edges = []
-  for (let i = 0; i < nodes.length; i++) {
-    if (i > 0) edges.push({ data: { id: `e${i}`, source: nodes[i - 1].id, target: nodes[i].id } })
-    if (i < nodes.length - 1) edges.push({ data: { id: `e${i}b`, source: nodes[i].id, target: nodes[i + 1].id } })
+  // Honest java -> native -> syscall topology (the app's directed slice) with two
+  // branches so a native tap's fan-in/out both lights edges and dims off-path.
+  // Node ids must be real ids from the loaded run (not placeholder strings):
+  // a native tap's inspector/offset-popup query DuckDB by exact node id, and a
+  // made-up id never appears in any real event's causal chain, so the inspector
+  // assertion below would see zero records.
+  const slice = await window.ares.slice({}, 500)
+  const byKind = k => slice.nodes.filter(n => n.kind === k)
+  const j = byKind('java'), n = byKind('native'), s = byKind('syscall')
+  if (j.length < 2 || n.length < 2 || s.length < 1) {
+    throw new Error('run lacks enough distinct java/native/syscall nodes for the harness graph')
   }
-  cy.add(edges)
+  const [j1, j2] = j
+  const [n1, n2] = n
+  const [s1] = s
+  cy.elements().remove()
+  cy.add([j1, j2, n1, n2, s1].map(x => ({ data: { id: x.id, kind: x.kind, label: x.label }, classes: x.kind })))
+  cy.add([
+    { data: { id: 'e1', source: j1.id, target: n1.id } },
+    { data: { id: 'e2', source: n1.id, target: s1.id } },
+    { data: { id: 'e3', source: j2.id, target: n2.id } },
+    { data: { id: 'e4', source: n2.id, target: s1.id } },
+  ])
   cy.layout({ name: 'grid' }).run()
   cy.fit(undefined, 48)
 })
