@@ -83,17 +83,27 @@ describe('capSlice', () => {
   const e = (s: string, t: string) => ({ id: `${s}->${t}`, source: s, target: t, count: 1 })
 
   it('keeps edges among surviving nodes instead of starving them to zero', () => {
-    // 3 nodes + 2 edges, cap 3 -> truncated; the old (cap - nodes) budget gave 0 edges.
+    // 3 nodes + 2 edges, cap 3: all fit, nothing dropped. The old (cap - nodes)
+    // budget gave 0 edges here; the fix keeps both and reports not-truncated.
     const s = capSlice([n('a'), n('b'), n('c')], [e('a', 'b'), e('b', 'c')], 10, 3)
-    expect(s.truncated).toBe(true)
     expect(s.nodes.map(x => x.id)).toEqual(['a', 'b', 'c'])
     expect(s.edges.map(x => `${x.source}->${x.target}`).sort()).toEqual(['a->b', 'b->c'])
+    expect(s.truncated).toBe(false)
   })
 
-  it('drops edges dangling to dropped nodes', () => {
+  it('truncates by dropping nodes, keeping only edges among survivors', () => {
+    // cap 2 drops node c; edges touching c go too, a->b survives; truncated.
     const s = capSlice([n('a'), n('b'), n('c')], [e('a', 'b'), e('b', 'c'), e('a', 'c')], 10, 2)
     expect(s.nodes.map(x => x.id)).toEqual(['a', 'b'])
     expect(s.edges.map(x => `${x.source}->${x.target}`)).toEqual(['a->b'])
+    expect(s.truncated).toBe(true)
+  })
+
+  it('flags truncated only when something is actually cut, not on the raw sum', () => {
+    // 5 nodes + 1 edge, cap 5: sum 6 > 5, but nothing is dropped -> not truncated.
+    const s = capSlice([n('a'), n('b'), n('c'), n('d'), n('e')], [e('a', 'b')], 10, 5)
+    expect(s.truncated).toBe(false)
+    expect(s.edges).toHaveLength(1)
   })
 
   it('is not truncated when under the cap', () => {

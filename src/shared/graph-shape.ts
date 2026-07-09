@@ -94,22 +94,25 @@ export function foldEvents(events: SyscallEvent[], cap?: number): GraphSlice {
   return capSlice([...nodes.values()], [...edges.values()], events.length, cap)
 }
 
-// Assemble a GraphSlice, flagging (and trimming to) a max node+edge count.
+// Assemble a GraphSlice, flagging (and trimming to) a max node/edge count.
 // Shared by foldEvents (the oracle) and the DuckDB slice so both truncate the
-// same way: keep nodes first, then edges, up to `cap`.
+// same way: keep up to `cap` nodes, then the edges among the surviving nodes
+// (up to `cap`), so a node-heavy slice still renders its edges. `truncated`
+// reflects whether anything was actually dropped, not the raw node+edge sum.
 export function capSlice(
   nodes: GraphNode[],
   edges: GraphEdge[],
   eventCount: number,
   cap?: number,
 ): GraphSlice {
-  const truncated = cap !== undefined && nodes.length + edges.length > cap
-  if (!truncated) return { nodes, edges, eventCount, truncated: false }
+  if (cap === undefined) return { nodes, edges, eventCount, truncated: false }
   const ns = nodes.slice(0, cap)
   const keep = new Set(ns.map(n => n.id))
   // Keep only edges whose endpoints both survive (no dangling edges into dropped
   // nodes), capped independently so a node-heavy slice still renders its edges
   // instead of the old node-first budget starving them to zero.
-  const es = edges.filter(e => keep.has(e.source) && keep.has(e.target)).slice(0, cap!)
-  return { nodes: ns, edges: es, eventCount, truncated: true }
+  const kept = edges.filter(e => keep.has(e.source) && keep.has(e.target))
+  const es = kept.slice(0, cap)
+  const truncated = ns.length < nodes.length || es.length < kept.length
+  return { nodes: ns, edges: es, eventCount, truncated }
 }
