@@ -33,6 +33,57 @@ export function primaryArg(e: SyscallEvent): string {
   return e.args.join(' ')
 }
 
+export type DetailSection =
+  | { title: string; kind: 'kv'; rows: [string, string][] }
+  | { title: string; kind: 'stack'; lines: string[] }
+
+// Group a record into the inspector's detail cards. Pure and unit-tested; the
+// DOM wrapper is renderEventDetail. Empty arg/stack groups are skipped.
+export function eventDetailSections(e: SyscallEvent): DetailSection[] {
+  const out: DetailSection[] = []
+  out.push({ title: 'Summary', kind: 'kv', rows: [
+    ['syscall', `${e.syscall} (nr ${e.syscall_nr})`],
+    ['tid', String(e.tid)],
+    ['retval', String(e.retval)],
+  ] })
+  const argRows: [string, string][] = []
+  for (const [k, v] of Object.entries(e.string_args)) argRows.push([`string[${k}]`, v])
+  for (const [k, v] of Object.entries(e.decoded_args)) argRows.push([`decoded[${k}]`, v])
+  for (const [k, v] of Object.entries(e.fd_args)) argRows.push([`fd[${k}]`, v])
+  if (argRows.length) out.push({ title: 'Args', kind: 'kv', rows: argRows })
+  if (e.java_stack?.length) out.push({ title: 'Java stack', kind: 'stack', lines: e.java_stack.slice() })
+  if (e.backtrace.length) out.push({ title: 'Backtrace', kind: 'stack', lines: e.backtrace.map(f => `#${f.frame} ${f.symbol}`) })
+  return out
+}
+
+// Render the detail cards for one event into `host` (clears it first). Cells use
+// textContent so trace strings can't inject markup. DOM side-effect.
+export function renderEventDetail(host: HTMLElement, e: SyscallEvent): void {
+  host.innerHTML = ''
+  for (const sec of eventDetailSections(e)) {
+    const card = document.createElement('div'); card.className = 'insp-card'
+    const h = document.createElement('div'); h.className = 'insp-card-h'
+    const t = document.createElement('span'); t.textContent = sec.title; h.appendChild(t)
+    if (sec.kind === 'stack') { const c = document.createElement('span'); c.className = 'insp-card-cnt'; c.textContent = String(sec.lines.length); h.appendChild(c) }
+    card.appendChild(h)
+    if (sec.kind === 'kv') {
+      const tbl = document.createElement('table'); tbl.className = 'insp-kv'
+      for (const [k, v] of sec.rows) {
+        const tr = document.createElement('tr')
+        const kd = document.createElement('td'); kd.textContent = k
+        const vd = document.createElement('td'); vd.textContent = v
+        tr.append(kd, vd); tbl.appendChild(tr)
+      }
+      card.appendChild(tbl)
+    } else {
+      const pre = document.createElement('div'); pre.className = 'insp-stack'
+      pre.textContent = sec.lines.join('\n')
+      card.appendChild(pre)
+    }
+    host.appendChild(card)
+  }
+}
+
 // Render the records behind a clicked node into #inspector as a compact table
 // (id, syscall, tid, retval, primary arg); clicking a row shows that record's
 // full formatted detail below. Cells use textContent so trace strings can't
@@ -47,7 +98,7 @@ export function showNodeInspector(nodeId: string, events: SyscallEvent[]): void 
   head.textContent = `${nodeId} - ${events.length} record(s)`
   host.appendChild(head)
 
-  const detail = document.createElement('pre')
+  const detail = document.createElement('div')
   detail.className = 'insp-detail'
 
   const scroll = document.createElement('div')
@@ -80,7 +131,7 @@ export function showNodeInspector(nodeId: string, events: SyscallEvent[]): void 
       selected?.classList.remove('sel')
       tr.classList.add('sel')
       selected = tr
-      detail.textContent = formatEvent(ev)
+      renderEventDetail(detail, ev)
     }
     tbody.appendChild(tr)
   }
@@ -90,7 +141,7 @@ export function showNodeInspector(nodeId: string, events: SyscallEvent[]): void 
   host.appendChild(detail)
 
   if (events[0]) {
-    detail.textContent = formatEvent(events[0])
+    renderEventDetail(detail, events[0])
     tbody.firstChild && (tbody.firstChild as HTMLTableRowElement).classList.add('sel')
     selected = tbody.firstChild as HTMLTableRowElement
   }

@@ -214,8 +214,16 @@
       .insp-table tbody tr { cursor: pointer; }
       .insp-table tbody tr:hover { background: var(--hover); }
       .insp-table tbody tr.sel { background: var(--hover); outline: 1px solid var(--border); }
-      .insp-detail { white-space: pre-wrap; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border-soft);
-        color: var(--text); font-family: var(--mono); font-size: 11px; }
+      .insp-detail { margin-top: 8px; display: flex; flex-direction: column; gap: 9px; }
+      .insp-card { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel-2); }
+      .insp-card-h { display: flex; justify-content: space-between; align-items: center; padding: 5px 10px;
+                     background: var(--stripe); font-size: 11px; font-weight: 600; color: var(--text); }
+      .insp-card-cnt { color: var(--muted); font-weight: 400; }
+      .insp-kv { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+      .insp-kv td { padding: 4px 10px; border-bottom: 1px solid var(--stripe); vertical-align: top; }
+      .insp-kv td:first-child { color: var(--muted); white-space: nowrap; width: 90px; }
+      .insp-kv tr:last-child td { border-bottom: 0; }
+      .insp-stack { padding: 7px 10px; font-family: var(--mono); font-size: 11px; white-space: pre-wrap; line-height: 1.5; }
       /* suggestions popup (opened from the chrome-bar button) */
       .sug-popup { position: fixed; top: 46px; right: 12px; width: 440px; max-height: 70vh; overflow: auto;
         background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
