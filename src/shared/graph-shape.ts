@@ -106,6 +106,10 @@ export function capSlice(
   const truncated = cap !== undefined && nodes.length + edges.length > cap
   if (!truncated) return { nodes, edges, eventCount, truncated: false }
   const ns = nodes.slice(0, cap)
-  const es = edges.slice(0, Math.max(0, cap! - ns.length))
+  const keep = new Set(ns.map(n => n.id))
+  // Keep only edges whose endpoints both survive (no dangling edges into dropped
+  // nodes), capped independently so a node-heavy slice still renders its edges
+  // instead of the old node-first budget starving them to zero.
+  const es = edges.filter(e => keep.has(e.source) && keep.has(e.target)).slice(0, cap!)
   return { nodes: ns, edges: es, eventCount, truncated: true }
 }

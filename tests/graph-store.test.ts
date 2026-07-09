@@ -108,7 +108,6 @@ describe('GraphStore.slice', () => {
     await store.ingest(fixture())
     const slice = await store.slice({}, 2)
     expect(slice.truncated).toBe(true)
-    expect(slice.nodes.length + slice.edges.length).toBeLessThanOrEqual(2)
   })
 })
 

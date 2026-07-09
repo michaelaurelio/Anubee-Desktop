@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chainOf, foldEvents, labelForId } from '@shared/graph-shape'
+import { chainOf, foldEvents, labelForId, capSlice } from '@shared/graph-shape'
 import type { SyscallEvent } from '@shared/events'
 
 function syscall(over: Partial<SyscallEvent> = {}): SyscallEvent {
@@ -75,6 +75,31 @@ describe('foldEvents', () => {
   it('flags truncated when node+edge count exceeds the cap', () => {
     const s = foldEvents([syscall()], 2) // 3 nodes + 2 edges > 2
     expect(s.truncated).toBe(true)
+  })
+})
+
+describe('capSlice', () => {
+  const n = (id: string) => ({ id, kind: 'native' as const, label: id, module: null, count: 1 })
+  const e = (s: string, t: string) => ({ id: `${s}->${t}`, source: s, target: t, count: 1 })
+
+  it('keeps edges among surviving nodes instead of starving them to zero', () => {
+    // 3 nodes + 2 edges, cap 3 -> truncated; the old (cap - nodes) budget gave 0 edges.
+    const s = capSlice([n('a'), n('b'), n('c')], [e('a', 'b'), e('b', 'c')], 10, 3)
+    expect(s.truncated).toBe(true)
+    expect(s.nodes.map(x => x.id)).toEqual(['a', 'b', 'c'])
+    expect(s.edges.map(x => `${x.source}->${x.target}`).sort()).toEqual(['a->b', 'b->c'])
+  })
+
+  it('drops edges dangling to dropped nodes', () => {
+    const s = capSlice([n('a'), n('b'), n('c')], [e('a', 'b'), e('b', 'c'), e('a', 'c')], 10, 2)
+    expect(s.nodes.map(x => x.id)).toEqual(['a', 'b'])
+    expect(s.edges.map(x => `${x.source}->${x.target}`)).toEqual(['a->b'])
+  })
+
+  it('is not truncated when under the cap', () => {
+    const s = capSlice([n('a'), n('b')], [e('a', 'b')], 5, 10)
+    expect(s.truncated).toBe(false)
+    expect(s.edges).toHaveLength(1)
   })
 })
 
