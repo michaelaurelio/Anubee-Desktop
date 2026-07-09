@@ -42,9 +42,10 @@ declare global {
       getTracerConfig(): Promise<{ aresBinary: string; specsDir: string }>
       setTracerConfig(cfg: { aresBinary: string; specsDir: string }): Promise<void>
       tracerPreflight(pkg: string): Promise<{ id: string; label: string; ok: boolean; detail: string }[]>
-      tracerStart(capId: string, vals: Record<string, unknown>, timeoutSecs?: number):
+      tracerStart(capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string):
         Promise<{ code: number; kind: string; runId?: number }>
       tracerStop(): Promise<void>
+      pickSavePath(): Promise<string | undefined>
       onTracerLine(cb: (line: string) => void): void
       onTracerDone(cb: (r: { code: number; kind: string; runId?: number }) => void): void
     }

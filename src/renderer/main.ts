@@ -409,7 +409,13 @@ function wireCapture(): void {
   const stopBtn = document.getElementById('cap-stop') as HTMLButtonElement | null
   const binIn = document.getElementById('cfg-binary') as HTMLInputElement | null
   const specIn = document.getElementById('cfg-specs') as HTMLInputElement | null
+  const saveIn = document.getElementById('cap-savepath') as HTMLInputElement | null
   if (!sel || !formHost || !statusHost || !consoleHost || !startBtn || !stopBtn || !binIn || !specIn) return
+
+  document.getElementById('cap-browse')?.addEventListener('click', async () => {
+    const p = await window.ares.pickSavePath()
+    if (p && saveIn) saveIn.value = p
+  })
 
   let vals: CapValues = {}
   let preflightOk = false
@@ -471,7 +477,7 @@ function wireCapture(): void {
     startBtn.disabled = true; stopBtn.disabled = false
     const timeout = binTimeout()
     try {
-      const r = await window.ares.tracerStart(cap.id, vals, timeout)
+      const r = await window.ares.tracerStart(cap.id, vals, timeout, saveIn?.value || undefined)
       appendConsoleLine(consoleHost, `--- done (exit ${r.code}, kind ${r.kind}) ---`)
       if (r.kind === 'jsonl' && r.runId !== undefined) showView('graph')
     } catch (err) {

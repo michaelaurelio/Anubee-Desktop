@@ -252,6 +252,12 @@ Design reference: overall spec §13.
   dump 5 rebuilt `.so` pulled; both timeout and manual-stop paths flush the sink.
 
 ### Known drawbacks / follow-ups from feature 9
+- **Rules editor is a single-stacked form** - the predicate-builder form
+  (`id`, `category`, `confidence`, `rationale`, `syscalls`, `field`, `op`,
+  `argIndex`, `value`) renders as a vertical column without per-field inline
+  validation indicators; consider field-level error UI if validation feedback
+  becomes important beyond the current pre-dispatch `draftFromForm`/`validateRule`
+  checks.
 - **`dump` dumps on app *exit* by default** (post-decryption) - the capability
   does not expose `--on-map` (dump-the-instant-a-lib-maps) or `-p <pid>`
   (attach to a running process). For a short UI window the on-exit default

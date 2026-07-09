@@ -222,17 +222,19 @@ globally disabled.
 ### RASP rule-authoring UI
 
 A `#rules` floating panel (`src/renderer/rules-view.ts`, opened by the "Rules"
-toolbar button) lists `resolveRules`' effective set with a `[builtin|global|
-project]` source badge per row, an enable/disable checkbox, and Edit /
-Delete (writable scopes) / Reset (builtins) actions - every action reads the
-raw stored global/project scope (not the merged effective list), mutates a
-copy, and calls `rasp:rules:save`.
+toolbar button) lists `resolveRules`' effective set as **card rows** (aligned with
+the Suggestions modal visual language), each displaying a category chip, source
+`[builtin|global|project]` badge, rule id, confidence + syscalls count, and the
+predicate line (field / op / value). Each card row has an aligned trailing
+enabled/disabled toggle, Edit / Delete (writable scopes) / Reset (builtins)
+actions; every action reads the raw stored global/project scope (not the merged
+effective list), mutates a copy, and calls `rasp:rules:save`.
 
-The editor is a predicate-builder form (`id`, `category`, `confidence`,
-`rationale`, `syscalls`, `field`, `op`, `argIndex` - shown only when `op` is
-`arg_hex_eq` - `value`) plus an explicit scope radio (Global | Project) that
-is independent of the row being edited. `draftFromForm`/`validateRule` reject
-an invalid draft inline before anything reaches IPC.
+The editor is a single-stacked predicate-builder form (`id`, `category`,
+`confidence`, `rationale`, `syscalls`, `field`, `op`, `argIndex` - shown only
+when `op` is `arg_hex_eq` - `value`) plus an explicit scope radio (Global |
+Project) that is independent of the row being edited. `draftFromForm`/
+`validateRule` reject an invalid draft inline before anything reaches IPC.
 
 **Editing a builtin forks it.** Builtins are read-only in `BUILTIN_RULES`;
 saving an edit to a builtin row writes a same-`id` rule into whichever scope
@@ -364,8 +366,22 @@ descriptor per engine with a `buildArgv`, cross-field `validate`, and the
 `composeRunArg` device-command builder. `src/main/tracer-control.ts` (main) owns
 the adb orchestration behind an injected `Adb`/`Spawner` seam: `preflight`,
 `startRun` (spawn + per-stream line buffering via `lineSplitter`), `stop`,
-`pullResult`. `src/renderer/capture-view.ts` renders the form + console; the
-toolbar wiring lives in `main.ts`'s `wireCapture()`.
+`pullResult`. `src/renderer/capture-view.ts` renders an aligned-field form +
+bordered console (unified visual language with Rules and Suggestions modals);
+the toolbar wiring lives in `main.ts`'s `wireCapture()`.
+
+**Capture form layout and save destination.** The form collects engine, target
+package, engine-specific arguments, timeout, and a `syscalls` field. The
+**`syscalls` field is a comma-separated FILTER** (not a save format) - it
+narrows which syscalls are captured when relevant to the engine (e.g. only
+`openat,read` events); capture output is always JSONL regardless. At the bottom,
+an aligned **"save to" host-path field** with a Browse button lets the analyst
+choose where the pulled JSONL is written. Browse fires the `tracer:pickSavePath`
+IPC, which opens a native Save dialog (defaulting to a `capture.jsonl` file) and
+fills the field. On Start, the field value is passed to `tracer:start`, where the
+pure `resolveSavePath(chosen, default)` uses it when non-empty, else falls back to
+the default `<userData>/runs/ares-<ts>.jsonl`; the device capture is pulled to
+that path and loaded.
 
 **Capabilities and the three output kinds.** All seven engines are exposed.
 `syscalls`/`funcs`/`correlate`/`trace` are `jsonl` (`-o <dev>.jsonl` → pull →

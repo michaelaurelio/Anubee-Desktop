@@ -39,7 +39,7 @@ export const CAPABILITIES: Capability[] = [
       { key: 'pkg', label: 'package', kind: 'package', required: true },
       { key: 'lib', label: 'library filter', kind: 'text' },
       { key: 'all', label: 'capture all libraries', kind: 'bool' },
-      { key: 'syscalls', label: 'syscalls (csv)', kind: 'csv' },
+      { key: 'syscalls', label: 'syscalls (comma-separated)', kind: 'csv' },
     ],
     buildArgv(v) {
       const a = ['syscalls', '-P', s(v.pkg)]
@@ -137,6 +137,12 @@ export function outJsonlPath(ts: string): string {
 // a directory (`-d DIR`); the whole directory is pulled after the run.
 export function outDumpDir(ts: string): string {
   return `/data/local/tmp/ares-dump-${ts}`
+}
+
+// The host path to pull a capture's JSONL to: the analyst's chosen path if any,
+// else the default runs-dir path. Pure so main can stay thin.
+export function resolveSavePath(chosen: string | undefined, defaultPath: string): string {
+  return chosen && chosen.trim() ? chosen.trim() : defaultPath
 }
 
 // Build the single string handed to `adb shell` as `su -c '<...>'`. One su -c

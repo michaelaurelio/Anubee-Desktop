@@ -161,12 +161,20 @@
       #diff-table th, #diff-table td { text-align: left; padding: 2px 6px; font-size: 12px; }
 
       /* capture */
-      #capture { padding: 8px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
-      #cap-console { font-family: var(--mono); font-size: 12px; background: #0a0d12; color: #ddd;
-        padding: 6px; height: 240px; overflow: auto; white-space: pre-wrap; border-radius: 4px; }
-      .loud-warn { color: var(--k-syscall); font-weight: 600; }
-      .cap-input { display: flex; gap: 6px; align-items: center; }
+      #capture { padding: 4px; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
+      #capture-config, #capture-form-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+      #capture-config label, .cap-input { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+      #capture input[type=text], #capture select { background: var(--input-bg); border: 1px solid var(--input-bd);
+        color: var(--text); border-radius: 5px; padding: 4px 7px; font: inherit; }
+      #cap-form { display: flex; flex-direction: column; gap: 8px; }
+      .cap-input { flex-wrap: wrap; }
+      .cap-input span { min-width: 92px; }
+      .cap-input input[type=text] { flex: 1 1 180px; }
+      #cap-console { font-family: var(--mono); font-size: 12px; background: var(--surface); color: var(--text);
+        border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; height: 200px;
+        overflow: auto; white-space: pre-wrap; }
       .preflight-ok { color: var(--k-java); } .preflight-bad { color: var(--k-syscall); }
+      .loud-warn { color: var(--k-syscall); font-size: 12px; font-weight: 600; }
 
       /* offset-popup: floating table for native node offsets */
       .offset-popup { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
@@ -243,6 +251,25 @@
       .sug-btns { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
       .sug-confirm { border-color: #2ea043; color: #7ee2a0; }
       .sug-reject { border-color: #c94f4f; color: #f2a3a3; }
+      /* Rules modal - same card language as the suggestions list */
+      .rule-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 4px; border-bottom: 1px solid var(--border-soft); }
+      .rule-info { flex: 1 1 auto; min-width: 0; }
+      .rule-line1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .rule-id { font: 12px var(--mono); color: var(--text); word-break: break-all; }
+      .rule-meta { font: 11px var(--mono); color: var(--muted); margin-left: auto; }
+      .rule-src { font: 600 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .04em;
+                  color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 2px 5px; }
+      .rule-pred { font: 11px var(--mono); color: var(--muted); margin-top: 3px; word-break: break-all; }
+      .rule-btns { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+      .rule-form { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px;
+                   display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; }
+      .rule-form .rf-label { color: var(--muted); font-size: 12px; }
+      .rule-form input, .rule-form select { background: var(--input-bg); border: 1px solid var(--input-bd);
+                   color: var(--text); border-radius: 5px; padding: 4px 7px; font: inherit; width: 100%; }
+      .rule-form .rf-preview { grid-column: 1 / -1; color: var(--muted); font: 11px var(--mono); }
+      .rule-form .rf-actions { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: flex-end; }
+      .rules-head { font-weight: 600; color: var(--text); margin-bottom: 8px; }
+      .rules-status { color: var(--k-syscall); font-size: 12px; }
       /* right-click node context menu */
       .node-menu { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
         box-shadow: var(--shadow); min-width: 160px; padding: 4px; }
@@ -350,12 +377,14 @@
         <div id="capture-config">
           <label>ares binary <input id="cfg-binary" type="text" placeholder="/host/build/ares" /></label>
           <label>specs dir <input id="cfg-specs" type="text" placeholder="/host/specs" /></label>
+          <label>save to <input id="cap-savepath" type="text" placeholder="(default app data)" /></label>
+          <button id="cap-browse" class="btn">Browse&hellip;</button>
         </div>
         <div id="capture-form-row">
           <select id="cap-select"></select>
           <input id="cap-timeout" type="text" size="4" placeholder="secs" title="timeout window (blank = run until Stop)" />
           <button id="cap-preflight" class="btn">Preflight</button>
-          <button id="cap-start" class="btn" disabled>Start</button>
+          <button id="cap-start" class="btn pri" disabled>Start</button>
           <button id="cap-stop" class="btn" disabled>Stop</button>
         </div>
         <div id="cap-form"></div>
