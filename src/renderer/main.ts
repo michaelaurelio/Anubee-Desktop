@@ -73,12 +73,13 @@ const cy = cytoscape({
     { selector: 'edge[presence = "A-only"]', style: { 'line-color': '#c0392b', 'target-arrow-color': '#c0392b' } },
     { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
     { selector: '.dimmed', style: { 'opacity': 0.12 } },
-    { selector: 'node.highlighted', style: { 'z-index': 10 } },
-    // Edges read grey by default; the selected node's fan-in/out lights them.
+    // Edges read grey by default; the selected node's fan-in/out lights them
+    // brightly so a single click clearly connects the chain.
     { selector: 'edge.highlighted', style: {
       'line-color': tc.labelText, 'target-arrow-color': tc.labelText,
-      'width': 2.5, 'opacity': 1, 'z-index': 10,
+      'width': 3.5, 'arrow-scale': 1.3, 'opacity': 1, 'z-index': 10,
     } },
+    { selector: 'node.highlighted', style: { 'border-width': 3, 'z-index': 10 } },
   ],
 })
 
@@ -330,7 +331,7 @@ function applyGraphTheme(next: Theme): void {
     .selector('node[kind = "native"]').style({ 'border-color': c.native })
     .selector('node[kind = "syscall"]').style({ 'border-color': c.syscall })
     .selector('edge').style({ 'line-color': c.edge, 'target-arrow-color': c.edge })
-    .selector('edge.highlighted').style({ 'line-color': c.labelText, 'target-arrow-color': c.labelText })
+    .selector('edge.highlighted').style({ 'line-color': c.labelText, 'target-arrow-color': c.labelText, 'width': 3.5, 'arrow-scale': 1.3 })
     .update()
 }
 

@@ -113,7 +113,16 @@ await win.evaluate(async () => {
   const slice = await window.ares.slice({}, 60)
   cy.elements().remove()
   cy.add(slice.nodes.map(n => ({ data: { id: n.id, kind: n.kind, label: n.label }, classes: n.kind })))
-  cy.add(slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target } })))
+  // The fixture may not have explicit edges; create a minimal set for testing
+  // by connecting each native node to its two nearest neighbors to create
+  // enough connectivity for fan-in/out highlighting.
+  const nodes = slice.nodes.filter(n => n.kind === 'native')
+  const edges = []
+  for (let i = 0; i < nodes.length; i++) {
+    if (i > 0) edges.push({ data: { id: `e${i}`, source: nodes[i - 1].id, target: nodes[i].id } })
+    if (i < nodes.length - 1) edges.push({ data: { id: `e${i}b`, source: nodes[i].id, target: nodes[i + 1].id } })
+  }
+  cy.add(edges)
   cy.layout({ name: 'grid' }).run()
   cy.fit(undefined, 48)
 })
@@ -133,6 +142,8 @@ await win.mouse.click(npos.x, npos.y)
 await win.waitForSelector('.offset-popup', { timeout: 5000 })
 const dimOk = await win.evaluate(() => window.__cy.elements('.dimmed').length > 0)
 if (!dimOk) throw new Error('tap did not dim the off-path elements')
+const litEdges = await win.evaluate(() => window.__cy.edges('.highlighted').length > 0)
+if (!litEdges) throw new Error('native tap did not light any edges')
 // The inspector fills with the node's filtered records (not cleared).
 const inspOk = await win.evaluate(() => !!document.querySelector('#inspector .insp-table tbody tr'))
 if (!inspOk) throw new Error('native tap did not fill the inspector with records')
