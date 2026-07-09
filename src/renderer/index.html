@@ -66,6 +66,9 @@
         box-shadow: var(--shadow); padding: 6px; min-width: 150px; flex-direction: column; gap: 6px; }
       .menu.open > .menu-body { display: flex; }
       .menu-body .btn, .menu-body select { width: 100%; }
+      /* File is the left-most menu: open its body rightward so it isn't clipped
+         by the left screen edge (Export/Diff sit on the right and keep right:0). */
+      #file-menu > .menu-body { right: auto; left: 0; }
 
       #theme-toggle { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
         border: 1px solid var(--border); border-radius: 5px; background: var(--panel-2); cursor: pointer; }

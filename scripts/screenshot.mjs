@@ -229,6 +229,15 @@ await win.keyboard.press('Escape')
 
 // 6c. Capture as a centered modal (task 5), opened from File▾.
 await win.click('#file-menu [data-menu-toggle]')
+// File is the left-most menu: its dropdown must open rightward (left-anchored),
+// not off the left screen edge. Assert + capture the open menu.
+await win.waitForSelector('#file-menu.open .menu-body', { timeout: 5000 })
+const fileMenuOk = await win.evaluate(() => {
+  const b = document.querySelector('#file-menu .menu-body')
+  return !!b && b.getBoundingClientRect().left >= 0
+})
+if (!fileMenuOk) throw new Error('File dropdown is clipped off the left screen edge')
+await shot('06a-file-menu.png')
 await win.click('#file-capture')
 await win.waitForSelector('.modal-backdrop .modal', { timeout: 5000 })
 const capOk = await win.evaluate(() => {
