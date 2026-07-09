@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
 import { loadConfig, saveConfig } from './tracer-config'
-import { capById, composeRunArg, outJsonlPath, outDumpDir } from '@shared/tracer-caps'
+import { capById, composeRunArg, outJsonlPath, outDumpDir, resolveSavePath } from '@shared/tracer-caps'
 
 // DuckDB lives here in the main process; read_json runs on its own native
 // threads, off the V8 heap, so there is no event array to ship over IPC. The
@@ -85,7 +85,15 @@ ipcMain.handle('tracer:config:set', (_e, cfg: { aresBinary: string; specsDir: st
 ipcMain.handle('tracer:preflight', (_e, pkg: string) =>
   preflight(adb, loadConfig(app.getPath('userData')), pkg, fileMd5))
 
-ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, unknown>, timeoutSecs?: number) => {
+ipcMain.handle('tracer:pickSavePath', async () => {
+  const r = await dialog.showSaveDialog(win, {
+    title: 'Save captured run as', defaultPath: 'capture.jsonl',
+    filters: [{ name: 'JSONL', extensions: ['jsonl'] }],
+  })
+  return r.canceled ? undefined : r.filePath
+})
+
+ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) => {
   const cap = capById(capId)
   if (!cap) throw new Error(`unknown capability ${capId}`)
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
@@ -102,7 +110,7 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
 
   let runId: number | undefined
   if (cap.outputKind === 'jsonl' && jsonlPath) {
-    const hostPath = resolve(runsDir(), `ares-${ts}.jsonl`)
+    const hostPath = resolveSavePath(savePath, resolve(runsDir(), `ares-${ts}.jsonl`))
     const pulled = await pullResult(adb, 'jsonl', jsonlPath, hostPath)
     if (pulled.hostPath) {
       const summary = await loadPath(pulled.hostPath)

@@ -139,6 +139,12 @@ export function outDumpDir(ts: string): string {
   return `/data/local/tmp/ares-dump-${ts}`
 }
 
+// The host path to pull a capture's JSONL to: the analyst's chosen path if any,
+// else the default runs-dir path. Pure so main can stay thin.
+export function resolveSavePath(chosen: string | undefined, defaultPath: string): string {
+  return chosen && chosen.trim() ? chosen.trim() : defaultPath
+}
+
 // Build the single string handed to `adb shell` as `su -c '<...>'`. One su -c
 // per run (chaining breaks BPF load with -EPERM, spec s2). Package/lib/pattern
 // tokens are simple identifiers (no quotes/spaces), so plain space-join inside

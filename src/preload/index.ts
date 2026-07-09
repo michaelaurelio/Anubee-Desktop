@@ -46,9 +46,10 @@ contextBridge.exposeInMainWorld('ares', {
   setTracerConfig: (cfg: { aresBinary: string; specsDir: string }) =>
     ipcRenderer.invoke('tracer:config:set', cfg),
   tracerPreflight: (pkg: string) => ipcRenderer.invoke('tracer:preflight', pkg),
-  tracerStart: (capId: string, vals: Record<string, unknown>, timeoutSecs?: number) =>
-    ipcRenderer.invoke('tracer:start', capId, vals, timeoutSecs),
+  tracerStart: (capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) =>
+    ipcRenderer.invoke('tracer:start', capId, vals, timeoutSecs, savePath),
   tracerStop: () => ipcRenderer.invoke('tracer:stop'),
+  pickSavePath: () => ipcRenderer.invoke('tracer:pickSavePath'),
   onTracerLine: (cb: (line: string) => void) =>
     ipcRenderer.on('tracer:line', (_e, line) => cb(line as string)),
   onTracerDone: (cb: (r: { code: number; kind: string; runId?: number }) => void) =>
