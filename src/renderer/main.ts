@@ -22,7 +22,7 @@ import { buildFlame } from '@shared/flame-shape'
 import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
 import { renderCapabilityForm, appendConsoleLine } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, type CapValues } from '@shared/tracer-caps'
-import { showModal } from './modal'
+import { showModal, isModalOpen } from './modal'
 
 let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
 document.documentElement.setAttribute('data-theme', theme)
@@ -173,13 +173,11 @@ async function refreshTable(): Promise<void> {
   status(`${rows.length} rows`)
 }
 
-// Populate the suggestions popup. A suggestion drops off the list once it is
-// confirmed (already a tag of that category) or rejected (dismissed) - both
-// persisted, so it never returns.
-async function refreshSuggestions(): Promise<void> {
+// Populate the suggestions list into a given host. A suggestion drops off the
+// list once it is confirmed (already a tag of that category) or rejected
+// (dismissed) - both persisted, so it never returns.
+async function renderSuggestionsInto(host: HTMLElement): Promise<void> {
   if (activeRunId === undefined) return
-  const host = document.getElementById('suggestions-popup')
-  if (!host) return
   const all = await window.ares.suggest(activeRunId)
   const open = all.filter(s =>
     !isDismissed(dismissed, s.target, s.category) &&
@@ -200,12 +198,24 @@ async function refreshSuggestions(): Promise<void> {
   void recolorRasp()
 }
 
-// Toggle the suggestions popup from the chrome-bar button; refresh on open.
+// Re-render the Suggestions modal body if it is currently open; a no-op
+// otherwise (the modal fetches fresh via renderSuggestionsInto on open).
+function refreshSuggestions(): void {
+  if (!isModalOpen()) return
+  const title = document.querySelector('.modal-head .modal-title')?.textContent
+  if (title !== 'Suggestions') return
+  const body = document.querySelector('.modal-body') as HTMLElement | null
+  if (!body) return
+  void renderSuggestionsInto(body)
+}
+
+// Open the Suggestions modal from the chrome-bar button; render fresh.
 document.getElementById('suggest-btn')?.addEventListener('click', () => {
-  const host = document.getElementById('suggestions-popup')
-  if (!host) return
-  if (host.hidden) { host.hidden = false; void refreshSuggestions() }
-  else host.hidden = true
+  showModal({
+    title: 'Suggestions',
+    width: 560,
+    render: host => { void renderSuggestionsInto(host) },
+  })
 })
 
 async function refreshOrphans(): Promise<void> {
@@ -520,13 +530,11 @@ window.ares.onLoaded(s => {
 document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))
 document.getElementById('tab-flame')?.addEventListener('click', () => showView('flame'))
 document.getElementById('rules-btn')?.addEventListener('click', () => {
-  const host = document.getElementById('rules')
-  if (!host) return
-  const opening = host.style.display === 'none' || host.style.display === ''
-  host.style.display = opening ? 'block' : 'none'
-  if (opening) {
-    void renderRules(host, activeRunId, () => { void refreshSuggestions() })
-  }
+  showModal({
+    title: 'Rules',
+    width: 640,
+    render: host => { void renderRules(host, activeRunId, () => { void refreshSuggestions() }) },
+  })
 })
 wireFilterControls(() => { void refreshTable(); refreshMiddle() })
 wireExport()

@@ -149,10 +149,9 @@
       #side.collapsed > *:not(.panel-head) { display: none; }
       #side.collapsed .panel-head span:not(.panel-chevron) { display: none; }
       #inspector { flex: 1 1 auto; overflow: auto; padding: 8px; font-family: var(--mono); }
-      #suggestions, #rules, #orphans, #diff-table { flex: 0 0 auto; overflow: auto; padding: 8px;
+      #suggestions, #orphans, #diff-table { flex: 0 0 auto; overflow: auto; padding: 8px;
         border-top: 1px solid var(--border); }
       #suggestions { max-height: 40%; }
-      #rules { max-height: 40%; display: none; }
       #orphans { max-height: 30%; display: none; background: var(--warn-bg); }
       #diff-table { max-height: 40%; }
       #diff-table table { border-collapse: collapse; width: 100%; }
@@ -224,11 +223,7 @@
       .insp-kv td:first-child { color: var(--muted); white-space: nowrap; width: 90px; }
       .insp-kv tr:last-child td { border-bottom: 0; }
       .insp-stack { padding: 7px 10px; font-family: var(--mono); font-size: 11px; white-space: pre-wrap; line-height: 1.5; }
-      /* suggestions popup (opened from the chrome-bar button) */
-      .sug-popup { position: fixed; top: 46px; right: 12px; width: 440px; max-height: 70vh; overflow: auto;
-        background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-        box-shadow: var(--shadow); z-index: 40; padding: 10px; }
-      .sug-popup[hidden] { display: none; }
+      /* suggestions (opened from the chrome-bar button, into a modal body) */
       .sug-head { font-weight: 600; color: var(--text); margin-bottom: 8px; }
       .sug-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }
       .sug-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 4px;
@@ -346,10 +341,8 @@
         <div id="orphans"></div>
         <div id="inspector"></div>
         <div id="diff-table"></div>
-        <div id="rules"></div>
       </div>
     </div>
-    <div id="suggestions-popup" class="sug-popup" hidden></div>
     <template id="capture-template">
       <div id="capture">
         <div id="capture-config">

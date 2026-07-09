@@ -210,18 +210,22 @@ await win.waitForSelector('#flame svg', { timeout: 15000 })
 await win.waitForTimeout(400)
 await shot('05-flame.png')
 
-// 6. Rules panel opens (closes the prior no-Rules-shot backlog gap).
+// 6. Rules opens as a centered modal (no side panel consumed).
 await win.click('#rules-btn')
-await win.waitForTimeout(300)
-await shot('06-rules-panel.png')
-await win.click('#rules-btn') // close
+await win.waitForSelector('.modal-backdrop .modal-head', { timeout: 5000 })
+const rulesModal = await win.evaluate(() => document.querySelector('.modal-head .modal-title')?.textContent === 'Rules')
+if (!rulesModal) throw new Error('Rules did not open in a modal')
+await shot('07-rules-modal.png')
+await win.keyboard.press('Escape')
 
-// 6b. Suggestions popup (chrome-bar button) with Confirm / Reject rows.
+// 6b. Suggestions opens as a centered modal with Confirm / Reject rows.
 await win.click('#suggest-btn')
-await win.waitForSelector('#suggestions-popup .sug-row', { timeout: 5000 })
+await win.waitForSelector('.modal-backdrop .modal-body .sug-row', { timeout: 5000 })
+const suggestModal = await win.evaluate(() => document.querySelector('.modal-head .modal-title')?.textContent === 'Suggestions')
+if (!suggestModal) throw new Error('Suggestions did not open in a modal')
 await win.waitForTimeout(200)
 await shot('06b-suggestions.png')
-await win.click('#suggest-btn') // close
+await win.keyboard.press('Escape')
 
 // 6c. Capture as a centered modal (task 5), opened from File▾.
 await win.click('#file-menu [data-menu-toggle]')
