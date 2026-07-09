@@ -46,9 +46,10 @@ and open verification items. Newest concerns first.
   load a native node's full cross-run neighbourhood on demand was deprioritized
   in favor of the brighter-edge highlight (single click now clearly illuminates
   the whole call chain). Still a valid Phase-2 candidate (spec §5.3).
-- **Base edge arrow-scale legibility trade-off** - the base (unselected) edge
-  arrow-scale was raised from 0.6 to 0.9 for legibility on dark backgrounds.
-  Revisit if the heavier arrow-heads read as too prominent on light theme.
+- **Highlighted-edge emphasis** - the selected path's edges were strengthened
+  (`width` 3.5, full-strength color, `arrow-scale` 1.3) so a single click clearly
+  lights the chain on dark backgrounds; base (unselected) edges are unchanged
+  (`arrow-scale` 1.2). Revisit the emphasis if it reads too heavy on light theme.
 
 ## Shipped (2026-07-07) - extensible RASP heuristics engine; UI/UX overhaul partially shipped
 Design reference: overall spec §13.

@@ -456,11 +456,10 @@ neighbourhood: syscall nodes show fan-in only (incoming Java calls); Java nodes
 show their entire subtree (Java callees + native frames + syscalls they invoke);
 native nodes show both directions (calling Java methods + reached syscalls). Nodes
 outside the selected path dim to background, drawing focus on the caller-callee
-chain. Edges in the selected path are highlighted in brighter, thicker strokes to
-clearly illuminate the entire call chain from the selected node outward; the arrowheads
-scale up correspondingly. This is the **litNeighborhood** highlight, distinct from the
-earlier whole-graph coloring. Base (unselected) edge arrow-scale was raised to 0.9 for
-improved legibility on dark backgrounds.
+chain. Edges in the selected path are highlighted in brighter, thicker strokes
+(`width` 3.5, full-strength `labelText` color, `arrow-scale` 1.3) to clearly
+illuminate the entire call chain from the selected node outward. This is the
+**litNeighborhood** highlight, distinct from the earlier whole-graph coloring.
 
 **RASP category coloring on native blocks.** When a native node is tagged with a
 RASP category (debugger, root, hook, etc.), the node's box gains a visual marker
