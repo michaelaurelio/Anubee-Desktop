@@ -376,10 +376,12 @@ package, engine-specific arguments, timeout, and a `syscalls` field. The
 narrows which syscalls are captured when relevant to the engine (e.g. only
 `openat,read` events); capture output is always JSONL regardless. At the bottom,
 an aligned **"save to" host-path field** with a Browse button lets the analyst
-choose a destination directory; on Start, `tracer:pickSavePath` IPC calls
-`resolveSavePath` which opens a native Save dialog, defaulting to
-`<userData>/runs/` when the field is left blank. The chosen path persists to
-`<userData>/tracer-config.json`.
+choose where the pulled JSONL is written. Browse fires the `tracer:pickSavePath`
+IPC, which opens a native Save dialog (defaulting to a `capture.jsonl` file) and
+fills the field. On Start, the field value is passed to `tracer:start`, where the
+pure `resolveSavePath(chosen, default)` uses it when non-empty, else falls back to
+the default `<userData>/runs/ares-<ts>.jsonl`; the device capture is pulled to
+that path and loaded.
 
 **Capabilities and the three output kinds.** All seven engines are exposed.
 `syscalls`/`funcs`/`correlate`/`trace` are `jsonl` (`-o <dev>.jsonl` → pull →
