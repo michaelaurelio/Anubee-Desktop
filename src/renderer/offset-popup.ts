@@ -87,7 +87,7 @@ export function showOffsetPopup(opts: ShowOpts): void {
       const line = document.createElement('div')
       line.className = 'offset-row-line'
       const off = document.createElement('span'); off.className = 'offset-cell'; off.textContent = r.offset
-      const reaches = document.createElement('span'); reaches.className = 'reaches-cell'; reaches.textContent = r.reaches.join(' ')
+      const reaches = document.createElement('span'); reaches.className = 'reaches-cell'; reaches.textContent = r.syscall
       const cnt = document.createElement('span'); cnt.className = 'count-cell'; cnt.textContent = String(r.count)
       line.append(off, reaches, cnt)
       const detail = document.createElement('pre')

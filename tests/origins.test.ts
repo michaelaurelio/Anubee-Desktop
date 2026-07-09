@@ -28,7 +28,7 @@ describe('moduleRelative', () => {
 
 const row: OffsetRow = {
   module: 'libexample.so', offset: '0x4a1c0', symbol: 'check_su',
-  reaches: ['openat', 'read'], argsSample: { '1': '/system/bin/su' }, count: 12, sampleEventId: 1,
+  syscall: 'openat', argsSample: { '1': '/system/bin/su' }, count: 12, sampleEventId: 7,
 }
 
 describe('copyText', () => {

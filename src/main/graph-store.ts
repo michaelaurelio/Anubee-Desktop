@@ -325,7 +325,7 @@ export class GraphStore {
     const wantSymbol = bang >= 0 ? rest.slice(bang + 1) : null
 
     // Capped at 5000 events: for a very hot node this silently under-aggregates
-    // `count`/`reaches` past the cap (tracked in BACKLOG).
+    // `count` past the cap (tracked in BACKLOG).
     const events = await this.nodeEvents(nodeId, filter, 5000, rid)
 
     // vaddr(hex) -> accumulating row.
@@ -348,13 +348,13 @@ export class GraphStore {
         }
         if (seen.has(offset)) continue
         seen.add(offset)
-        let row = acc.get(offset)
+        const key = offset + ' ' + ev.syscall
+        let row = acc.get(key)
         if (!row) {
-          row = { module: meta.module, offset, symbol: p.symbol,
-                  reaches: [], argsSample: ev.decoded_args ?? {}, count: 0, sampleEventId: ev.id }
-          acc.set(offset, row)
+          row = { module: meta.module, offset, symbol: p.symbol, syscall: ev.syscall,
+                  argsSample: ev.decoded_args ?? {}, count: 0, sampleEventId: ev.id }
+          acc.set(key, row)
         }
-        if (!row.reaches.includes(ev.syscall)) row.reaches.push(ev.syscall)
         row.count++
       }
     }

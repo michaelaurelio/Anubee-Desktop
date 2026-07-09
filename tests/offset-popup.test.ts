@@ -4,7 +4,7 @@ import type { OffsetRow } from '@shared/origins'
 import type { SyscallEvent } from '@shared/events'
 
 const row: OffsetRow = { module: 'libexample.so', offset: '0x10', symbol: 'check_su',
-  reaches: ['openat'], argsSample: {}, count: 3, sampleEventId: 1 }
+  syscall: 'openat', argsSample: {}, count: 3, sampleEventId: 1 }
 
 const ev = (id: number): SyscallEvent => ({
   type: 'syscall', id, pid: 1, tid: 1, syscall_nr: 1, syscall: 'openat',
