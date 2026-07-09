@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const shots = resolve(root, 'screenshots')
 mkdirSync(shots, { recursive: true })
-const fixture = resolve(root, 'tests/fixtures/sample.jsonl')
+const fixture = resolve(root, 'tests/fixtures/detector_snap.jsonl')
 
 // Fresh userData dir per run: otherwise localStorage (panel widths, theme) persists
 // across invocations and the resize-drag step below can start already clamped at

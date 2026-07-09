@@ -10,11 +10,11 @@ import type { StackRollup } from '../src/shared/flame-shape'
 import { compileWhere, scoreWith, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
 
 // oracle.jsonl is the tiny deterministic fixture these exact-value assertions pin
-// to. sample.jsonl is a real dev.ares.detector capture (see REAL_FIXTURE) used by
-// the screenshot harness and the real-data smoke below; it is too large/nondeterministic
-// to assert exact ids/counts against.
+// to. detector_snap.jsonl is a real dev.ares.detector capture (see REAL_FIXTURE)
+// used by the screenshot harness and the real-data smoke below; it is too
+// large/nondeterministic to assert exact ids/counts against.
 const FIXTURE = resolve(__dirname, 'fixtures/oracle.jsonl')
-const REAL_FIXTURE = resolve(__dirname, 'fixtures/sample.jsonl')
+const REAL_FIXTURE = resolve(__dirname, 'fixtures/detector_snap.jsonl')
 const store = new GraphStore()
 
 afterAll(() => store.close())
