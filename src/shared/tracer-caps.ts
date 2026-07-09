@@ -39,7 +39,7 @@ export const CAPABILITIES: Capability[] = [
       { key: 'pkg', label: 'package', kind: 'package', required: true },
       { key: 'lib', label: 'library filter', kind: 'text' },
       { key: 'all', label: 'capture all libraries', kind: 'bool' },
-      { key: 'syscalls', label: 'syscalls (csv)', kind: 'csv' },
+      { key: 'syscalls', label: 'syscalls (comma-separated)', kind: 'csv' },
     ],
     buildArgv(v) {
       const a = ['syscalls', '-P', s(v.pkg)]
