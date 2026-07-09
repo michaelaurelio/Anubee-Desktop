@@ -33,6 +33,22 @@ and open verification items. Newest concerns first.
 - **`moduleRelative` returns a malformed `"0x-.."` string if `addr < base`**
   (unreachable today; add a defensive guard when the Phase-1b popup consumes
   real addresses).
+- **`[unmapped]` offsets in snapshot captures** - offsets resolve only when the
+  run carries `lib` records, which the ARES tracer emits on `mmap` during the
+  trace. A snapshot or post-load capture has no `lib` records (modules already
+  loaded at attach time), so all offsets show `[unmapped]`. The durable fix is
+  ARES-side: prime the module map from `/proc/<pid>/maps` at attach time so
+  snapshot captures can resolve offsets. Until then, capture from process start
+  for offset resolution.
+
+## Known drawbacks and deferrals from UI/interaction refinement (this session)
+- **Click-to-expand native-node drill-down was deferred** - a Phase-2 feature to
+  load a native node's full cross-run neighbourhood on demand was deprioritized
+  in favor of the brighter-edge highlight (single click now clearly illuminates
+  the whole call chain). Still a valid Phase-2 candidate (spec §5.3).
+- **Base edge arrow-scale legibility trade-off** - the base (unselected) edge
+  arrow-scale was raised from 0.6 to 0.9 for legibility on dark backgrounds.
+  Revisit if the heavier arrow-heads read as too prominent on light theme.
 
 ## Shipped (2026-07-07) - extensible RASP heuristics engine; UI/UX overhaul partially shipped
 Design reference: overall spec §13.
