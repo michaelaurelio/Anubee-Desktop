@@ -8,12 +8,13 @@ import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
 import { highlightNeighborhood, clearHighlight } from './graph-highlight'
-import { showOffsetPopup, closeOffsetPopup } from './offset-popup'
+import { showOffsetPopup, closeOffsetPopup, eventForOffset, type NodeBox } from './offset-popup'
+import { showNodeMenu, closeNodeMenu, showTagPopup, closeTagPopup } from './node-menu'
 import { renderSuggestions } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
 import { raspNodeStates } from './rasp-node-state'
-import { upsertTag, removeTag, tagsByTarget, orphanedTags, type Tag } from '@shared/project-store'
+import { upsertTag, removeTag, tagsByTarget, orphanedTags, isDismissed, addDismissed, type Tag, type Dismissed } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
 import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
 import { renderFlame } from './flame-view'
@@ -21,6 +22,7 @@ import { buildFlame } from '@shared/flame-shape'
 import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
 import { renderCapabilityForm, appendConsoleLine } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, type CapValues } from '@shared/tracer-caps'
+import { showModal, isModalOpen } from './modal'
 
 let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
 document.documentElement.setAttribute('data-theme', theme)
@@ -44,55 +46,55 @@ const cy = cytoscape({
         width: 'label',
         height: 'label',
         padding: '8px',
-        // Left accent bar: a hard-stop gradient (kind color for the first ~7%,
-        // then the node body color) - cytoscape has no per-side border, so a
-        // gradient with a sharp stop position simulates one.
         'background-color': tc.labelBacking,
-        'background-fill': 'linear-gradient',
-        'background-gradient-stop-colors': [tc.native, tc.labelBacking],
-        'background-gradient-stop-positions': [7, 7],
-        'background-gradient-direction': 'to-right',
-        'border-width': 1,
-        'border-color': tc.edge,
+        'border-width': 2,
+        'border-color': tc.native, // default; per-kind rules below override
       },
     },
-    { selector: 'node[kind = "java"]', style: { 'background-gradient-stop-colors': [tc.java, tc.labelBacking] } },
-    { selector: 'node[kind = "native"]', style: { 'background-gradient-stop-colors': [tc.native, tc.labelBacking] } },
-    { selector: 'node[kind = "syscall"]', style: { 'background-gradient-stop-colors': [tc.syscall, tc.labelBacking] } },
+    { selector: 'node[kind = "java"]', style: { 'border-color': tc.java } },
+    { selector: 'node[kind = "native"]', style: { 'border-color': tc.native } },
+    { selector: 'node[kind = "syscall"]', style: { 'border-color': tc.syscall } },
     // Badge border marks a tagged node; scoped to non-native so it doesn't
     // double-mark native nodes, which use the RASP category accent instead.
     { selector: 'node[badge][kind != "native"]', style: { 'border-width': 3, 'border-color': '#8e44ad' } },
     {
       selector: 'edge',
       style: {
-        width: 'mapData(count, 1, 50, 1, 5)',
+        width: 'mapData(count, 1, 50, 2, 6)',
         'curve-style': 'bezier',
         'target-arrow-shape': 'triangle',
-        'arrow-scale': 0.8,
+        'arrow-scale': 1.2,
         'line-color': tc.edge,
         'target-arrow-color': tc.edge,
       },
     },
-    { selector: 'node[presence = "A-only"]', style: { 'background-fill': 'solid', 'background-color': '#c0392b' } },
-    { selector: 'node[presence = "B-only"]', style: { 'background-fill': 'solid', 'background-color': '#27ae60' } },
-    { selector: 'node[presence = "both"]', style: { 'background-fill': 'solid', 'background-color': '#95a5a6' } },
+    { selector: 'node[presence = "A-only"]', style: { 'background-color': '#c0392b' } },
+    { selector: 'node[presence = "B-only"]', style: { 'background-color': '#27ae60' } },
+    { selector: 'node[presence = "both"]', style: { 'background-color': '#95a5a6' } },
     { selector: 'edge[presence = "A-only"]', style: { 'line-color': '#c0392b', 'target-arrow-color': '#c0392b' } },
     { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
-    { selector: '.dimmed', style: { 'opacity': 0.15 } },
-    { selector: 'node.highlighted', style: { 'z-index': 10 } },
+    { selector: '.dimmed', style: { 'opacity': 0.12 } },
+    // Edges read grey by default; the selected node's fan-in/out lights them
+    // brightly so a single click clearly connects the chain.
+    { selector: 'edge.highlighted', style: {
+      'line-color': tc.labelText, 'target-arrow-color': tc.labelText,
+      'width': 3.5, 'arrow-scale': 1.3, 'opacity': 1, 'z-index': 10,
+    } },
+    { selector: 'node.highlighted', style: { 'border-width': 3, 'z-index': 10 } },
   ],
 })
 
-// RASP category style rules for native nodes: confirmed = solid tinted fill
-// accent, suggested = dashed category-color border. Built from categoryColors()
+// RASP category style rules for native nodes: confirmed = solid category-color
+// border (flat body), suggested = dashed category-color border. Built from categoryColors()
 // so no hex is hardcoded here; called at init and on theme toggle.
 function styleRaspCategories(t: Theme): void {
   const cc = categoryColors(t)
   let s = cy.style()
   for (const [cat, color] of Object.entries(cc)) {
     s = s.selector(`node.native.confirmed.rasp-${cat}`).style({
-      'background-gradient-stop-colors': [color, themeColors(t).labelBacking],
+      'background-color': themeColors(t).labelBacking,
       'border-color': color,
+      'border-width': 2,
     })
     s = s.selector(`node.native.suggested.rasp-${cat}`).style({
       'border-color': color,
@@ -111,7 +113,8 @@ const RASP_CLASSES = ['suggested', 'confirmed', ...Object.keys(categoryColors('d
 // not the syscall aggregate or java frames).
 async function recolorRasp(): Promise<void> {
   if (activeRunId === undefined) return
-  const suggestions = await window.ares.suggest(activeRunId)
+  const suggestions = (await window.ares.suggest(activeRunId))
+    .filter(s => !isDismissed(dismissed, s.target, s.category))
   const states = raspNodeStates(suggestions, tags)
   cy.nodes().forEach(n => {
     n.removeClass(RASP_CLASSES)
@@ -122,15 +125,16 @@ async function recolorRasp(): Promise<void> {
 
 let activeRunId: number | undefined
 let tags: Tag[] = []
+let dismissed: Dismissed[] = []
 let runB: number | undefined
 let diffMode: DiffMode = 'all'
-let currentView: 'graph' | 'flame' | 'capture' = 'graph'
+let currentView: 'graph' | 'flame' = 'graph'
 
 async function refreshTags(): Promise<void> {
   const rid = activeRunId
   if (rid === undefined) return
-  const r = await window.ares.loadTags(rid)
-  if (activeRunId === rid) tags = r.tags
+  const [r, dm] = await Promise.all([window.ares.loadTags(rid), window.ares.dismissedGet(rid)])
+  if (activeRunId === rid) { tags = r.tags; dismissed = dm }
 }
 
 async function persistTags(): Promise<void> {
@@ -169,20 +173,50 @@ async function refreshTable(): Promise<void> {
   status(`${rows.length} rows`)
 }
 
-async function refreshSuggestions(): Promise<void> {
+// Populate the suggestions list into a given host. A suggestion drops off the
+// list once it is confirmed (already a tag of that category) or rejected
+// (dismissed) - both persisted, so it never returns.
+async function renderSuggestionsInto(host: HTMLElement): Promise<void> {
   if (activeRunId === undefined) return
-  const host = document.getElementById('suggestions')
-  if (!host) return
-  const suggestions = await window.ares.suggest(activeRunId)
-  renderSuggestions(host, suggestions, async tag => {
-    tags = upsertTag(tags, tag)
-    await persistTags()
-    void refreshTable()
-    redrawBadges()
-    void recolorRasp()
-  })
+  const all = await window.ares.suggest(activeRunId)
+  const open = all.filter(s =>
+    !isDismissed(dismissed, s.target, s.category) &&
+    !tags.some(t => t.target === s.target && t.category === s.category))
+  renderSuggestions(host, open,
+    async tag => {
+      tags = upsertTag(tags, tag)
+      await persistTags()
+      void refreshTable()
+      redrawBadges()
+      void recolorRasp()
+    },
+    async s => {
+      dismissed = addDismissed(dismissed, s.target, s.category)
+      await window.ares.dismissedSave(activeRunId!, dismissed)
+      void recolorRasp()
+    })
   void recolorRasp()
 }
+
+// Re-render the Suggestions modal body if it is currently open; a no-op
+// otherwise (the modal fetches fresh via renderSuggestionsInto on open).
+function refreshSuggestions(): void {
+  if (!isModalOpen()) return
+  const title = document.querySelector('.modal-head .modal-title')?.textContent
+  if (title !== 'Suggestions') return
+  const body = document.querySelector('.modal-body') as HTMLElement | null
+  if (!body) return
+  void renderSuggestionsInto(body)
+}
+
+// Open the Suggestions modal from the chrome-bar button; render fresh.
+document.getElementById('suggest-btn')?.addEventListener('click', () => {
+  showModal({
+    title: 'Suggestions',
+    width: 560,
+    render: host => { void renderSuggestionsInto(host) },
+  })
+})
 
 async function refreshOrphans(): Promise<void> {
   const host = document.getElementById('orphans')
@@ -215,14 +249,13 @@ async function refreshFlame(): Promise<void> {
   renderFlame(host, tree, rollup.truncated || tree.truncated, theme)
 }
 
-function showView(view: 'graph' | 'flame' | 'capture'): void {
+function showView(view: 'graph' | 'flame'): void {
   currentView = view
   document.getElementById('cy')?.classList.toggle('hidden', view !== 'graph')
   document.getElementById('flame')?.classList.toggle('active', view === 'flame')
   document.getElementById('flame')?.classList.toggle('hidden', view !== 'flame')
-  document.getElementById('capture')?.classList.toggle('hidden', view !== 'capture')
   if (view === 'flame') void refreshFlame()
-  for (const [id, v] of [['tab-graph', 'graph'], ['tab-flame', 'flame'], ['tab-capture', 'capture']] as const) {
+  for (const [id, v] of [['tab-graph', 'graph'], ['tab-flame', 'flame']] as const) {
     document.getElementById(id)?.classList.toggle('on', currentView === v)
   }
 }
@@ -250,54 +283,65 @@ async function selectRow(row: TableRow): Promise<void> {
 // Exposed for the screenshot harness / debugging to drive the graph deterministically.
 ;(window as unknown as { __cy: typeof cy }).__cy = cy
 
+// The selected node's on-screen box in viewport coordinates, so the offset
+// popup can be placed to its right (renderedBoundingBox is canvas-relative;
+// add the container's viewport offset).
+function nodeBox(node: cytoscape.NodeSingular): NodeBox {
+  const bb = node.renderedBoundingBox()
+  const rect = cy.container()!.getBoundingClientRect()
+  return { left: rect.left + bb.x1, top: rect.top + bb.y1, right: rect.left + bb.x2, bottom: rect.top + bb.y2 }
+}
+
 cy.on('tap', 'node', evt => {
   const node = evt.target
   const nodeId = node.id()
   highlightNeighborhood(cy, node)
   if (node.data('kind') === 'native') {
-    document.getElementById('inspector')?.replaceChildren()
+    const box = nodeBox(node)
     void Promise.all([
       window.ares.nodeOffsets(nodeId, currentFilter(), activeRunId),
       window.ares.nodeEvents(nodeId, currentFilter(), activeRunId),
     ]).then(([rows, events]) => {
-      showOffsetPopup({
-        nodeId,
-        rows,
-        anchor: { x: evt.originalEvent.clientX, y: evt.originalEvent.clientY },
-        tagHost: h => renderTagEditor(h, nodeId, undefined, tagsByTarget(tags, nodeId),
-          async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
-          async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() }),
-        eventForOffset: () => events[0],
-      })
+      showNodeInspector(nodeId, events)
+      showOffsetPopup({ nodeId, rows, anchor: box, eventForOffset: (row) => eventForOffset(events, row) })
     })
   } else {
     closeOffsetPopup()
     void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(events => {
       showNodeInspector(nodeId, events)
-      const host = document.getElementById('inspector')
-      if (!host) return
-      renderTagEditor(host, nodeId, undefined, tagsByTarget(tags, nodeId),
-        async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
-        async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() })
     })
   }
 })
 
-cy.on('tap', evt => { if (evt.target === cy) { clearHighlight(cy); closeOffsetPopup() } })
+// Right-click any node -> Copy the identifier, or Add Tag (opens the tag popup).
+cy.on('cxttap', 'node', evt => {
+  const nodeId = evt.target.id()
+  const anchor = { x: evt.originalEvent.clientX, y: evt.originalEvent.clientY }
+  showNodeMenu({
+    nodeId,
+    anchor,
+    onCopy: text => void window.ares.copyToClipboard(text),
+    onAddTag: () => showTagPopup({
+      nodeId,
+      anchor,
+      tagHost: h => renderTagEditor(h, nodeId, undefined, tagsByTarget(tags, nodeId),
+        async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
+        async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() }),
+    }),
+  })
+})
+
+cy.on('tap', evt => { if (evt.target === cy) { clearHighlight(cy); closeOffsetPopup(); closeNodeMenu(); closeTagPopup() } })
 
 function applyGraphTheme(next: Theme): void {
   const c = themeColors(next)
   cy.style()
-    .selector('node').style({
-      color: c.labelText,
-      'background-color': c.labelBacking,
-      'background-gradient-stop-colors': [c.native, c.labelBacking],
-      'border-color': c.edge,
-    })
-    .selector('node[kind = "java"]').style({ 'background-gradient-stop-colors': [c.java, c.labelBacking] })
-    .selector('node[kind = "native"]').style({ 'background-gradient-stop-colors': [c.native, c.labelBacking] })
-    .selector('node[kind = "syscall"]').style({ 'background-gradient-stop-colors': [c.syscall, c.labelBacking] })
+    .selector('node').style({ color: c.labelText, 'background-color': c.labelBacking, 'border-color': c.native })
+    .selector('node[kind = "java"]').style({ 'border-color': c.java })
+    .selector('node[kind = "native"]').style({ 'border-color': c.native })
+    .selector('node[kind = "syscall"]').style({ 'border-color': c.syscall })
     .selector('edge').style({ 'line-color': c.edge, 'target-arrow-color': c.edge })
+    .selector('edge.highlighted').style({ 'line-color': c.labelText, 'target-arrow-color': c.labelText, 'width': 3.5, 'arrow-scale': 1.3 })
     .update()
 }
 
@@ -439,12 +483,22 @@ function wireCapture(): void {
 
   stopBtn.addEventListener('click', () => void window.ares.tracerStop())
 
-  window.ares.onTracerLine(line => appendConsoleLine(consoleHost, line))
-
   function binTimeout(): number | undefined {
     const t = parseInt((document.getElementById('cap-timeout') as HTMLInputElement).value, 10)
     return Number.isFinite(t) && t > 0 ? t : undefined
   }
+}
+
+function openCaptureModal(): void {
+  showModal({
+    title: 'Capture',
+    width: 620,
+    render: host => {
+      const tpl = document.getElementById('capture-template') as HTMLTemplateElement | null
+      if (tpl) host.appendChild(tpl.content.cloneNode(true))
+      wireCapture() // binds the cap-* controls now present in the modal
+    },
+  })
 }
 
 function wireExport(): void {
@@ -473,20 +527,16 @@ window.ares.onLoaded(s => {
 })
 document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))
 document.getElementById('tab-flame')?.addEventListener('click', () => showView('flame'))
-document.getElementById('tab-capture')?.addEventListener('click', () => showView('capture'))
 document.getElementById('rules-btn')?.addEventListener('click', () => {
-  const host = document.getElementById('rules')
-  if (!host) return
-  const opening = host.style.display === 'none' || host.style.display === ''
-  host.style.display = opening ? 'block' : 'none'
-  if (opening) {
-    void renderRules(host, activeRunId, () => { void refreshSuggestions() })
-  }
+  showModal({
+    title: 'Rules',
+    width: 640,
+    render: host => { void renderRules(host, activeRunId, () => { void recolorRasp(); void refreshSuggestions() }) },
+  })
 })
 wireFilterControls(() => { void refreshTable(); refreshMiddle() })
 wireExport()
 wireDiff()
-wireCapture()
 
 function zoomBy(factor: number): void {
   const c = cy.container()
@@ -498,7 +548,29 @@ document.getElementById('zoom-in')?.addEventListener('click', () => zoomBy(1.2))
 document.getElementById('zoom-out')?.addEventListener('click', () => zoomBy(1 / 1.2))
 document.getElementById('zoom-fit')?.addEventListener('click', () => cy.fit(undefined, 48))
 
-document.getElementById('open-run')?.addEventListener('click', () => { void window.ares.openFile() })
+// Ctrl/Cmd +/- zoom the graph (only in graph view), overriding the browser's
+// page zoom. Accepts '=' (unshifted '+'), '+', numpad, and '-'.
+window.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || currentView !== 'graph') return
+  if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') { e.preventDefault(); zoomBy(1.2) }
+  else if (e.key === '-' || e.code === 'NumpadSubtract') { e.preventDefault(); zoomBy(1 / 1.2) }
+})
+
+document.getElementById('file-open')?.addEventListener('click', () => { void window.ares.openFile() })
+document.getElementById('file-quit')?.addEventListener('click', () => { void window.ares.quit() })
+document.getElementById('file-capture')?.addEventListener('click', () => openCaptureModal())
+
+// Registered once (not per Capture-modal open) so re-opening Capture doesn't
+// stack tracer:line subscriptions; appends to whichever cap-console is live.
+window.ares.onTracerLine(line => {
+  const c = document.getElementById('cap-console')
+  if (c) appendConsoleLine(c, line)
+})
+
+// Ctrl/Cmd+O opens a run (replaces the removed native-menu accelerator).
+window.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); void window.ares.openFile() }
+})
 
 for (const toggle of document.querySelectorAll<HTMLElement>('[data-menu-toggle]')) {
   toggle.addEventListener('click', e => {

@@ -22,15 +22,29 @@ export interface SyscallEvent {
   fd_args: Record<string, string>
   decoded_args: Record<string, string>
   sock_addr?: string
-  stack_id?: number
+  // A CFI stack-snapshot id (u64). Emitted as a JSON number that exceeds JS's
+  // safe-integer range, so it is carried as a string to preserve every bit -
+  // it is an opaque key, never a quantity to compute with.
+  stack_id?: string
   java_stack?: string[]
   backtrace: BacktraceFrame[]
 }
 
-// Any non-syscall record (e.g. "lib", "stack") is kept but left opaque.
+// The end-of-run `coverage` summary ARES emits under `--snapshot`: how many stack
+// snapshots were taken/truncated and where the CFI unwinder stopped. Informational
+// only - the store drops it at ingest (non-syscall); vendored here so it is a
+// known record type rather than an opaque UnknownEvent.
+export interface CoverageEvent {
+  type: 'coverage'
+  engine: string
+  snaps: { total: number; truncated: number }
+  cfi: { walks: number; stops: Record<string, number> }
+}
+
+// Any other non-syscall record (e.g. "lib", "unlib", "stack") is kept but opaque.
 export interface UnknownEvent {
   type: string
   [k: string]: unknown
 }
 
-export type TraceEvent = SyscallEvent | UnknownEvent
+export type TraceEvent = SyscallEvent | CoverageEvent | UnknownEvent

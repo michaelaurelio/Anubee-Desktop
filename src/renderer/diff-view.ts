@@ -1,4 +1,5 @@
 import type { DiffRow, MergedSlice, Presence } from '@shared/diff'
+import { truncateLabel } from './graph-view'
 
 // Red = removed (in A, gone in B); green = added (new in B); grey = shared.
 export function presenceColor(p: Presence): string {
@@ -22,7 +23,7 @@ export function mergedToElements(slice: MergedSlice): {
 } {
   return {
     nodes: slice.nodes.map(n => ({
-      data: { id: n.id, label: n.label, kind: n.kind, count: n.count, presence: n.presence },
+      data: { id: n.id, label: truncateLabel(n.label), kind: n.kind, count: n.count, presence: n.presence },
     })),
     edges: slice.edges.map(e => ({
       data: { id: `${e.source}=>${e.target}`, source: e.source, target: e.target, count: e.count, presence: e.presence },

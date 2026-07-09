@@ -18,12 +18,20 @@ export interface Tag {
   createdAt: string // ISO
 }
 
+// A rejected heuristic suggestion, keyed by (target, category), so it never
+// re-appears in the suggestions list for this run.
+export interface Dismissed {
+  target: string
+  category: RaspCategory
+}
+
 export interface Sidecar {
   schemaVersion: 1
   run: { file: string; ingestedAt: string }
   tags: Tag[]
   rules?: Rule[]
   enabledOverrides?: Record<string, boolean>
+  dismissed?: Dismissed[]
 }
 
 const CATEGORIES: RaspCategory[] = ['root', 'debugger', 'emulator', 'integrity', 'hook', 'custom']
@@ -55,14 +63,26 @@ function coerceOverrides(v: unknown): Record<string, boolean> {
   return out
 }
 
-export function parseSidecar(text: string): { tags: Tag[]; rules: Rule[]; enabledOverrides: Record<string, boolean>; errors: string[] } {
+function coerceDismissed(v: unknown): Dismissed[] {
+  if (!Array.isArray(v)) return []
+  const out: Dismissed[] = []
+  for (const e of v) {
+    if (typeof e !== 'object' || e === null) continue
+    const o = e as Record<string, unknown>
+    if (typeof o.target === 'string' && typeof o.category === 'string' && CATEGORIES.includes(o.category as RaspCategory))
+      out.push({ target: o.target, category: o.category as RaspCategory })
+  }
+  return out
+}
+
+export function parseSidecar(text: string): { tags: Tag[]; rules: Rule[]; enabledOverrides: Record<string, boolean>; dismissed: Dismissed[]; errors: string[] } {
   let root: unknown
   try {
     root = JSON.parse(text)
   } catch (e) {
-    return { tags: [], rules: [], enabledOverrides: {}, errors: [`invalid JSON: ${(e as Error).message}`] }
+    return { tags: [], rules: [], enabledOverrides: {}, dismissed: [], errors: [`invalid JSON: ${(e as Error).message}`] }
   }
-  const obj = root as { tags?: unknown; rules?: unknown; enabledOverrides?: unknown }
+  const obj = root as { tags?: unknown; rules?: unknown; enabledOverrides?: unknown; dismissed?: unknown }
   const errors: string[] = []
   const tags: Tag[] = []
   if (!Array.isArray(obj.tags)) {
@@ -77,7 +97,7 @@ export function parseSidecar(text: string): { tags: Tag[]; rules: Rule[]; enable
   const ruleArr = Array.isArray(obj.rules) ? obj.rules : []
   const { rules, errors: ruleErrors } = coerceRules(ruleArr, 'project')
   errors.push(...ruleErrors)
-  return { tags, rules, enabledOverrides: coerceOverrides(obj.enabledOverrides), errors }
+  return { tags, rules, enabledOverrides: coerceOverrides(obj.enabledOverrides), dismissed: coerceDismissed(obj.dismissed), errors }
 }
 
 export function serializeSidecar(
@@ -85,9 +105,19 @@ export function serializeSidecar(
   tags: Tag[],
   rules: Rule[] = [],
   enabledOverrides: Record<string, boolean> = {},
+  dismissed: Dismissed[] = [],
 ): string {
-  const sidecar: Sidecar = { schemaVersion: 1, run, tags, rules, enabledOverrides }
+  const sidecar: Sidecar = { schemaVersion: 1, run, tags, rules, enabledOverrides, dismissed }
   return JSON.stringify(sidecar, null, 2)
+}
+
+export function isDismissed(list: Dismissed[], target: string, category: RaspCategory): boolean {
+  return list.some(d => d.target === target && d.category === category)
+}
+
+export function addDismissed(list: Dismissed[], target: string, category: RaspCategory): Dismissed[] {
+  if (isDismissed(list, target, category)) return list
+  return [...list, { target, category }]
 }
 
 function sameIdentity(a: Tag, target: string, offset?: string): boolean {

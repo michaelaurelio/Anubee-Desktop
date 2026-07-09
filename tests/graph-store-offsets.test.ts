@@ -40,21 +40,25 @@ describe('GraphStore module map', () => {
 })
 
 describe('GraphStore.nodeOffsets', () => {
-  it('returns module-relative offsets, reached syscalls, and counts', async () => {
+  it('returns module-relative offsets, one row per (offset, syscall), and their own counts', async () => {
     store = new GraphStore()
     await store.ingest(fixture())
     const rows = await store.nodeOffsets('nat:libexample.so!check_su')
-    const byOffset = Object.fromEntries(rows.map(r => [r.offset, r]))
+    const key = (r: { offset: string; syscall: string }) => `${r.offset}|${r.syscall}`
+    const byKey = Object.fromEntries(rows.map(r => [key(r), r]))
 
     // addr 0x1010 - base 0x1000 = 0x10, hit by openat (id 1) and read (id 3).
-    expect(byOffset['0x10'].module).toBe('libexample.so')
-    expect(byOffset['0x10'].symbol).toBe('check_su')
-    expect(byOffset['0x10'].reaches.sort()).toEqual(['openat', 'read'])
-    expect(byOffset['0x10'].count).toBe(2)
+    expect(byKey['0x10|openat'].count).toBe(1)
+    expect(byKey['0x10|read'].count).toBe(1)
+    expect(byKey['0x10|openat'].symbol).toBe('check_su')
 
     // addr 0x1020 - base 0x1000 = 0x20, hit by openat (id 2) only.
-    expect(byOffset['0x20'].reaches).toEqual(['openat'])
-    expect(byOffset['0x20'].count).toBe(1)
+    expect(byKey['0x20|openat'].count).toBe(1)
+
+    // Row's sample event = the first event that contributed that (offset, syscall).
+    expect(byKey['0x10|openat'].sampleEventId).toBe(1)
+    expect(byKey['0x10|read'].sampleEventId).toBe(3)
+    expect(byKey['0x20|openat'].sampleEventId).toBe(2)
   })
 
   it('is empty when the module has no load base', async () => {
@@ -81,10 +85,9 @@ describe('GraphStore.nodeOffsets', () => {
     const events = await store.nodeEvents('nat:libother.so!bar')
     expect(events).toHaveLength(1) // the node does appear in a chain
     const rows = await store.nodeOffsets('nat:libother.so!bar')
-    expect(rows).toHaveLength(1)
-    expect(rows[0].offset).toBe('[unmapped]')
+    expect(rows.every(r => r.offset === '[unmapped]')).toBe(true)
+    expect(rows.some(r => r.syscall.length > 0)).toBe(true)
     expect(rows[0].module).toBe('libother.so')
-    expect(rows[0].reaches.length).toBeGreaterThan(0)
     expect(rows[0].count).toBe(1)
   })
 })

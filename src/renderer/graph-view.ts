@@ -2,6 +2,12 @@ import type { GraphSlice } from '@shared/graph-shape'
 import type { Filter } from '@shared/filter'
 import type { TableRow } from '@shared/table'
 
+// Cap the on-canvas node label so a long label can't overrun its ELK-reserved
+// box (nodes size to 'label'). Full text stays in the offset popup + inspector.
+export function truncateLabel(s: string, max = 22): string {
+  return s.length <= max ? s : s.slice(0, max - 1) + '…'
+}
+
 // Map an aggregated slice to cytoscape element definitions. Node/edge `data`
 // carries just what the stylesheet and inspector need.
 export function sliceToElements(slice: GraphSlice): {
@@ -12,7 +18,7 @@ export function sliceToElements(slice: GraphSlice): {
     // classes mirrors data.kind as a cytoscape class (`.java`/`.native`/`.syscall`)
     // so RASP category selectors can combine `.native.suggested.rasp-<cat>`
     // without a second data-attribute lookup per style rule.
-    nodes: slice.nodes.map(n => ({ data: { id: n.id, label: n.label, kind: n.kind, count: n.count }, classes: n.kind })),
+    nodes: slice.nodes.map(n => ({ data: { id: n.id, label: truncateLabel(n.label), kind: n.kind, count: n.count }, classes: n.kind })),
     edges: slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, count: e.count } })),
   }
 }
@@ -24,8 +30,11 @@ export function sliceToElements(slice: GraphSlice): {
 const ELK_LAYOUT_OPTIONS: Record<string, string> = {
   'elk.algorithm': 'layered',
   'elk.direction': 'DOWN',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '60',
-  'elk.spacing.nodeNode': '30',
+  // Roomier tiers so edges bend cleanly instead of scattering; network-simplex
+  // placement keeps nodes aligned per layer.
+  'elk.layered.spacing.nodeNodeBetweenLayers': '90',
+  'elk.spacing.nodeNode': '48',
+  'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
 }
 
 export interface ElkGraph {

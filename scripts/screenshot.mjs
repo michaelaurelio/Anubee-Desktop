@@ -38,6 +38,14 @@ await win.waitForSelector('#table table tr', { timeout: 30000 })
 await win.waitForTimeout(300)
 await shot('01-loaded-table.png')
 
+// Single-toolbar shape (task 5): no native-menu leftovers, one File▾ menu, no
+// Capture tab in the view segment.
+const barOk = await win.evaluate(() =>
+  !document.getElementById('open-run') &&
+  !!document.getElementById('file-menu') &&
+  !document.getElementById('tab-capture'))
+if (!barOk) throw new Error('toolbar not in Variant B shape (File menu / no open-run / no capture tab)')
+
 // 2. A bridge selected: the focused java -> native -> syscall subgraph.
 await win.click('#table table tr:nth-child(2)') // first data row (row 1 is header)
 await win.waitForSelector('#cy canvas', { timeout: 15000 })
@@ -51,16 +59,42 @@ const boxOk = await win.evaluate(() => {
 })
 if (!boxOk) throw new Error('nodes are not non-draggable round-rectangle boxes')
 
-// RASP category coloring on native blocks (task 7): the fixture's root-check
-// syscalls resolve to a native frame, so the first subgraph render should have
-// picked up a suggested/confirmed class via recolorRasp().
-const raspOk = await win.evaluate(() => {
-  const cy = window.__cy
-  return cy.nodes('.native.suggested, .native.confirmed').length > 0
+// Node accent is now a uniform border, not a left-stripe gradient (task 4).
+const borderOk = await win.evaluate(() => {
+  const n = window.__cy.nodes()[0]
+  return n && parseFloat(n.style('border-width')) >= 2
 })
-if (!raspOk) throw new Error('no native node received a RASP category class')
+if (!borderOk) throw new Error('node accent border missing')
 
 await shot('02-subgraph.png')
+
+// RASP category coloring on native blocks (task 7). The heuristic run must
+// produce suggestions, and when a suggested native block is rendered it must pick
+// up a category class. An arbitrary first-row subgraph need not contain a
+// suggested node (true for a real capture), so drive it deterministically: read
+// the run's suggestions, filter the table by the suggested block's symbol (free
+// text matches backtrace symbols), select that bridge, and assert the class.
+const sugTarget = await win.evaluate(async () => {
+  const s = await window.ares.suggest()
+  if (!s.length) return null
+  const id = s[0].target // 'nat:<module>!<symbol>' or 'nat:<module>'
+  const rest = id.slice(4)
+  const bang = rest.indexOf('!')
+  return bang >= 0 ? rest.slice(bang + 1) : rest // symbol, else module
+})
+if (!sugTarget) throw new Error('heuristic engine produced no suggestions on the capture')
+await win.fill('#f-text', sugTarget)
+await win.click('#apply')
+await win.waitForTimeout(400)
+await win.click('#table table tr:nth-child(2)')
+await win.waitForTimeout(1200) // ELK settle + recolorRasp
+const raspOk = await win.evaluate(() => window.__cy.nodes('.native.suggested, .native.confirmed').length > 0)
+if (!raspOk) throw new Error('a rendered suggested native block did not receive a RASP category class')
+await shot('02b-rasp-colored.png')
+// Clear the filter so later steps see the full run again.
+await win.fill('#f-text', '')
+await win.click('#apply')
+await win.waitForTimeout(300)
 
 // 3. A node inspected: click the syscall node at its real rendered position.
 const pos = await win.evaluate(() => {
@@ -82,17 +116,40 @@ await shot('03-inspector.png')
 // dim assertion is meaningful.
 await win.evaluate(async () => {
   const cy = window.__cy
+  // Honest java -> native -> syscall topology (the app's directed slice) with two
+  // branches so a native tap's fan-in/out both lights edges and dims off-path.
+  // Node ids must be real ids from the loaded run (not placeholder strings):
+  // a native tap's inspector/offset-popup query DuckDB by exact node id, and a
+  // made-up id never appears in any real event's causal chain, so the inspector
+  // assertion below would see zero records.
   const slice = await window.ares.slice({}, 500)
+  const byKind = k => slice.nodes.filter(n => n.kind === k)
+  const j = byKind('java'), n = byKind('native'), s = byKind('syscall')
+  if (j.length < 2 || n.length < 2 || s.length < 1) {
+    throw new Error('run lacks enough distinct java/native/syscall nodes for the harness graph')
+  }
+  const [j1, j2] = j
+  const [n1, n2] = n
+  const [s1] = s
   cy.elements().remove()
-  cy.add(slice.nodes.map(n => ({ data: { id: n.id, kind: n.kind, label: n.label } })))
-  cy.add(slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target } })))
-  cy.layout({ name: 'grid', rows: 2 }).run()
+  cy.add([j1, j2, n1, n2, s1].map(x => ({ data: { id: x.id, kind: x.kind, label: x.label }, classes: x.kind })))
+  cy.add([
+    { data: { id: 'e1', source: j1.id, target: n1.id } },
+    { data: { id: 'e2', source: n1.id, target: s1.id } },
+    { data: { id: 'e3', source: j2.id, target: n2.id } },
+    { data: { id: 'e4', source: n2.id, target: s1.id } },
+  ])
+  cy.layout({ name: 'grid' }).run()
   cy.fit(undefined, 48)
 })
 await win.waitForTimeout(200)
 const npos = await win.evaluate(() => {
   const cy = window.__cy
+  // Centre + enlarge the native node so the coordinate click lands squarely.
   const n = cy.nodes('[kind = "native"]')[0]
+  cy.center(n)
+  cy.zoom(cy.zoom() * 1.6)
+  cy.center(n)
   const p = n.renderedPosition()
   const bb = cy.container().getBoundingClientRect()
   return { x: bb.left + p.x, y: bb.top + p.y }
@@ -101,8 +158,45 @@ await win.mouse.click(npos.x, npos.y)
 await win.waitForSelector('.offset-popup', { timeout: 5000 })
 const dimOk = await win.evaluate(() => window.__cy.elements('.dimmed').length > 0)
 if (!dimOk) throw new Error('tap did not dim the off-path elements')
+const litEdges = await win.evaluate(() => window.__cy.edges('.highlighted').length > 0)
+if (!litEdges) throw new Error('native tap did not light any edges')
+// The inspector fills with the node's filtered records (not cleared).
+const inspOk = await win.evaluate(() => !!document.querySelector('#inspector .insp-table tbody tr'))
+if (!inspOk) throw new Error('native tap did not fill the inspector with records')
+// The offset popup carries no tag editor (tagging is right-click now).
+const noTag = await win.evaluate(() => !document.querySelector('.offset-popup .tag-editor'))
+if (!noTag) throw new Error('offset popup still contains a tag editor')
+// The popup sits to the right of (or flipped left of) the node - never over it.
+const clearOk = await win.evaluate(() => {
+  const cy = window.__cy
+  const n = cy.nodes('[kind = "native"]')[0]
+  const bb = n.renderedBoundingBox()
+  const rect = cy.container().getBoundingClientRect()
+  const nodeRight = rect.left + bb.x2, nodeLeft = rect.left + bb.x1
+  const pop = document.querySelector('.offset-popup').getBoundingClientRect()
+  return pop.left >= nodeRight - 1 || pop.right <= nodeLeft + 1
+})
+if (!clearOk) throw new Error('offset popup overlaps the node instead of sitting beside it')
 await win.waitForTimeout(300)
 await shot('03b-offset-popup.png')
+
+// 3c. Right-click a node -> context menu (Copy / Add Tag); Add Tag opens the tag popup.
+await win.keyboard.press('Escape') // close the offset popup first
+await win.waitForTimeout(150)
+await win.mouse.click(npos.x, npos.y, { button: 'right' })
+await win.waitForSelector('.node-menu', { timeout: 5000 })
+const hasAddTag = await win.evaluate(() =>
+  [...document.querySelectorAll('.node-menu-item')].some(el => el.textContent === 'Add Tag'))
+if (!hasAddTag) throw new Error('right-click menu has no Add Tag item')
+await win.waitForTimeout(150)
+await shot('03c-node-menu.png')
+// Activate Add Tag -> the themed tag popup opens.
+await win.evaluate(() =>
+  [...document.querySelectorAll('.node-menu-item')].find(el => el.textContent === 'Add Tag')?.click())
+await win.waitForSelector('.tag-popup .tag-editor', { timeout: 5000 })
+await win.waitForTimeout(150)
+await shot('03d-tag-popup.png')
+await win.keyboard.press('Escape')
 
 // 4. Filtered: has-java_stack only, re-run.
 await win.check('#f-hasjava')
@@ -116,11 +210,43 @@ await win.waitForSelector('#flame svg', { timeout: 15000 })
 await win.waitForTimeout(400)
 await shot('05-flame.png')
 
-// 6. Rules panel opens (closes the prior no-Rules-shot backlog gap).
+// 6. Rules opens as a centered modal (no side panel consumed).
 await win.click('#rules-btn')
-await win.waitForTimeout(300)
-await shot('06-rules-panel.png')
-await win.click('#rules-btn') // close
+await win.waitForSelector('.modal-backdrop .modal-head', { timeout: 5000 })
+const rulesModal = await win.evaluate(() => document.querySelector('.modal-head .modal-title')?.textContent === 'Rules')
+if (!rulesModal) throw new Error('Rules did not open in a modal')
+await shot('07-rules-modal.png')
+await win.keyboard.press('Escape')
+
+// 6b. Suggestions opens as a centered modal with Confirm / Reject rows.
+await win.click('#suggest-btn')
+await win.waitForSelector('.modal-backdrop .modal-body .sug-row', { timeout: 5000 })
+const suggestModal = await win.evaluate(() => document.querySelector('.modal-head .modal-title')?.textContent === 'Suggestions')
+if (!suggestModal) throw new Error('Suggestions did not open in a modal')
+await win.waitForTimeout(200)
+await shot('06b-suggestions.png')
+await win.keyboard.press('Escape')
+
+// 6c. Capture as a centered modal (task 5), opened from File▾.
+await win.click('#file-menu [data-menu-toggle]')
+// File is the left-most menu: its dropdown must open rightward (left-anchored),
+// not off the left screen edge. Assert + capture the open menu.
+await win.waitForSelector('#file-menu.open .menu-body', { timeout: 5000 })
+const fileMenuOk = await win.evaluate(() => {
+  const b = document.querySelector('#file-menu .menu-body')
+  return !!b && b.getBoundingClientRect().left >= 0
+})
+if (!fileMenuOk) throw new Error('File dropdown is clipped off the left screen edge')
+await shot('06a-file-menu.png')
+await win.click('#file-capture')
+await win.waitForSelector('.modal-backdrop .modal', { timeout: 5000 })
+const capOk = await win.evaluate(() => {
+  const sel = document.querySelector('.modal-body #cap-select')
+  return !!sel && sel.options.length > 0
+})
+if (!capOk) throw new Error('Capture modal capability dropdown is empty (wireCapture did not run against the attached DOM)')
+await shot('06-capture-modal.png')
+await win.keyboard.press('Escape')
 
 // 7. Light theme via the toggle.
 await win.click('#tab-graph')

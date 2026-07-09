@@ -29,3 +29,16 @@ describe('formatEvent', () => {
     expect(s).toContain('backtrace')
   })
 })
+
+describe('primaryArg', () => {
+  it('prefers a resolved string arg (path)', async () => {
+    const { primaryArg } = await import('../src/renderer/inspector')
+    expect(primaryArg(e)).toBe('/system/bin/su')
+  })
+  it('falls back to the fd path, then decoded, then raw args', async () => {
+    const { primaryArg } = await import('../src/renderer/inspector')
+    expect(primaryArg({ ...e, string_args: {}, fd_args: { '0': '/proc/self/status' } })).toBe('/proc/self/status')
+    expect(primaryArg({ ...e, string_args: {}, fd_args: {}, decoded_args: { '0': 'PR_GET_DUMPABLE' } })).toBe('PR_GET_DUMPABLE')
+    expect(primaryArg({ ...e, string_args: {}, fd_args: {}, decoded_args: {}, args: ['0x10', '0x0'] })).toBe('0x10 0x0')
+  })
+})

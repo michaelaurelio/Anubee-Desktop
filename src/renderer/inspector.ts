@@ -20,43 +20,129 @@ export function formatEvent(e: SyscallEvent): string {
   return lines.join('\n')
 }
 
-// Render the records behind a clicked node into #inspector: the node id, the
-// count, a clickable list, and the selected record's formatted detail. Cells use
-// textContent so trace strings can't inject markup. DOM side-effect, not unit-tested.
+// The single most informative argument for the inspector table's `args` column:
+// the resolved path/string arg if present, else the fd path, else the decoded
+// args, else the raw args. Pure and unit-tested.
+export function primaryArg(e: SyscallEvent): string {
+  const strs = Object.values(e.string_args)
+  if (strs.length) return strs.join(' ')
+  const fds = Object.values(e.fd_args)
+  if (fds.length) return fds.join(' ')
+  const dec = Object.values(e.decoded_args)
+  if (dec.length) return dec.join(' ')
+  return e.args.join(' ')
+}
+
+export type DetailSection =
+  | { title: string; kind: 'kv'; rows: [string, string][] }
+  | { title: string; kind: 'stack'; lines: string[] }
+
+// Group a record into the inspector's detail cards. Pure and unit-tested; the
+// DOM wrapper is renderEventDetail. Empty arg/stack groups are skipped.
+export function eventDetailSections(e: SyscallEvent): DetailSection[] {
+  const out: DetailSection[] = []
+  out.push({ title: 'Summary', kind: 'kv', rows: [
+    ['syscall', `${e.syscall} (nr ${e.syscall_nr})`],
+    ['tid', String(e.tid)],
+    ['retval', String(e.retval)],
+  ] })
+  const argRows: [string, string][] = []
+  for (const [k, v] of Object.entries(e.string_args)) argRows.push([`string[${k}]`, v])
+  for (const [k, v] of Object.entries(e.decoded_args)) argRows.push([`decoded[${k}]`, v])
+  for (const [k, v] of Object.entries(e.fd_args)) argRows.push([`fd[${k}]`, v])
+  if (argRows.length) out.push({ title: 'Args', kind: 'kv', rows: argRows })
+  if (e.java_stack?.length) out.push({ title: 'Java stack', kind: 'stack', lines: e.java_stack.slice() })
+  if (e.backtrace.length) out.push({ title: 'Backtrace', kind: 'stack', lines: e.backtrace.map(f => `#${f.frame} ${f.symbol}`) })
+  return out
+}
+
+// Render the detail cards for one event into `host` (clears it first). Cells use
+// textContent so trace strings can't inject markup. DOM side-effect.
+export function renderEventDetail(host: HTMLElement, e: SyscallEvent): void {
+  host.innerHTML = ''
+  for (const sec of eventDetailSections(e)) {
+    const card = document.createElement('div'); card.className = 'insp-card'
+    const h = document.createElement('div'); h.className = 'insp-card-h'
+    const t = document.createElement('span'); t.textContent = sec.title; h.appendChild(t)
+    if (sec.kind === 'stack') { const c = document.createElement('span'); c.className = 'insp-card-cnt'; c.textContent = String(sec.lines.length); h.appendChild(c) }
+    card.appendChild(h)
+    if (sec.kind === 'kv') {
+      const tbl = document.createElement('table'); tbl.className = 'insp-kv'
+      for (const [k, v] of sec.rows) {
+        const tr = document.createElement('tr')
+        const kd = document.createElement('td'); kd.textContent = k
+        const vd = document.createElement('td'); vd.textContent = v
+        tr.append(kd, vd); tbl.appendChild(tr)
+      }
+      card.appendChild(tbl)
+    } else {
+      const pre = document.createElement('div'); pre.className = 'insp-stack'
+      pre.textContent = sec.lines.join('\n')
+      card.appendChild(pre)
+    }
+    host.appendChild(card)
+  }
+}
+
+// Render the records behind a clicked node into #inspector as a compact table
+// (id, syscall, tid, retval, primary arg); clicking a row shows that record's
+// full formatted detail below. Cells use textContent so trace strings can't
+// inject markup. DOM side-effect, not unit-tested.
 export function showNodeInspector(nodeId: string, events: SyscallEvent[]): void {
   const host = document.getElementById('inspector')
   if (!host) return
   host.innerHTML = ''
 
   const head = document.createElement('div')
-  head.style.fontWeight = 'bold'
-  head.style.marginBottom = '6px'
+  head.className = 'insp-head'
   head.textContent = `${nodeId} - ${events.length} record(s)`
   host.appendChild(head)
 
-  const detail = document.createElement('pre')
-  detail.style.whiteSpace = 'pre-wrap'
-  detail.style.marginTop = '8px'
-  detail.style.borderTop = '1px solid #eee'
-  detail.style.paddingTop = '6px'
+  const detail = document.createElement('div')
+  detail.className = 'insp-detail'
 
-  const list = document.createElement('div')
-  for (const ev of events.slice(0, 500)) {
-    const item = document.createElement('a')
-    item.href = '#'
-    item.style.display = 'block'
-    item.style.textDecoration = 'none'
-    item.style.color = '#2563eb'
-    item.style.padding = '1px 0'
-    item.textContent = `#${ev.id} ${ev.syscall} (tid ${ev.tid})`
-    item.onclick = evt => {
-      evt.preventDefault()
-      detail.textContent = formatEvent(ev)
-    }
-    list.appendChild(item)
+  const scroll = document.createElement('div')
+  scroll.className = 'insp-table-wrap'
+  const table = document.createElement('table')
+  table.className = 'insp-table'
+
+  const thead = document.createElement('thead')
+  const htr = document.createElement('tr')
+  for (const h of ['#', 'syscall', 'tid', 'ret', 'args']) {
+    const th = document.createElement('th')
+    th.textContent = h
+    htr.appendChild(th)
   }
-  host.appendChild(list)
+  thead.appendChild(htr)
+  table.appendChild(thead)
+
+  const tbody = document.createElement('tbody')
+  let selected: HTMLTableRowElement | undefined
+  for (const ev of events.slice(0, 500)) {
+    const tr = document.createElement('tr')
+    const cells = [String(ev.id), ev.syscall, String(ev.tid), String(ev.retval), primaryArg(ev)]
+    for (let i = 0; i < cells.length; i++) {
+      const td = document.createElement('td')
+      td.textContent = cells[i]
+      if (i === 4) td.className = 'insp-arg' // let the args column wrap/truncate
+      tr.appendChild(td)
+    }
+    tr.onclick = () => {
+      selected?.classList.remove('sel')
+      tr.classList.add('sel')
+      selected = tr
+      renderEventDetail(detail, ev)
+    }
+    tbody.appendChild(tr)
+  }
+  table.appendChild(tbody)
+  scroll.appendChild(table)
+  host.appendChild(scroll)
   host.appendChild(detail)
 
-  if (events[0]) detail.textContent = formatEvent(events[0])
+  if (events[0]) {
+    renderEventDetail(detail, events[0])
+    tbody.firstChild && (tbody.firstChild as HTMLTableRowElement).classList.add('sel')
+    selected = tbody.firstChild as HTMLTableRowElement
+  }
 }

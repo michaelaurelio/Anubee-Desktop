@@ -3,6 +3,25 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Known drawbacks from node-interaction rework (offset/tag popup placement)
+- **Offset popup size estimates** - `placePopup` uses a fixed 400×300 estimate to
+  compute right/left anchor placement; if the actual rendered popup size drifts
+  (e.g. from label wrapping or content changes), revisit the estimate constants
+  to keep the popup positioned correctly relative to the node.
+- **Offset popup-inspector overlap (cosmetic)** - when a node is centered in the
+  viewport, the offset popup can overlap the right inspector panel transiently;
+  z-order keeps the popup readable. Revisit if the overlap becomes distracting
+  in daily use.
+- **Stale async re-open of the offset popup** - a native tap fires `nodeOffsets`
+  + `nodeEvents` and, on resolve, unconditionally fills the inspector and opens
+  the popup. If the user dismisses (empty-canvas tap) or selects another node
+  during a slow IPC round-trip, the resolved promise can repaint the inspector /
+  re-open the popup at the old node. Guard with a selection token before showing.
+- **Harness coverage niceties** - the shots harness does not yet assert that a
+  syscall/java tap leaves no inline tag editor, nor that the tag popup's computed
+  background is themed (both are visually covered by the captures); add explicit
+  assertions if the DOM regresses.
+
 ## Known drawbacks from Phase 1a (native offset popup - `GraphStore.nodeOffsets`)
 - **`unlib`/library reload not handled** - the module map takes the global
   lowest `start` per (pid, basename), so offsets are wrong for events on the
@@ -14,6 +33,23 @@ and open verification items. Newest concerns first.
 - **`moduleRelative` returns a malformed `"0x-.."` string if `addr < base`**
   (unreachable today; add a defensive guard when the Phase-1b popup consumes
   real addresses).
+- **`[unmapped]` offsets in snapshot captures** - offsets resolve only when the
+  run carries `lib` records, which the ARES tracer emits on `mmap` during the
+  trace. A snapshot or post-load capture has no `lib` records (modules already
+  loaded at attach time), so all offsets show `[unmapped]`. The durable fix is
+  ARES-side: prime the module map from `/proc/<pid>/maps` at attach time so
+  snapshot captures can resolve offsets. Until then, capture from process start
+  for offset resolution.
+
+## Known drawbacks and deferrals from UI/interaction refinement (this session)
+- **Click-to-expand native-node drill-down was deferred** - a Phase-2 feature to
+  load a native node's full cross-run neighbourhood on demand was deprioritized
+  in favor of the brighter-edge highlight (single click now clearly illuminates
+  the whole call chain). Still a valid Phase-2 candidate (spec §5.3).
+- **Highlighted-edge emphasis** - the selected path's edges were strengthened
+  (`width` 3.5, full-strength color, `arrow-scale` 1.3) so a single click clearly
+  lights the chain on dark backgrounds; base (unselected) edges are unchanged
+  (`arrow-scale` 1.2). Revisit the emphasis if it reads too heavy on light theme.
 
 ## Shipped (2026-07-07) - extensible RASP heuristics engine; UI/UX overhaul partially shipped
 Design reference: overall spec §13.
@@ -231,24 +267,6 @@ Design reference: overall spec §13.
 - **stdout/artifact runs never send a UI "run loaded" signal** - only `jsonl`
   runs auto-switch to the table; `lib`/`dump` leave the result in the console /
   `userData/runs/` with no in-app artifact browser yet.
-
-## Known drawbacks from Phase 1b (native-block origin mapping)
-- **`offset-popup` `eventForOffset` row-expand sample** - the popup shows the
-  node's first event as the row-expand sample rather than the event whose
-  backtrace carries that exact offset. Refine to match the per-offset event
-  rather than a fixed node-level sample.
-- **Offset popup `reaches` chips are unstyled** - the syscall names in the
-  `reaches` chip list are plain text. Color them by the reached syscall's
-  category (via `categoryColors`) to visually link offset behaviour to syscall
-  intent.
-- **Node-box label overflow risk** - ELK sizing via `width: 'label'` can reserve
-  a box narrower than the actual rendered label on long-label slices, causing
-  text to spill and overlap adjacent nodes. Revisit ELK's sizing heuristic or
-  add label truncation to keep boxes tight.
-- **Node accent style cross-platform** - the left-edge accent shipped as a
-  hard-stripe linear-gradient (`linear-gradient(90deg, ...)`). Revisit against a
-  uniform-border fallback if the gradient renders inconsistently on any platform,
-  or if the border approach improves readability on high-DPI displays.
 
 ## Deferred features (post-core, spec §7)
 - **8** Session-only MCP (stdio) exposing the tagged graph. Decision C: headless

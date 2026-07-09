@@ -1,10 +1,10 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Menu, clipboard } from 'electron'
 import { resolve } from 'path'
 import { writeFileSync } from 'node:fs'
 import { GraphStore } from './graph-store'
 import type { Filter } from '@shared/filter'
-import { loadTags, saveTags, loadSidecarRules, saveSidecarRules } from './sidecar'
-import type { Tag } from '@shared/project-store'
+import { loadTags, saveTags, loadSidecarRules, saveSidecarRules, loadDismissed, saveDismissed } from './sidecar'
+import type { Tag, Dismissed } from '@shared/project-store'
 import { loadRules, saveRules } from './rasp-rules-store'
 import { resolveRules, BUILTIN_RULES, validateRule, type Rule, type RuleScope } from '@shared/rasp-heuristics'
 import { buildFindings, renderMarkdown, renderJSON } from '@shared/findings'
@@ -60,16 +60,7 @@ function createWindow(): void {
   const preload = process.env.ARES_OPEN_FILE
   if (preload) win.webContents.once('did-finish-load', () => void loadPath(preload))
 
-  const menu = Menu.buildFromTemplate([
-    {
-      label: 'File',
-      submenu: [
-        { label: 'Open JSONL...', accelerator: 'CmdOrCtrl+O', click: () => void openViaDialog() },
-        { role: 'quit' },
-      ],
-    },
-  ])
-  Menu.setApplicationMenu(menu)
+  Menu.setApplicationMenu(null) // single in-app File▾ toolbar; no native menu bar
 }
 
 async function loadPath(path: string): Promise<{ runId: number; eventCount: number; errors: number }> {
@@ -137,6 +128,7 @@ ipcMain.handle('tracer:stop', async () => {
 })
 
 ipcMain.handle('trace:open', () => openViaDialog())
+ipcMain.handle('app:quit', () => app.quit())
 ipcMain.handle('graph:runs', () => store.runs())
 ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }, runId?: number) => store.table(filter, page, runId))
 ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number, runId?: number) => store.slice(filter, cap, runId))
@@ -146,6 +138,9 @@ ipcMain.handle('graph:eventById', (_e, id: number, runId?: number) => store.even
 ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter, runId?: number) => store.nodeEvents(nodeId, filter, 500, runId))
 ipcMain.handle('graph:nodeOffsets', (_e, nodeId: string, filter: Filter, runId?: number) =>
   store.nodeOffsets(nodeId, filter, runId))
+// Copy via the main-process clipboard: navigator.clipboard is unreliable in the
+// Electron renderer (permission/focus), so the popup + node menus route here.
+ipcMain.handle('clipboard:write', (_e, text: string) => clipboard.writeText(text))
 ipcMain.handle('rasp:suggest', (_e, runId?: number) => {
   const rid = runId ?? store.runs().at(-1)?.runId
   if (rid === undefined) return []
@@ -200,6 +195,11 @@ ipcMain.handle('tags:save', (_e, runId: number, tags: Tag[]) => {
   saveTags(file, ingestedAt, tags)
 })
 ipcMain.handle('tags:orphans', (_e, runId: number, targets: string[]) => store.orphanTargets(targets, runId))
+ipcMain.handle('suggest:dismissed:get', (_e, runId: number) => loadDismissed(runFileOf(runId).file))
+ipcMain.handle('suggest:dismissed:save', (_e, runId: number, dismissed: Dismissed[]) => {
+  const { file, ingestedAt } = runFileOf(runId)
+  saveDismissed(file, ingestedAt, dismissed)
+})
 
 ipcMain.handle('findings:export', async (_e, runId: number, format: 'md' | 'json') => {
   const { file } = runFileOf(runId)

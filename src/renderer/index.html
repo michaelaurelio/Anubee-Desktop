@@ -32,6 +32,13 @@
       }
 
       html, body { margin: 0; height: 100%; font: var(--font); background: var(--surface); color: var(--text); }
+      /* theme-matched scrollbars (Chromium/Electron) so they don't read as OS-default */
+      * { scrollbar-color: var(--border) transparent; scrollbar-width: thin; }
+      *::-webkit-scrollbar { width: 10px; height: 10px; }
+      *::-webkit-scrollbar-track { background: transparent; }
+      *::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; border: 2px solid var(--surface); }
+      *::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+      *::-webkit-scrollbar-corner { background: transparent; }
       button, input, select { font: inherit; color: inherit; }
 
       /* --- chrome bar --- */
@@ -59,6 +66,9 @@
         box-shadow: var(--shadow); padding: 6px; min-width: 150px; flex-direction: column; gap: 6px; }
       .menu.open > .menu-body { display: flex; }
       .menu-body .btn, .menu-body select { width: 100%; }
+      /* File is the left-most menu: open its body rightward so it isn't clipped
+         by the left screen edge (Export/Diff sit on the right and keep right:0). */
+      #file-menu > .menu-body { right: auto; left: 0; }
 
       #theme-toggle { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
         border: 1px solid var(--border); border-radius: 5px; background: var(--panel-2); cursor: pointer; }
@@ -142,10 +152,9 @@
       #side.collapsed > *:not(.panel-head) { display: none; }
       #side.collapsed .panel-head span:not(.panel-chevron) { display: none; }
       #inspector { flex: 1 1 auto; overflow: auto; padding: 8px; font-family: var(--mono); }
-      #suggestions, #rules, #orphans, #diff-table { flex: 0 0 auto; overflow: auto; padding: 8px;
+      #suggestions, #orphans, #diff-table { flex: 0 0 auto; overflow: auto; padding: 8px;
         border-top: 1px solid var(--border); }
       #suggestions { max-height: 40%; }
-      #rules { max-height: 40%; display: none; }
       #orphans { max-height: 30%; display: none; background: var(--warn-bg); }
       #diff-table { max-height: 40%; }
       #diff-table table { border-collapse: collapse; width: 100%; }
@@ -153,7 +162,6 @@
 
       /* capture */
       #capture { padding: 8px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
-      #capture.hidden { display: none; }
       #cap-console { font-family: var(--mono); font-size: 12px; background: #0a0d12; color: #ddd;
         padding: 6px; height: 240px; overflow: auto; white-space: pre-wrap; border-radius: 4px; }
       .loud-warn { color: var(--k-syscall); font-weight: 600; }
@@ -162,9 +170,10 @@
 
       /* offset-popup: floating table for native node offsets */
       .offset-popup { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-        padding: 8px; max-height: 300px; overflow: auto; box-shadow: var(--shadow); }
+        padding: 8px; max-height: 300px; max-width: 400px; overflow: auto; box-shadow: var(--shadow);
+        overflow-wrap: anywhere; }
       .offset-popup-head { font-family: var(--mono); font-weight: 600; padding: 0 0 6px 0; margin-bottom: 6px;
-        border-bottom: 1px solid var(--border-soft); color: var(--text); }
+        border-bottom: 1px solid var(--border-soft); color: var(--text); word-break: break-all; font-size: 12px; }
       .offset-popup-rows { display: flex; flex-direction: column; gap: 4px; }
       .offset-row { cursor: pointer; }
       .offset-row-line { display: flex; gap: 12px; align-items: center; padding: 4px; border-radius: 4px;
@@ -183,27 +192,100 @@
       .offset-menu-item:last-child { border-bottom: 0; }
       .offset-menu-item:hover { background: var(--hover); }
       .offset-popup-empty { color: var(--muted); padding: 8px; font-size: 12px; text-align: center; }
+      /* tag editor: category + note + save + existing tags (right-click Add Tag) */
+      .tag-editor { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px;
+                    display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text); }
+      .tag-editor .tag-editor-title { font-weight: 600; overflow-wrap: anywhere; }
+      .tag-editor .tag-editor-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .tag-editor select, .tag-editor input, .tag-editor button {
+        background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+        border-radius: 5px; padding: 3px 6px; font: inherit; }
+      .tag-editor button { cursor: pointer; }
+      .tag-editor button:hover { background: var(--hover); }
+      .tag-editor .tag-existing { display: flex; flex-direction: column; gap: 3px; color: var(--muted); }
+      /* inspector: records-behind-a-node table + detail */
+      .insp-head { font-weight: 600; color: var(--text); margin-bottom: 6px; word-break: break-all; font-size: 12px; }
+      .insp-table-wrap { max-height: 40vh; overflow: auto; border: 1px solid var(--border-soft); border-radius: 6px; }
+      .insp-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+      .insp-table th { position: sticky; top: 0; background: var(--bar); color: var(--muted); text-align: left;
+        font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+      .insp-table td { padding: 3px 6px; color: var(--text); border-bottom: 1px solid var(--border-soft);
+        white-space: nowrap; font-family: var(--mono); }
+      .insp-table td.insp-arg { white-space: normal; word-break: break-all; color: var(--muted); font-family: var(--font); max-width: 220px; }
+      .insp-table tbody tr { cursor: pointer; }
+      .insp-table tbody tr:hover { background: var(--hover); }
+      .insp-table tbody tr.sel { background: var(--hover); outline: 1px solid var(--border); }
+      .insp-detail { margin-top: 8px; display: flex; flex-direction: column; gap: 9px; }
+      .insp-card { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel-2); }
+      .insp-card-h { display: flex; justify-content: space-between; align-items: center; padding: 5px 10px;
+                     background: var(--stripe); font-size: 11px; font-weight: 600; color: var(--text); }
+      .insp-card-cnt { color: var(--muted); font-weight: 400; }
+      .insp-kv { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+      .insp-kv td { padding: 4px 10px; border-bottom: 1px solid var(--stripe); vertical-align: top; }
+      .insp-kv td:first-child { color: var(--muted); white-space: nowrap; width: 90px; }
+      .insp-kv tr:last-child td { border-bottom: 0; }
+      .insp-stack { padding: 7px 10px; font-family: var(--mono); font-size: 11px; white-space: pre-wrap; line-height: 1.5; }
+      /* suggestions (opened from the chrome-bar button, into a modal body) */
+      .sug-head { font-weight: 600; color: var(--text); margin-bottom: 8px; }
+      .sug-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }
+      .sug-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 4px;
+        border-bottom: 1px solid var(--border-soft); }
+      .sug-info { flex: 1 1 auto; min-width: 0; }
+      .sug-line1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .sug-cat { font: 600 10px/1 var(--mono); letter-spacing: .04em; text-transform: uppercase;
+        color: #0d1117; border-radius: 4px; padding: 3px 6px; }
+      .sug-cat.rasp-root { background: #e5484d; } .sug-cat.rasp-debugger { background: #e08c3b; }
+      .sug-cat.rasp-emulator { background: #b072e0; } .sug-cat.rasp-integrity { background: #4aa3ff; }
+      .sug-cat.rasp-hook { background: #26c2a6; } .sug-cat.rasp-custom { background: #8b97a4; }
+      .sug-target { font: 12px var(--mono); color: var(--text); word-break: break-all; }
+      .sug-conf { font: 11px var(--mono); color: var(--muted); margin-left: auto; }
+      .sug-rationale { font-size: 11px; color: var(--muted); margin-top: 3px; }
+      .sug-btns { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
+      .sug-confirm { border-color: #2ea043; color: #7ee2a0; }
+      .sug-reject { border-color: #c94f4f; color: #f2a3a3; }
+      /* right-click node context menu */
+      .node-menu { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+        box-shadow: var(--shadow); min-width: 160px; padding: 4px; }
+      .node-menu-item { padding: 6px 10px; cursor: pointer; font-size: 12px; color: var(--text); border-radius: 4px; }
+      .node-menu-item:hover { background: var(--hover); }
+      .tag-popup { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+                   box-shadow: 0 8px 24px rgba(0,0,0,.4); padding: 8px; min-width: 260px; max-width: 360px; }
+
+      /* shared centered modal (Capture / Rules / Suggestions) */
+      .modal-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(4,7,12,.62);
+                        display: flex; align-items: center; justify-content: center; }
+      .modal { width: 460px; max-width: 88vw; max-height: 86vh; overflow: auto;
+               background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+               box-shadow: 0 18px 50px rgba(0,0,0,.55); }
+      .modal-head { display: flex; align-items: center; justify-content: space-between;
+                    padding: 11px 14px; border-bottom: 1px solid var(--border); }
+      .modal-title { font-weight: 600; }
+      .modal-x { cursor: pointer; background: transparent; border: 0; color: var(--muted); font-size: 16px; line-height: 1; }
+      .modal-x:hover { color: var(--text); }
+      .modal-body { padding: 14px; }
     </style>
   </head>
   <body>
     <div id="chrome">
       <span class="mark">&#9670; ARES</span>
-      <button id="open-run" class="btn pri">Open run</button>
+      <div class="menu" id="file-menu">
+        <button class="btn" data-menu-toggle>File &#9662;</button>
+        <div class="menu-body">
+          <button id="file-open" class="btn">Open JSONL&hellip;</button>
+          <button id="file-capture" class="btn">Capture&hellip;</button>
+          <button id="export-md" class="btn">Export Markdown</button>
+          <button id="export-json" class="btn">Export JSON</button>
+          <button id="file-quit" class="btn">Quit</button>
+        </div>
+      </div>
       <span id="status">No run loaded</span>
       <span class="spacer"></span>
       <div class="segment">
         <button id="tab-graph" class="btn on">Graph</button>
         <button id="tab-flame" class="btn">Flame</button>
-        <button id="tab-capture" class="btn">Capture</button>
       </div>
+      <button id="suggest-btn" class="btn">Suggestions</button>
       <button id="rules-btn" class="btn">Rules</button>
-      <div class="menu" id="export-menu">
-        <button class="btn" data-menu-toggle>Export &#9662;</button>
-        <div class="menu-body">
-          <button id="export-md" class="btn">Export Markdown</button>
-          <button id="export-json" class="btn">Export JSON</button>
-        </div>
-      </div>
       <div class="menu" id="diff-menu">
         <button class="btn" data-menu-toggle>Diff &#9662;</button>
         <div class="menu-body">
@@ -250,25 +332,9 @@
           </div>
         </div>
         <div id="flame"></div>
-        <div id="capture" class="hidden">
-          <div id="capture-config">
-            <label>ares binary <input id="cfg-binary" type="text" placeholder="/host/build/ares" /></label>
-            <label>specs dir <input id="cfg-specs" type="text" placeholder="/host/specs" /></label>
-          </div>
-          <div id="capture-form-row">
-            <select id="cap-select"></select>
-            <input id="cap-timeout" type="text" size="4" placeholder="secs" title="timeout window (blank = run until Stop)" />
-            <button id="cap-preflight" class="btn">Preflight</button>
-            <button id="cap-start" class="btn" disabled>Start</button>
-            <button id="cap-stop" class="btn" disabled>Stop</button>
-          </div>
-          <div id="cap-form"></div>
-          <div id="cap-preflight-status"></div>
-          <div id="cap-console"></div>
-        </div>
         <div id="empty-state">
           <div class="es-title">No run loaded</div>
-          <div>Open a run to begin - use <b>Open run</b> above.</div>
+          <div>Open a run to begin - use <b>File &#9662; Open JSONL</b> above.</div>
         </div>
       </div>
       <div class="resize-handle" data-resize="side" title="drag to resize"></div>
@@ -277,10 +343,26 @@
         <div id="orphans"></div>
         <div id="inspector"></div>
         <div id="diff-table"></div>
-        <div id="suggestions"></div>
-        <div id="rules"></div>
       </div>
     </div>
+    <template id="capture-template">
+      <div id="capture">
+        <div id="capture-config">
+          <label>ares binary <input id="cfg-binary" type="text" placeholder="/host/build/ares" /></label>
+          <label>specs dir <input id="cfg-specs" type="text" placeholder="/host/specs" /></label>
+        </div>
+        <div id="capture-form-row">
+          <select id="cap-select"></select>
+          <input id="cap-timeout" type="text" size="4" placeholder="secs" title="timeout window (blank = run until Stop)" />
+          <button id="cap-preflight" class="btn">Preflight</button>
+          <button id="cap-start" class="btn" disabled>Start</button>
+          <button id="cap-stop" class="btn" disabled>Stop</button>
+        </div>
+        <div id="cap-form"></div>
+        <div id="cap-preflight-status"></div>
+        <div id="cap-console"></div>
+      </div>
+    </template>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

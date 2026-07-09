@@ -17,7 +17,8 @@ export interface KindColors {
 
 const DARK: KindColors = {
   java: '#5fd28f', native: '#6fa8ff', syscall: '#ff8b7a',
-  labelBacking: '#1a1f2b', labelText: '#c9d1e0', edge: '#3a4556',
+  // edge lifted from the near-invisible #3a4556 so lines + arrowheads read on the dark canvas
+  labelBacking: '#1a1f2b', labelText: '#c9d1e0', edge: '#6b7a91',
 }
 const LIGHT: KindColors = {
   java: '#27ae60', native: '#2980b9', syscall: '#c0392b',

@@ -1,0 +1,5 @@
+{"type":"syscall","id":1,"pid":100,"tid":101,"syscall_nr":56,"syscall":"openat","args":["0xffffff9c","0x7f00"],"retval":7,"string_args":{"1":"/system/bin/su"},"fd_args":{},"decoded_args":{},"stack_id":11,"java_stack":["com.example.app.RootCheck.run"],"backtrace":[{"frame":0,"addr":"0x1","symbol":"libexample.so!check_su+0x10"},{"frame":1,"addr":"0x2","symbol":"libexample.so!RootCheck_run+0x40"}]}
+{"type":"syscall","id":2,"pid":100,"tid":101,"syscall_nr":56,"syscall":"openat","args":["0xffffff9c","0x7f00"],"retval":-2,"string_args":{"1":"/sbin/magisk"},"fd_args":{},"decoded_args":{},"stack_id":11,"java_stack":["com.example.app.RootCheck.run"],"backtrace":[{"frame":0,"addr":"0x1","symbol":"libexample.so!check_su+0x10"},{"frame":1,"addr":"0x2","symbol":"libexample.so!RootCheck_run+0x40"}]}
+{"type":"syscall","id":3,"pid":100,"tid":202,"syscall_nr":62,"syscall":"read","args":["0x5"],"retval":128,"string_args":{},"fd_args":{"0":"/proc/self/status"},"decoded_args":{},"backtrace":[{"frame":0,"addr":"0x9","symbol":"libc.so!read+0x8"}]}
+{"type":"lib","pid":100,"library":"libexample.so"}
+{bad line to prove tolerance}

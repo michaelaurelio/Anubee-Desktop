@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { parseSidecar, serializeSidecar, type Tag } from '@shared/project-store'
+import { parseSidecar, serializeSidecar, type Tag, type Dismissed } from '@shared/project-store'
 import type { RuleScope, Rule } from '@shared/rasp-heuristics'
 
 // The tag sidecar sits alongside the loaded run: <run>.ares-desktop.json.
@@ -23,10 +23,25 @@ export function loadSidecarRules(runFile: string): RuleScope {
   return { rules, enabledOverrides }
 }
 
-// Writing tags must not drop authored project rules: re-read and carry them.
+// The rejected-suggestion list for this run (empty when absent).
+export function loadDismissed(runFile: string): Dismissed[] {
+  const p = sidecarPath(runFile)
+  if (!existsSync(p)) return []
+  return parseSidecar(readFileSync(p, 'utf-8')).dismissed
+}
+
+// Writing tags must not drop authored project rules or dismissals: carry them.
 export function saveTags(runFile: string, ingestedAt: string, tags: Tag[]): void {
   const existing = loadSidecarRules(runFile)
-  const text = serializeSidecar({ file: runFile, ingestedAt }, tags, existing.rules, existing.enabledOverrides)
+  const text = serializeSidecar({ file: runFile, ingestedAt }, tags, existing.rules, existing.enabledOverrides, loadDismissed(runFile))
+  writeFileSync(sidecarPath(runFile), text)
+}
+
+// Persist the rejected-suggestion list, carrying tags + rules.
+export function saveDismissed(runFile: string, ingestedAt: string, dismissed: Dismissed[]): void {
+  const tags = loadTags(runFile).tags
+  const rules = loadSidecarRules(runFile)
+  const text = serializeSidecar({ file: runFile, ingestedAt }, tags, rules.rules, rules.enabledOverrides, dismissed)
   writeFileSync(sidecarPath(runFile), text)
 }
 
@@ -38,6 +53,6 @@ export function saveSidecarRules(
   enabledOverrides: Record<string, boolean>,
 ): void {
   const existingTags = loadTags(runFile).tags
-  const text = serializeSidecar({ file: runFile, ingestedAt }, existingTags, rules, enabledOverrides)
+  const text = serializeSidecar({ file: runFile, ingestedAt }, existingTags, rules, enabledOverrides, loadDismissed(runFile))
   writeFileSync(sidecarPath(runFile), text)
 }

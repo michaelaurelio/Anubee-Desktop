@@ -7,9 +7,10 @@ export interface OffsetRow {
   module: string                       // library basename, e.g. 'libexample.so'
   offset: string                       // module-relative, 0x-hex (ghidra offset)
   symbol: string | null                // resolved symbol, if any
-  reaches: string[]                    // distinct syscalls this call-site leads to
+  syscall: string                      // the syscall this call-site row is for
   argsSample: Record<string, string>   // decoded args of a representative event
-  count: number                        // events in which this call-site appears
+  count: number                        // events for this (offset, syscall)
+  sampleEventId: number                // id of a representative event for row-expand
 }
 
 export interface OriginBlob {

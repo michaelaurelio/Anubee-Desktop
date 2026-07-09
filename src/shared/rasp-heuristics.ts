@@ -171,15 +171,47 @@ function argNum(v: string | undefined): number {
   return v.startsWith('0x') || v.startsWith('0X') ? parseInt(v, 16) : Number(v)
 }
 
-// The native node id closest to the syscall (backtrace[0], innermost), or the
-// syscall node when there is no resolvable native frame. Reuses chainOf so the
-// id grammar matches the graph exactly.
+// Native modules that belong to the platform, not the traced app: bionic, the
+// ART/managed runtime, and the logging/base/framework core. A RASP check almost
+// always runs in the app's own (often obfuscated) library and reaches a syscall
+// *through* these, so they are the wrong thing to tag. Matched by basename.
+const SYSTEM_NATIVE = new Set<string>([
+  // bionic
+  'libc.so', 'libm.so', 'libdl.so', 'libc++.so', 'libc++_shared.so', 'libstdc++.so',
+  'linker64', 'linker',
+  // ART / managed runtime
+  'libart.so', 'libartbase.so', 'libartpalette.so', 'libart-compiler.so',
+  'libopenjdk.so', 'libopenjdkjvm.so', 'libopenjdkjvmti.so', 'libjavacore.so',
+  'libnativehelper.so', 'libnativeloader.so', 'libnativebridge.so',
+  'libdexfile.so', 'libprofile.so', 'libsigchain.so',
+  // logging / base / framework core
+  'liblog.so', 'libbase.so', 'libcutils.so', 'libutils.so', 'libbinder.so',
+  'libandroid_runtime.so', 'libandroidicu.so',
+])
+
+// A frame that can never be the app's own RASP code: a platform lib, or a
+// synthetic/non-file region ([anon], [vdso], [JIT], [stack], ...).
+function isSystemNative(module: string | null): boolean {
+  if (module === null) return true
+  if (module.startsWith('[')) return true
+  return SYSTEM_NATIVE.has(module)
+}
+
+// The native node id of the RASP block behind the syscall: the innermost native
+// frame that is NOT a platform lib (the app's own code that called into libc).
+// Falls back to the innermost native frame when the whole native path is system
+// libs (e.g. a Java-driven check with no custom lib), then to the syscall node.
+// Reuses chainOf so the id grammar matches the graph exactly.
 function nativeTargetOf(e: SyscallEvent): string {
   const chain = chainOf(e)
+  let innermostNative: string | null = null
   for (let i = chain.length - 1; i >= 0; i--) {
-    if (chain[i].kind === 'native') return chain[i].id
+    const c = chain[i]
+    if (c.kind !== 'native') continue
+    if (innermostNative === null) innermostNative = c.id // system-lib fallback
+    if (!isSystemNative(c.module)) return c.id // the app's own block
   }
-  return `sys:${e.syscall}`
+  return innermostNative ?? `sys:${e.syscall}`
 }
 
 function sqlLit(s: string): string {
