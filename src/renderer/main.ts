@@ -483,8 +483,6 @@ function wireCapture(): void {
 
   stopBtn.addEventListener('click', () => void window.ares.tracerStop())
 
-  window.ares.onTracerLine(line => appendConsoleLine(consoleHost, line))
-
   function binTimeout(): number | undefined {
     const t = parseInt((document.getElementById('cap-timeout') as HTMLInputElement).value, 10)
     return Number.isFinite(t) && t > 0 ? t : undefined
@@ -533,7 +531,7 @@ document.getElementById('rules-btn')?.addEventListener('click', () => {
   showModal({
     title: 'Rules',
     width: 640,
-    render: host => { void renderRules(host, activeRunId, () => { void refreshSuggestions() }) },
+    render: host => { void renderRules(host, activeRunId, () => { void recolorRasp(); void refreshSuggestions() }) },
   })
 })
 wireFilterControls(() => { void refreshTable(); refreshMiddle() })
@@ -561,6 +559,13 @@ window.addEventListener('keydown', e => {
 document.getElementById('file-open')?.addEventListener('click', () => { void window.ares.openFile() })
 document.getElementById('file-quit')?.addEventListener('click', () => { void window.ares.quit() })
 document.getElementById('file-capture')?.addEventListener('click', () => openCaptureModal())
+
+// Registered once (not per Capture-modal open) so re-opening Capture doesn't
+// stack tracer:line subscriptions; appends to whichever cap-console is live.
+window.ares.onTracerLine(line => {
+  const c = document.getElementById('cap-console')
+  if (c) appendConsoleLine(c, line)
+})
 
 // Ctrl/Cmd+O opens a run (replaces the removed native-menu accelerator).
 window.addEventListener('keydown', e => {

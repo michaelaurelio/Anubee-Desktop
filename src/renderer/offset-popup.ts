@@ -1,5 +1,5 @@
 // Floating offset-table popup for a selected native node: one row per call-site
-// offset (offset / reaches / count / expand) and a right-click Copy / Copy-as-JSON
+// offset (offset / syscall / count / expand) and a right-click Copy / Copy-as-JSON
 // menu. Positioned to the right of the node via placePopup. Row-expand is an inline
 // accordion showing that offset's ground-truth event. Tagging is separate now
 // (right-click -> Add Tag popup), not embedded here. See spec Phase 1b s3.2.
