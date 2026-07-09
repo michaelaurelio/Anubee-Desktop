@@ -21,7 +21,7 @@ import { renderFlame } from './flame-view'
 import { buildFlame } from '@shared/flame-shape'
 import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
 import { renderCapabilityForm, appendConsoleLine } from './capture-view'
-import { CAPABILITIES, capById, validateInputs, type CapValues } from '@shared/tracer-caps'
+import { CAPABILITIES, capById, validateInputs, isSafeToken, type CapValues } from '@shared/tracer-caps'
 import { showModal, isModalOpen } from './modal'
 
 let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
@@ -385,11 +385,11 @@ async function refreshDiff(): Promise<void> {
 
 function wireDiff(): void {
   document.getElementById('load-run-b')?.addEventListener('click', async () => {
-    const runA = activeRunId
-    const summary = await window.ares.openFile()
+    // Compare-load: ingests run B without the trace:loaded broadcast, so it never
+    // steals activeRunId or repaints the primary panels with B's data.
+    const summary = await window.ares.openFileForCompare()
     if (summary) {
       runB = summary.runId
-      activeRunId = runA
       await refreshTags()
       void refreshDiff()
     }
@@ -456,6 +456,7 @@ function wireCapture(): void {
     saveCfg()
     const pkg = String(vals.pkg ?? '')
     if (!pkg) { statusHost.textContent = 'enter a package first'; return }
+    if (!isSafeToken(pkg)) { statusHost.textContent = 'package has unsupported characters'; return }
     statusHost.textContent = 'running preflight...'
     const checks = await window.ares.tracerPreflight(pkg)
     statusHost.innerHTML = ''

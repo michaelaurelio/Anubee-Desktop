@@ -394,7 +394,11 @@ runs a named analyzer (default `stdout`). `correlate`/`trace` carry a
 chaining commands in one `su -c` breaks the on-device BPF load with `-EPERM`.
 Runs are wrapped `timeout -s INT -k 3 <secs>` for a graceful SIGINT stop with a
 SIGKILL backstop; the manual Stop button sends `pkill -INT -f …ares` as a
-separate `su -c`. A blank timeout means "run until Stop".
+separate `su -c`. A blank timeout means "run until Stop". User-entered tokens
+(package/library/pattern/spec/syscalls) are space-joined into that single-quoted
+body, so `validateInputs` (and the preflight entry) reject any value carrying a
+shell metacharacter or space - only `[A-Za-z0-9._:/,+-]` is admitted - before a
+run is dispatched.
 
 **Preflight** gates Start with five ordered checks (device reachable, `su`
 root, kernel BTF, package installed, on-device binary md5 vs the configured host

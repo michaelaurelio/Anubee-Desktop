@@ -8,6 +8,7 @@ declare global {
   interface Window {
     ares: {
       openFile(): Promise<{ runId: number; eventCount: number; errors: number } | null>
+      openFileForCompare(): Promise<{ runId: number; eventCount: number; errors: number } | null>
       quit(): Promise<void>
       copyToClipboard(text: string): Promise<void>
       runs(): Promise<{ runId: number; file: string; ingestedAt: string; eventCount: number }[]>
@@ -47,7 +48,6 @@ declare global {
       tracerStop(): Promise<void>
       pickSavePath(): Promise<string | undefined>
       onTracerLine(cb: (line: string) => void): void
-      onTracerDone(cb: (r: { code: number; kind: string; runId?: number }) => void): void
     }
   }
 }

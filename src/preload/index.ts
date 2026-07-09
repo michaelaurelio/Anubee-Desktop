@@ -7,6 +7,7 @@ import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 // this bridge except the single record fetched by id for the inspector.
 contextBridge.exposeInMainWorld('ares', {
   openFile: () => ipcRenderer.invoke('trace:open'),
+  openFileForCompare: () => ipcRenderer.invoke('trace:openCompare'),
   quit: () => ipcRenderer.invoke('app:quit'),
   copyToClipboard: (text: string) => ipcRenderer.invoke('clipboard:write', text),
   runs: () => ipcRenderer.invoke('graph:runs'),
@@ -52,6 +53,4 @@ contextBridge.exposeInMainWorld('ares', {
   pickSavePath: () => ipcRenderer.invoke('tracer:pickSavePath'),
   onTracerLine: (cb: (line: string) => void) =>
     ipcRenderer.on('tracer:line', (_e, line) => cb(line as string)),
-  onTracerDone: (cb: (r: { code: number; kind: string; runId?: number }) => void) =>
-    ipcRenderer.on('tracer:done', (_e, r) => cb(r as { code: number; kind: string; runId?: number })),
 })

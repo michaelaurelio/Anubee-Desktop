@@ -61,6 +61,20 @@ describe('tracer-caps registry', () => {
   it('accepts syscalls with capture-all', () => {
     expect(validateInputs(capById('syscalls')!, { pkg: 'com.android.deskclock', all: true })).toEqual([])
   })
+
+  it('rejects a token carrying a shell metacharacter or space', () => {
+    // A single quote would close the su -c '...' body; a space would split the arg.
+    expect(validateInputs(capById('syscalls')!, { pkg: 'com.app', lib: "libc.so'; rm -rf /" }))
+      .toEqual(['library filter has unsupported characters (allowed: letters, digits, and . _ - / : , +)'])
+    expect(validateInputs(capById('syscalls')!, { pkg: 'com.app', lib: 'lib c.so' }))
+      .toContain('library filter has unsupported characters (allowed: letters, digits, and . _ - / : , +)')
+  })
+
+  it('accepts the real token punctuation (dots, comma-csv, slash, hyphen)', () => {
+    expect(validateInputs(capById('syscalls')!, { pkg: 'com.android.deskclock', all: true, syscalls: 'openat,read' }))
+      .toEqual([])
+    expect(validateInputs(capById('funcs')!, { pkg: 'com.app', spec: 'common-file.spec' })).toEqual([])
+  })
 })
 
 import { composeRunArg, outJsonlPath, outDumpDir, DEVICE_BIN, STOP_ARG } from '../src/shared/tracer-caps'

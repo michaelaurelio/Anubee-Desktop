@@ -63,19 +63,31 @@ function createWindow(): void {
   Menu.setApplicationMenu(null) // single in-app File▾ toolbar; no native menu bar
 }
 
-async function loadPath(path: string): Promise<{ runId: number; eventCount: number; errors: number }> {
+// broadcast=true tells the renderer this is the new primary run (trace:loaded ->
+// activeRunId + panel refresh). A compare (run B) load passes false so it stays
+// off the active-run path and doesn't repaint the primary panels.
+async function ingestPath(
+  path: string,
+  broadcast: boolean,
+): Promise<{ runId: number; eventCount: number; errors: number }> {
   const summary = await store.ingest(path, pct => win.webContents.send('trace:progress', pct))
-  win.webContents.send('trace:loaded', summary)
+  if (broadcast) win.webContents.send('trace:loaded', summary)
   return summary
 }
 
-async function openViaDialog(): Promise<{ runId: number; eventCount: number; errors: number } | null> {
+function loadPath(path: string): Promise<{ runId: number; eventCount: number; errors: number }> {
+  return ingestPath(path, true)
+}
+
+async function openViaDialog(
+  broadcast: boolean,
+): Promise<{ runId: number; eventCount: number; errors: number } | null> {
   const r = await dialog.showOpenDialog(win, {
     filters: [{ name: 'ARES JSONL', extensions: ['jsonl', 'json'] }],
     properties: ['openFile'],
   })
   if (r.canceled || !r.filePaths[0]) return null
-  return loadPath(r.filePaths[0])
+  return ingestPath(r.filePaths[0], broadcast)
 }
 
 ipcMain.handle('tracer:config:get', () => loadConfig(app.getPath('userData')))
@@ -127,7 +139,6 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
       win.webContents.send('tracer:line', `dump pull failed: ${(e as Error).message}`)
     }
   }
-  win.webContents.send('tracer:done', { code, kind: cap.outputKind, runId })
   return { code, kind: cap.outputKind, runId }
 })
 
@@ -135,7 +146,8 @@ ipcMain.handle('tracer:stop', async () => {
   if (activeRun) await activeRun.stop()
 })
 
-ipcMain.handle('trace:open', () => openViaDialog())
+ipcMain.handle('trace:open', () => openViaDialog(true))
+ipcMain.handle('trace:openCompare', () => openViaDialog(false))
 ipcMain.handle('app:quit', () => app.quit())
 ipcMain.handle('graph:runs', () => store.runs())
 ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }, runId?: number) => store.table(filter, page, runId))
