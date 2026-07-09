@@ -253,6 +253,19 @@
       .node-menu-item:hover { background: var(--hover); }
       .tag-popup { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
                    box-shadow: 0 8px 24px rgba(0,0,0,.4); padding: 8px; min-width: 260px; max-width: 360px; }
+
+      /* shared centered modal (Capture / Rules / Suggestions) */
+      .modal-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(4,7,12,.62);
+                        display: flex; align-items: center; justify-content: center; }
+      .modal { width: 460px; max-width: 88vw; max-height: 86vh; overflow: auto;
+               background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+               box-shadow: 0 18px 50px rgba(0,0,0,.55); }
+      .modal-head { display: flex; align-items: center; justify-content: space-between;
+                    padding: 11px 14px; border-bottom: 1px solid var(--border); }
+      .modal-title { font-weight: 600; }
+      .modal-x { cursor: pointer; background: transparent; border: 0; color: var(--muted); font-size: 16px; line-height: 1; }
+      .modal-x:hover { color: var(--text); }
+      .modal-body { padding: 14px; }
     </style>
   </head>
   <body>
