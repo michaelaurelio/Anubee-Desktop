@@ -67,13 +67,13 @@ export async function renderRules(
   host.innerHTML = ''
 
   const head = document.createElement('div')
-  head.style.fontWeight = 'bold'
+  head.className = 'rules-head'
   head.textContent = `Rules (${data.effective.length})`
   host.appendChild(head)
 
   const status = document.createElement('div')
+  status.className = 'rules-status'
   status.dataset.role = 'rules-status'
-  status.style.color = 'crimson'
   host.appendChild(status)
 
   // A row action's optimistic DOM change (e.g. a flipped checkbox) can outrun
@@ -88,44 +88,45 @@ export async function renderRules(
 
   // --- list ---
   for (const r of data.effective) {
-    const row = document.createElement('div')
-    row.style.padding = '2px 0'
+    const row = document.createElement('div'); row.className = 'rule-row'
+    const info = document.createElement('div'); info.className = 'rule-info'
+    const line1 = document.createElement('div'); line1.className = 'rule-line1'
+    const cat = document.createElement('span'); cat.className = `sug-cat rasp-${r.category}`; cat.textContent = r.category
+    const src = document.createElement('span'); src.className = 'rule-src'; src.textContent = r.source
+    const id = document.createElement('span'); id.className = 'rule-id'; id.textContent = r.id
+    const meta = document.createElement('span'); meta.className = 'rule-meta'
+    meta.textContent = `${(r.confidence * 100).toFixed(0)}% · ${r.match.syscalls.join(',')}`
+    line1.append(cat, src, id, meta)
+    const pred = document.createElement('div'); pred.className = 'rule-pred'; pred.textContent = predicateSummary(r.match)
+    info.append(line1, pred)
 
-    const cb = document.createElement('input')
-    cb.type = 'checkbox'
-    cb.checked = r.enabled
-    cb.title = 'enable / disable'
+    const btns = document.createElement('div'); btns.className = 'rule-btns'
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = r.enabled; cb.title = 'enable / disable'
     cb.onchange = () => { void toggle(r.id, r.source, cb.checked).catch(showError) }
-    row.appendChild(cb)
-
-    const label = document.createElement('span')
-    label.textContent = ` [${r.source}] ${r.id} · ${r.category} ${(r.confidence * 100).toFixed(0)}% · ${r.match.syscalls.join(',')} · ${predicateSummary(r.match)} `
-    row.appendChild(label)
-
-    const edit = document.createElement('button')
-    edit.textContent = 'Edit'
-    edit.onclick = () => openForm(r)
-    row.appendChild(edit)
-
+    const edit = document.createElement('button'); edit.className = 'btn'; edit.textContent = 'Edit'; edit.onclick = () => openForm(r)
+    btns.append(cb, edit)
     if (r.source !== 'builtin') {
-      const del = document.createElement('button')
-      del.textContent = 'Delete'
+      const del = document.createElement('button'); del.className = 'btn'; del.textContent = 'Delete'
       del.onclick = () => { void remove(r.id, r.source).catch(showError) }
-      row.appendChild(del)
+      btns.appendChild(del)
     } else {
-      const reset = document.createElement('button')
-      reset.textContent = 'Reset'
+      const reset = document.createElement('button'); reset.className = 'btn'; reset.textContent = 'Reset'
       reset.title = 'drop any override / shadow of this builtin'
       reset.onclick = () => { void resetBuiltin(r.id).catch(showError) }
-      row.appendChild(reset)
+      btns.appendChild(reset)
     }
+    row.append(info, btns)
     host.appendChild(row)
   }
 
+  const addWrap = document.createElement('div')
+  addWrap.style.marginTop = '10px'
   const addBtn = document.createElement('button')
+  addBtn.className = 'btn'
   addBtn.textContent = 'New rule'
   addBtn.onclick = () => openForm(null)
-  host.appendChild(addBtn)
+  addWrap.appendChild(addBtn)
+  host.appendChild(addWrap)
 
   const formHost = document.createElement('div')
   host.appendChild(formHost)
@@ -162,12 +163,11 @@ export async function renderRules(
   // --- editor form ---
   function openForm(existing: Rule | null): void {
     formHost.innerHTML = ''
-    const mk = (labelText: string, el: HTMLElement) => {
-      const wrap = document.createElement('label')
-      wrap.style.display = 'block'
-      wrap.textContent = labelText + ' '
-      wrap.appendChild(el)
-      formHost.appendChild(wrap)
+    const wrap = document.createElement('div'); wrap.className = 'rule-form'; formHost.appendChild(wrap)
+    const mk = (labelText: string, el: HTMLElement): HTMLSpanElement => {
+      const lab = document.createElement('span'); lab.className = 'rf-label'; lab.textContent = labelText
+      wrap.append(lab, el)
+      return lab
     }
     const idIn = document.createElement('input'); idIn.value = existing?.id ?? ''
     const catSel = select(CATEGORIES, existing?.category ?? 'custom')
@@ -179,14 +179,20 @@ export async function renderRules(
     const argIn = document.createElement('input'); argIn.type = 'number'; argIn.min = '0'; argIn.value = String(existing?.match.argIndex ?? 0)
     const valIn = document.createElement('input'); valIn.value = existing?.match.value ?? ''
     const scopeSel = select(['project', 'global'], existing?.source === 'global' ? 'global' : 'project')
-    const preview = document.createElement('div'); preview.style.padding = '4px 0'
-
-    const argWrap = () => { argIn.parentElement!.style.display = opSel.value === 'arg_hex_eq' ? 'block' : 'none' }
+    const preview = document.createElement('div')
 
     mk('id', idIn); mk('category', catSel); mk('confidence', confIn); mk('rationale', ratIn)
-    mk('syscalls', sysIn); mk('field', fieldSel); mk('op', opSel); mk('argIndex', argIn); mk('value', valIn)
+    mk('syscalls', sysIn); mk('field', fieldSel); mk('op', opSel)
+    const argLabel = mk('argIndex', argIn)
+    mk('value', valIn)
     mk('scope', scopeSel)
-    formHost.appendChild(preview)
+    preview.className = 'rf-preview'; wrap.appendChild(preview)
+
+    const argWrap = () => {
+      const show = opSel.value === 'arg_hex_eq'
+      argLabel.style.display = show ? '' : 'none'
+      argIn.style.display = show ? '' : 'none'
+    }
     argWrap()
     opSel.onchange = () => { argWrap(); refreshPreview() }
 
@@ -244,7 +250,9 @@ export async function renderRules(
     }
     const cancel = document.createElement('button'); cancel.textContent = 'Cancel'
     cancel.onclick = () => { formHost.innerHTML = '' }
-    formHost.appendChild(save); formHost.appendChild(cancel)
+    const actions = document.createElement('div'); actions.className = 'rf-actions'
+    save.className = 'btn pri'; cancel.className = 'btn'
+    actions.append(cancel, save); wrap.appendChild(actions)
   }
 }
 
