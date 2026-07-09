@@ -227,8 +227,11 @@ await win.click('#suggest-btn') // close
 await win.click('#file-menu [data-menu-toggle]')
 await win.click('#file-capture')
 await win.waitForSelector('.modal-backdrop .modal', { timeout: 5000 })
-const capOk = await win.evaluate(() => !!document.querySelector('.modal-body #cap-select'))
-if (!capOk) throw new Error('Capture modal did not host the capture form')
+const capOk = await win.evaluate(() => {
+  const sel = document.querySelector('.modal-body #cap-select')
+  return !!sel && sel.options.length > 0
+})
+if (!capOk) throw new Error('Capture modal capability dropdown is empty (wireCapture did not run against the attached DOM)')
 await shot('06-capture-modal.png')
 await win.keyboard.press('Escape')
 

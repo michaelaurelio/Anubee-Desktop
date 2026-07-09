@@ -50,11 +50,12 @@ export function showModal(opts: ModalOpts): void {
 
   const body = document.createElement('div')
   body.className = 'modal-body'
-  opts.render(body)
 
   card.append(head, body)
   backdrop.appendChild(card)
   document.body.appendChild(backdrop)
+
+  opts.render(body)
 
   onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeModal() }
   document.addEventListener('keydown', onKey)
