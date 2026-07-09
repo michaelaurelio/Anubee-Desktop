@@ -11,9 +11,6 @@ method reached it.
 - **Node.js** + **npm** (Electron v42 toolchain).
 - A native build toolchain for the **DuckDB** native module (rebuilt for
   Electron's ABI via `electron-builder install-app-deps`).
-- Optional: a sibling checkout of the **ARES** tracer at `../ARES` - only needed
-  to run the schema-drift test that guards the JSONL contract. Tests skip that
-  check when `../ARES` is absent.
 
 ## Build
 
