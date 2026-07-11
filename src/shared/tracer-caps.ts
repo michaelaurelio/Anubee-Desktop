@@ -127,17 +127,37 @@ export function isSafeToken(s: string): boolean {
   return SAFE_TOKEN.test(s)
 }
 
+// One field's error suffix (label added by the caller), or undefined if valid.
+// Shared by validateInputs (dispatch gate) and fieldErrors (per-field UI).
+function inputError(inp: CapInput, vals: CapValues): string | undefined {
+  const v = vals[inp.key]
+  if (inp.required && !v) return 'is required'
+  if (inp.kind !== 'bool' && typeof v === 'string' && v && !isSafeToken(v)) {
+    return 'has unsupported characters (allowed: letters, digits, and . _ - / : , +)'
+  }
+  return undefined
+}
+
 export function validateInputs(cap: Capability, vals: CapValues): string[] {
   const errs: string[] = []
   for (const inp of cap.inputs) {
-    if (inp.required && !vals[inp.key]) errs.push(`${inp.label} is required`)
-    const v = vals[inp.key]
-    if (inp.kind !== 'bool' && typeof v === 'string' && v && !isSafeToken(v)) {
-      errs.push(`${inp.label} has unsupported characters (allowed: letters, digits, and . _ - / : , +)`)
-    }
+    const e = inputError(inp, vals)
+    if (e) errs.push(`${inp.label} ${e}`)
   }
   if (cap.validate) errs.push(...cap.validate(vals))
   return errs
+}
+
+// Per-field + cross-field errors for the Capture form. `fields` keys are input
+// keys (so the UI can place the message under the right control); `form` holds
+// the cap-level cross-field errors.
+export function fieldErrors(cap: Capability, vals: CapValues): { fields: Record<string, string>; form: string[] } {
+  const fields: Record<string, string> = {}
+  for (const inp of cap.inputs) {
+    const e = inputError(inp, vals)
+    if (e) fields[inp.key] = e
+  }
+  return { fields, form: cap.validate?.(vals) ?? [] }
 }
 
 export const DEVICE_BIN = '/data/local/tmp/ares'
