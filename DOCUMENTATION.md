@@ -477,14 +477,14 @@ the dot repaints on every path edit and after each Browse pick. Engine and
 argument fields, the timeout, and the host setup fields all render per-field
 inline errors under an adjacent `.cap-input-err` span, populated from
 `fieldErrors` as the analyst types - no more silent rejection at Start. The
-engine dropdown lists each capability's plain `engine` name (the earlier loud
-"writes BRK" banner text is gone from the option labels; only the
-`correlate`/`trace` capabilities still carry that badge in-form). The
+engine dropdown lists each capability's plain `engine` name. The loud-engine
+warning banner was removed entirely from the form (no in-form loud cue remains);
+the `loud` flag survives only as unused data in `tracer-caps.ts`. The
 renderer's preflight click handler wraps the `tracer:preflight` IPC call in a
 try/catch: if the call rejects, the handler now reports a `preflight-bad` row
-and re-enables the form instead of leaving the status stuck on "running
-preflight..." with Start disabled - the original failure mode before this
-guard was added.
+with an informative "preflight failed: <message>" status (no longer frozen on
+"running preflight...") and Start remains disabled after a failure - the
+original failure mode before this guard was added.
 
 **Engine-specific arg rules learned from the device.** `syscalls` rejects
 `-P <pkg>` alone - a library filter (`-l`) or capture-all (`-a`) is mandatory,
