@@ -455,6 +455,36 @@ run is dispatched.
 root, kernel BTF, package installed, on-device binary md5 vs the configured host
 `build/ares` - pushed if stale, after `kill_ares` to avoid `ETXTBSY`). Host
 paths to `build/ares` + `specs/` persist in `<userData>/tracer-config.json`.
+Each check streams to the renderer as it completes (`tracer:preflight-check`,
+one event per `PreflightCheck`) rather than arriving as a single batch after
+the whole sequence finishes, so the status list fills in row by row while the
+device is queried. The push branch is guarded against an unconfigured host
+*before* any `adb push`: an unreadable/empty host binary (md5 `''`) or an
+empty `specsDir` now fails a `binary` check with an explanatory detail instead
+of shelling out - previously an empty `specsDir` would expand to `adb push /.`,
+pushing the entire host filesystem to the device.
+
+**Capture form layout, path validation, and Browse pickers.** The modal is a
+sectioned form - "1. host setup", "2. engine & arguments", "3. run" - each
+introduced by a numbered `.cap-section-hd` header, replacing the earlier
+single-stacked layout. Host setup carries the ares binary and specs dir
+fields, each with a Browse button (`tracer:pickBinary` opens a native
+open-file dialog; `tracer:pickSpecsDir` opens a native open-directory dialog)
+and a validity dot fed by `tracer:checkPaths` → `path-check.ts`'s pure
+`isElf` (checks the file's first four bytes for the ELF magic number) and
+`hasSpecFile` (checks the directory listing for at least one `.spec` entry);
+the dot repaints on every path edit and after each Browse pick. Engine and
+argument fields, the timeout, and the host setup fields all render per-field
+inline errors under an adjacent `.cap-input-err` span, populated from
+`fieldErrors` as the analyst types - no more silent rejection at Start. The
+engine dropdown lists each capability's plain `engine` name (the earlier loud
+"writes BRK" banner text is gone from the option labels; only the
+`correlate`/`trace` capabilities still carry that badge in-form). The
+renderer's preflight click handler wraps the `tracer:preflight` IPC call in a
+try/catch: if the call rejects, the handler now reports a `preflight-bad` row
+and re-enables the form instead of leaving the status stuck on "running
+preflight..." with Start disabled - the original failure mode before this
+guard was added.
 
 **Engine-specific arg rules learned from the device.** `syscalls` rejects
 `-P <pkg>` alone - a library filter (`-l`) or capture-all (`-a`) is mandatory,
