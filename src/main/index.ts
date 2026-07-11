@@ -18,7 +18,7 @@ import { readFile, open } from 'node:fs/promises'
 import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
 import { loadConfig, saveConfig } from './tracer-config'
 import { capById, composeRunArg, outJsonlPath, outDumpDir, resolveSavePath } from '@shared/tracer-caps'
-import { isElf, hasSpecFile, type PathCheck, type PathStatus } from './path-check'
+import { isElf, type PathCheck, type PathStatus } from './path-check'
 import { readdir } from 'node:fs/promises'
 import { basename } from 'node:path'
 
@@ -131,8 +131,9 @@ async function checkHostPaths(binaryPath: string, specsDir: string): Promise<Pat
   } else {
     try {
       const names = await readdir(specsDir)
-      specs = hasSpecFile(names)
-        ? { ok: true, detail: `${names.filter(n => n.endsWith('.spec')).length} spec(s)` }
+      const specFiles = names.filter(n => n.endsWith('.spec'))
+      specs = specFiles.length
+        ? { ok: true, detail: `${specFiles.length} spec(s)` }
         : { ok: false, detail: 'no .spec files here' }
     } catch {
       specs = { ok: false, detail: 'not a directory' }

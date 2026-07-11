@@ -512,6 +512,7 @@ function wireCapture(): void {
 
   let vals: CapValues = {}
   let preflightOk = false
+  const preflightEpoch = makeEpoch() // guards a stale preflight run from re-enabling Start for edited/invalidated inputs
 
   for (const c of CAPABILITIES) {
     const opt = document.createElement('option')
@@ -522,6 +523,7 @@ function wireCapture(): void {
   // A prior preflight validated a specific package; any capability switch or
   // input edit invalidates it, so re-gate Start until preflight is re-run.
   const invalidatePreflight = (): void => {
+    preflightEpoch.bump()
     preflightOk = false
     startBtn.disabled = true
     statusHost.innerHTML = ''
@@ -556,24 +558,31 @@ function wireCapture(): void {
   binIn.addEventListener('change', saveCfg)
   specIn.addEventListener('change', saveCfg)
 
-  document.getElementById('cap-preflight')?.addEventListener('click', async () => {
+  const preflightBtn = document.getElementById('cap-preflight') as HTMLButtonElement | null
+  preflightBtn?.addEventListener('click', async () => {
+    const token = preflightEpoch.bump()
     saveCfg()
     const pkg = String(vals.pkg ?? '')
     if (!pkg) { statusHost.textContent = 'enter a package first'; return }
     if (!isSafeToken(pkg)) { statusHost.textContent = 'package has unsupported characters'; return }
     statusHost.innerHTML = ''
     startBtn.disabled = true
+    preflightBtn.disabled = true
     try {
       const checks = await window.ares.tracerPreflight(pkg)
+      if (!preflightEpoch.isCurrent(token)) return // superseded by an edit or another run; don't enable Start for stale inputs
       preflightOk = checks.every(c => c.ok)
       startBtn.disabled = !preflightOk
     } catch (err) {
+      if (!preflightEpoch.isCurrent(token)) return // superseded; don't write rows for a run nobody is waiting on
       const row = document.createElement('div')
       row.className = 'preflight-bad'
       row.textContent = `preflight failed: ${err instanceof Error ? err.message : String(err)}`
       statusHost.appendChild(row)
       preflightOk = false
       startBtn.disabled = true
+    } finally {
+      preflightBtn.disabled = false
     }
   })
 
