@@ -54,7 +54,26 @@ export async function preflight(
   if (!installed) return checks
 
   // Binary freshness: md5-compare, push if stale (kill_ares first -> no ETXTBSY).
+  // Guard the push branch against an unconfigured host BEFORE any adb push: an
+  // empty/unreadable aresBinary (hostSum '') would push a bad source, and an
+  // empty specsDir would expand to `adb push /.` - the whole host filesystem.
   const hostSum = await md5(cfg.aresBinary)
+  if (!hostSum) {
+    checks.push({
+      id: 'binary', label: 'host ares binary', ok: false,
+      detail: cfg.aresBinary
+        ? `cannot read host ares binary at ${cfg.aresBinary} - set a valid host path`
+        : 'configure the host ares binary path in the config row',
+    })
+    return checks
+  }
+  if (!cfg.specsDir) {
+    checks.push({
+      id: 'binary', label: 'host specs dir', ok: false,
+      detail: 'configure the host specs directory in the config row',
+    })
+    return checks
+  }
   const devOut = await adb.run(['shell', `md5sum ${DEVICE_BIN}`])
   const devSum = DEVICE_MD5(devOut.stdout)
   if (hostSum && hostSum === devSum) {
