@@ -15,11 +15,11 @@ and open verification items. Newest concerns first.
   input or bookmarking by event id; to reach a target deep in a large result,
   narrow the filter first. Consider adding a page-jump input if analysts
   regularly need to navigate large filtered sets.
-- **Rapid row-click race on eventById fetches** - if a user double-clicks a row
-  very quickly, two concurrent `eventById` fetch requests are dispatched; the
-  last one to resolve populates the detail panel (race condition on IPC round-trip
-  timing). Mitigated in practice by single-click convention, but guard with a
-  selection token if rapid multi-clicks become a problem.
+- **Rapid row-click race on eventById fetches - RESOLVED 2026-07-11** - `selectRow`
+  now captures a monotonic selection epoch (`src/renderer/selection-epoch.ts`) and
+  bails both the `eventById` detail paint and the `slice` graph paint when a newer
+  row selection has superseded it, so the last-to-resolve fetch can no longer paint
+  a stale record/graph under the current highlight.
 - **Column truncation at default table width** - at the default ~420px table
   width, text-heavy columns (`top native`, `args`) truncate. Mitigated by: (a)
   resizing the table panel wider (persistent in `localStorage`), (b) `title`
@@ -36,11 +36,12 @@ and open verification items. Newest concerns first.
   viewport, the offset popup can overlap the right inspector panel transiently;
   z-order keeps the popup readable. Revisit if the overlap becomes distracting
   in daily use.
-- **Stale async re-open of the offset popup** - a native tap fires `nodeOffsets`
-  + `nodeEvents` and, on resolve, unconditionally fills the inspector and opens
-  the popup. If the user dismisses (empty-canvas tap) or selects another node
-  during a slow IPC round-trip, the resolved promise can repaint the inspector /
-  re-open the popup at the old node. Guard with a selection token before showing.
+- **Stale async re-open of the offset popup - RESOLVED 2026-07-11** - the native
+  node-tap handler captures the selection epoch and guards inside its `.then`
+  before filling the inspector / opening the popup; the empty-canvas tap and any
+  other node selection bump the epoch, so dismissing or switching during a slow
+  IPC round-trip discards the resolved continuation instead of re-opening the
+  popup at the old node.
 - **Harness coverage niceties** - the shots harness does not yet assert that a
   syscall/java tap leaves no inline tag editor, nor that the tag popup's computed
   background is themed (both are visually covered by the captures); add explicit
