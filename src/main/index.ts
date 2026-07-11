@@ -143,6 +143,7 @@ ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number, runId?: number)
 ipcMain.handle('graph:stackRollup', (_e, filter: Filter, maxChains?: number, runId?: number) =>
   store.stackRollup(filter, maxChains, runId))
 ipcMain.handle('graph:eventById', (_e, id: number, runId?: number) => store.eventById(id, runId))
+ipcMain.handle('graph:coverage', (_e, runId?: number) => store.coverage(runId))
 ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter, runId?: number) => store.nodeEvents(nodeId, filter, 500, runId))
 ipcMain.handle('graph:nodeOffsets', (_e, nodeId: string, filter: Filter, runId?: number) =>
   store.nodeOffsets(nodeId, filter, runId))

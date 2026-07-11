@@ -80,6 +80,33 @@ describe('GraphStore.eventById', () => {
   })
 })
 
+describe('GraphStore.coverage', () => {
+  it('returns undefined when the run has no coverage record', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    expect(await store.coverage()).toBeUndefined()
+  })
+
+  it('returns the run\'s coverage record when present', async () => {
+    const coverageLine = JSON.stringify({
+      type: 'coverage', engine: 'funcs', snaps: { total: 10, truncated: 1 },
+      cfi: { walks: 5, stops: { unwind_error: 1 } },
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-store-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, [...LINES, coverageLine].join('\n') + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const cov = await store.coverage()
+    expect(cov).toBeDefined()
+    expect(cov!.type).toBe('coverage')
+    expect(cov!.engine).toBe('funcs')
+    expect(cov!.snaps).toEqual({ total: 10, truncated: 1 })
+    expect(cov!.cfi).toEqual({ walks: 5, stops: { unwind_error: 1 } })
+  })
+})
+
 // The DuckDB slice SQL must reconstruct the same graph as the pure-TS oracle.
 const oracleEvents = parseJsonl(LINES.join('\n')).events.filter(isSyscall)
 

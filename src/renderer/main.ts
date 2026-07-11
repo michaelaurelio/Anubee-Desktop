@@ -158,11 +158,16 @@ function status(text: string): void {
   if (el) el.textContent = text
 }
 
-function showBanner(truncated: boolean): void {
+// #banner is shared by the graph-truncation warning and the EPIC A coverage
+// health summary - whichever call comes last wins (both are simple one-off
+// informational states, not stacked notifications), so callers that render a
+// slice (which always calls showBanner(slice.truncated)) must settle before
+// a coverage banner call, or the coverage message gets clobbered.
+function showBanner(show: boolean, message?: string): void {
   const b = document.getElementById('banner')
   if (!b) return
-  b.style.display = truncated ? 'block' : 'none'
-  if (truncated) b.textContent = 'Graph truncated - narrow the filter to see the full slice.'
+  b.style.display = show ? 'block' : 'none'
+  if (show) b.textContent = message ?? 'Graph truncated - narrow the filter to see the full slice.'
 }
 
 async function refreshTable(): Promise<void> {
@@ -545,10 +550,18 @@ window.ares.onLoaded(s => {
   // A funcs-only run has zero syscalls: the table is empty, so selectRow never
   // fires and the graph would stay blank. Render its slice directly instead -
   // the funcs adapter (merged into slice() in EPIC A) is the only content.
+  let renderTrigger: Promise<void> = Promise.resolve()
   if (s.eventCount === 0) {
     showView('graph')
-    void window.ares.slice({}, GRAPH_SLICE_CAP, s.runId).then(renderSlice)
+    renderTrigger = window.ares.slice({}, GRAPH_SLICE_CAP, s.runId).then(renderSlice)
   }
+  // EPIC A coverage health banner: not graph data, so it waits for any
+  // auto-triggered render above to settle first (renderSlice's own
+  // showBanner(false) call would otherwise clobber this one).
+  void renderTrigger.then(() => window.ares.coverage(s.runId)).then(cov => {
+    if (!cov) return
+    showBanner(true, `Coverage: ${cov.snaps.total} snapshots (${cov.snaps.truncated} truncated) · CFI walks ${cov.cfi.walks}`)
+  })
 })
 document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))
 document.getElementById('tab-flame')?.addEventListener('click', () => showView('flame'))

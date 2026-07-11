@@ -1,6 +1,6 @@
 import { openSync, readSync, closeSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
-import type { SyscallEvent, FuncEvent, CorrelateEvent, DetectorEvent } from '@shared/events'
+import type { SyscallEvent, FuncEvent, CorrelateEvent, DetectorEvent, CoverageEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
 import { capSlice, labelForId, mergeGraphs, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
 import { funcsAdapter } from '@shared/adapters/funcs'
@@ -21,13 +21,14 @@ export type { TableRow }
 // app is built around. `type` also lets ingest separate a malformed line
 // (all-null row → type NULL) from a valid non-syscall record (type='lib').
 //
-// EPIC A: widened with the funcs/correlate/SENTINEL fields (all nullable -
-// syscall rows leave them null, and vice versa). `span` is the disambiguator
-// between correlate's own `type='syscall'` records (which set it) and the
-// main syscalls engine's (which never does) - see the `span IS NULL` guard
-// on every syscall-only query below. correlate's `nr` and SENTINEL's nested
-// `snaps`/`cfi` (coverage) are deliberately left out of this schema for now;
-// read_json silently drops JSON fields that aren't declared here.
+// EPIC A: widened with the funcs/correlate/SENTINEL/coverage fields (all
+// nullable - syscall rows leave them null, and vice versa). `span` is the
+// disambiguator between correlate's own `type='syscall'` records (which set
+// it) and the main syscalls engine's (which never does) - see the
+// `span IS NULL` guard on every syscall-only query below. correlate's `nr`
+// is deliberately left out of this schema for now (the correlate adapter
+// only ever reads `syscall`, the decoded name); read_json silently drops
+// JSON fields that aren't declared here.
 const COLS =
   "{'type':'VARCHAR','id':'BIGINT','pid':'INTEGER','tid':'INTEGER'," +
   "'syscall_nr':'BIGINT','syscall':'VARCHAR','args':'VARCHAR[]','retval':'BIGINT'," +
@@ -38,7 +39,9 @@ const COLS =
   "'backtrace':'STRUCT(frame INTEGER, addr VARCHAR, symbol VARCHAR)[]'," +
   "'engine':'VARCHAR','span':'BIGINT','parent_span':'BIGINT','entry_addr':'VARCHAR'," +
   "'elapsed_ns':'BIGINT','symbol':'VARCHAR','module':'VARCHAR'," +
-  "'check_id':'VARCHAR','technique':'VARCHAR','result':'VARCHAR','detail':'VARCHAR','ts':'BIGINT'}"
+  "'check_id':'VARCHAR','technique':'VARCHAR','result':'VARCHAR','detail':'VARCHAR','ts':'BIGINT'," +
+  "'snaps':'STRUCT(total INTEGER, truncated INTEGER)'," +
+  "'cfi':'STRUCT(walks INTEGER, stops MAP(VARCHAR,INTEGER))'}"
 
 function sqlStr(s: string): string {
   return "'" + s.replace(/'/g, "''") + "'"
@@ -339,6 +342,19 @@ export class GraphStore {
     // to_json includes run_id; drop it so the shape stays a clean SyscallEvent.
     const { run_id: _drop, ...ev } = JSON.parse(rows[0].js as string)
     return ev as SyscallEvent
+  }
+
+  // The run's end-of-run `coverage` summary (EPIC A A7), if the capture had
+  // one. Not graph data - a per-run health banner. `LIMIT 1`: a run has at
+  // most one coverage record (one engine, one end-of-run summary).
+  async coverage(runId?: number): Promise<CoverageEvent | undefined> {
+    const rid = this.resolveRun(runId)
+    const rows = await this.rows(
+      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type = 'coverage' LIMIT 1`,
+    )
+    if (rows.length === 0) return undefined
+    const { run_id: _drop, ...ev } = JSON.parse(rows[0].js as string)
+    return ev as CoverageEvent
   }
 
   // The raw records whose reconstructed chain touches `nodeId`, honouring the

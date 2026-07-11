@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('ares', {
   stackRollup: (filter: Filter, maxChains?: number, runId?: number) =>
     ipcRenderer.invoke('graph:stackRollup', filter, maxChains, runId),
   eventById: (id: number, runId?: number) => ipcRenderer.invoke('graph:eventById', id, runId),
+  coverage: (runId?: number) => ipcRenderer.invoke('graph:coverage', runId),
   nodeEvents: (nodeId: string, filter: Filter, runId?: number) =>
     ipcRenderer.invoke('graph:nodeEvents', nodeId, filter, runId),
   nodeOffsets: (nodeId: string, filter: Filter, runId?: number) =>
