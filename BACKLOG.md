@@ -3,6 +3,30 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Known drawbacks from body-panel & master-table redesign
+- **Tags column keys on innermost native frame only** - the tag lookup on a
+  syscall row resolves only the row's `topNative` (innermost native frame in the
+  backtrace). A tag on a non-innermost native frame in that same row will not
+  badge that row, even if the frame is part of the chain. Revisit when a use case
+  needs tagging at arbitrary depths or you want to highlight any tagged frame in
+  a call chain, not just the innermost.
+- **Paging is offset-based, no jump-to-page** - the table pager steps prev/next
+  in fixed 500-row windows over the sorted result. There is no "jump to page"
+  input or bookmarking by event id; to reach a target deep in a large result,
+  narrow the filter first. Consider adding a page-jump input if analysts
+  regularly need to navigate large filtered sets.
+- **Rapid row-click race on eventById fetches** - if a user double-clicks a row
+  very quickly, two concurrent `eventById` fetch requests are dispatched; the
+  last one to resolve populates the detail panel (race condition on IPC round-trip
+  timing). Mitigated in practice by single-click convention, but guard with a
+  selection token if rapid multi-clicks become a problem.
+- **Column truncation at default table width** - at the default ~420px table
+  width, text-heavy columns (`top native`, `args`) truncate. Mitigated by: (a)
+  resizing the table panel wider (persistent in `localStorage`), (b) `title`
+  tooltip on hover, (c) full detail in the right-panel single-record view. This
+  is the intended trade-off; revisit only if the truncation becomes frustrating
+  in daily use.
+
 ## Known drawbacks from node-interaction rework (offset/tag popup placement)
 - **Offset popup size estimates** - `placePopup` uses a fixed 400×300 estimate to
   compute right/left anchor placement; if the actual rendered popup size drifts
