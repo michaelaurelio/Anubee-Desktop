@@ -102,10 +102,28 @@ export interface CorrelateReturnEvent {
 
 export type CorrelateEvent = CorrelateFuncEvent | CorrelateSyscallEvent | CorrelateReturnEvent
 
+// A SENTINEL (ARES-Detector) RASP check verdict - verified against
+// ARES-Detector's CheckResult.kt (CheckResult.toJson). The real record has NO
+// `type` field at all (unlike every ARES engine record); its own JSON is
+// exactly `check_id`/`technique`/`result`/`detail`/`ts`. The importer (EPIC E,
+// not built yet) is responsible for synthesizing `type: 'sentinel'` when
+// reading a logcat/JSONL line, since ingest's `type` scoping needs a
+// discriminator to key off of. TODO.md's original EPIC A2 wording listed
+// `detected`/`family` fields that don't exist in the real emitter - corrected
+// here to the real shape (`result`, no `family`).
+export interface DetectorEvent {
+  type: 'sentinel'
+  check_id: string
+  technique: string
+  result: 'DETECTED' | 'CLEAN'
+  detail: string
+  ts: number
+}
+
 // Any other non-syscall record (e.g. "lib", "unlib", "stack") is kept but opaque.
 export interface UnknownEvent {
   type: string
   [k: string]: unknown
 }
 
-export type TraceEvent = SyscallEvent | CoverageEvent | FuncEvent | CorrelateEvent | UnknownEvent
+export type TraceEvent = SyscallEvent | CoverageEvent | FuncEvent | CorrelateEvent | DetectorEvent | UnknownEvent
