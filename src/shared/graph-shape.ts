@@ -1,5 +1,5 @@
 import type { SyscallEvent } from './events'
-import { parseFrameSymbol } from './frame-symbol'
+import { parseFrameSymbol, type ParsedFrame } from './frame-symbol'
 
 export type NodeKind = 'java' | 'native' | 'syscall'
 
@@ -40,6 +40,20 @@ export function labelForId(id: string): { kind: NodeKind; label: string; module:
 // A node in the chain, without the aggregate count (added by foldEvents).
 type ChainNode = Omit<GraphNode, 'count'>
 
+// The native node id for an already-parsed frame (offset dropped), or null for a
+// bare-address frame. Single source of the `nat:` id format so the graph and the
+// master-table tag lookup can never build divergent ids.
+function nativeIdOf(p: ParsedFrame): string | null {
+  return p.module === null ? null : `nat:${p.symbol ? `${p.module}!${p.symbol}` : p.module}`
+}
+
+// The native node id for a raw backtrace `symbol` (offset dropped), or null for a
+// bare-address frame. Shared so the master-table tag lookup builds the exact same
+// id chainOf does.
+export function nativeNodeId(symbol: string): string | null {
+  return nativeIdOf(parseFrameSymbol(symbol))
+}
+
 // The ordered top->bottom chain for one event:
 //   java_stack (outermost first), native backtrace (outermost first), syscall.
 // backtrace[0] is innermost (closest to the syscall), so both stacks are
@@ -54,10 +68,10 @@ export function chainOf(e: SyscallEvent): ChainNode[] {
 
   for (const f of [...e.backtrace].reverse()) {
     const p = parseFrameSymbol(f.symbol)
-    if (p.module === null) continue
-    const key = p.symbol ? `${p.module}!${p.symbol}` : p.module
+    const id = nativeIdOf(p)
+    if (id === null || p.module === null) continue
     const label = p.symbol ? `${p.symbol} (${p.module})` : p.module
-    chain.push({ id: `nat:${key}`, kind: 'native', label, module: p.module })
+    chain.push({ id, kind: 'native', label, module: p.module })
   }
 
   chain.push({ id: `sys:${e.syscall}`, kind: 'syscall', label: e.syscall, module: null })
