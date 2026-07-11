@@ -200,7 +200,13 @@ export class GraphStore {
       `SELECT id, tid, syscall, retval,
          (java_stack IS NOT NULL AND len(java_stack) > 0) AS hasJava,
          java_stack[1] AS topJava,
-         backtrace[1].symbol AS topNative
+         backtrace[1].symbol AS topNative,
+         coalesce(
+           nullif(array_to_string(map_values(string_args), ' '), ''),
+           nullif(array_to_string(map_values(fd_args), ' '), ''),
+           nullif(array_to_string(map_values(decoded_args), ' '), ''),
+           nullif(array_to_string(args, ' '), '')
+         ) AS arg
        FROM ev WHERE run_id = ${rid} AND (${where})
        ORDER BY id
        LIMIT ${limit} OFFSET ${offset}`,
@@ -214,6 +220,7 @@ export class GraphStore {
       hasJava: Boolean(r.hasJava),
       topJava: (r.topJava as string | null) ?? null,
       topNative: (r.topNative as string | null) ?? null,
+      arg: (r.arg as string | null) ?? '',
     }))
   }
 

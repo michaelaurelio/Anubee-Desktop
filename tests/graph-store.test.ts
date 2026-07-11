@@ -58,6 +58,14 @@ describe('GraphStore.table', () => {
     expect(r3.hasJava).toBe(false)
     expect(r3.topJava).toBeNull()
   })
+
+  it('derives a primary arg (string > fd > decoded > raw, empty when none)', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    const rows = await store.table({}, { limit: 100, offset: 0 })
+    expect(rows.find(r => r.id === 1)!.arg).toBe('/system/bin/su')   // string_args
+    expect(rows.find(r => r.id === 3)!.arg).toBe('/proc/self/status') // fd_args
+  })
 })
 
 describe('GraphStore.count', () => {
