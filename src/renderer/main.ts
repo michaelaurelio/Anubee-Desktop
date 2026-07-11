@@ -156,6 +156,17 @@ function status(text: string): void {
   if (el) el.textContent = text
 }
 
+function showTablePanel(visible: boolean): void {
+  document.getElementById('table')?.classList.toggle('hidden', !visible)
+  document.getElementById('table-resize')?.classList.toggle('hidden', !visible)
+  document.getElementById('tab-left')?.classList.toggle('hidden', !visible)
+}
+
+function showSide(visible: boolean): void {
+  document.getElementById('side')?.classList.toggle('hidden', !visible)
+  document.getElementById('side-resize')?.classList.toggle('hidden', !visible)
+}
+
 function showBanner(truncated: boolean): void {
   const b = document.getElementById('banner')
   if (!b) return
@@ -532,6 +543,7 @@ window.ares.onProgress(pct => status(`Loading... ${pct}%`))
 window.ares.onLoaded(s => {
   activeRunId = s.runId
   document.getElementById('empty-state')?.classList.add('hidden')
+  showTablePanel(true)
   status(`Loaded ${s.eventCount} events (${s.errors} parse errors)`)
   void refreshTags().then(() => {
     void refreshTable()
@@ -563,6 +575,7 @@ function zoomBy(factor: number): void {
 document.getElementById('zoom-in')?.addEventListener('click', () => zoomBy(1.2))
 document.getElementById('zoom-out')?.addEventListener('click', () => zoomBy(1 / 1.2))
 document.getElementById('zoom-fit')?.addEventListener('click', () => cy.fit(undefined, 48))
+document.getElementById('side-close')?.addEventListener('click', () => showSide(false))
 
 // Ctrl/Cmd +/- zoom the graph (only in graph view), overriding the browser's
 // page zoom. Accepts '=' (unshifted '+'), '+', numpad, and '-'.
