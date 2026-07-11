@@ -23,10 +23,13 @@ const ret: FuncEvent = {
 }
 
 describe('funcsAdapter', () => {
-  it('builds one func node from a call+return pair, with a nesting edge from the caller', () => {
+  it('builds a func node and a real caller node, with a nesting edge between them', () => {
     const { nodes, edges } = funcsAdapter([call, ret])
+    // The caller (nat:libc.so!__libc_init) must be a real node, not just an
+    // edge endpoint - cy.add() throws on an edge whose source has no node.
     expect(nodes).toEqual([
       { id: 'fn:libexample.so!JNI_OnLoad', kind: 'func', label: 'libexample.so!JNI_OnLoad', module: null, count: 2 },
+      { id: 'nat:libc.so!__libc_init', kind: 'native', label: '__libc_init (libc.so)', module: 'libc.so', count: 1 },
     ])
     expect(edges).toEqual([
       { id: 'nat:libc.so!__libc_init=>fn:libexample.so!JNI_OnLoad',

@@ -13,12 +13,19 @@ import { labelForId, type GraphNode, type GraphEdge } from '../graph-shape'
 export function funcsAdapter(rows: FuncEvent[]): { nodes: GraphNode[]; edges: GraphEdge[] } {
   const nodes = new Map<string, GraphNode>()
   const edges = new Map<string, GraphEdge>()
-
-  for (const r of rows) {
-    const id = `fn:${r.module}!${r.symbol}`
+  // Every edge endpoint must be a real node in the returned set - the renderer
+  // (sliceToElements -> cy.add) throws on an edge whose source/target has no
+  // matching node, and a funcs-only run has zero SQL-built native nodes to
+  // fall back on.
+  const bump = (id: string) => {
     const n = nodes.get(id)
     if (n) n.count++
     else nodes.set(id, { id, ...labelForId(id), count: 1 })
+  }
+
+  for (const r of rows) {
+    const id = `fn:${r.module}!${r.symbol}`
+    bump(id)
 
     if (r.type !== 'call') continue
     const parentFrame = r.backtrace[1]
@@ -27,6 +34,7 @@ export function funcsAdapter(rows: FuncEvent[]): { nodes: GraphNode[]; edges: Gr
     if (p.module === null) continue
     const parentKey = p.symbol ? `${p.module}!${p.symbol}` : p.module
     const source = `nat:${parentKey}`
+    bump(source)
     const edgeId = `${source}=>${id}`
     const e = edges.get(edgeId)
     if (e) e.count++

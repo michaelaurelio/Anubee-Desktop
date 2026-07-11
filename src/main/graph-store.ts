@@ -253,25 +253,47 @@ export class GraphStore {
     )
     const eventCount = await this.scalar(`SELECT count(*) AS n FROM ev WHERE ${scoped}`, params)
 
-    const nodes: GraphNode[] = nodeRows.map(r => nodeFromId(r.nid as string, Number(r.c)))
-    const edges: GraphEdge[] = edgeRows.map(r => {
+    // Merge nodes/edges from every source (SQL syscalls + engine adapters) into
+    // one id-deduplicated set, summing counts when two sources agree on the
+    // same id/edge. The shared nat:/sys: identity grammar is the whole point of
+    // cross-engine correlation (EPIC B), so two sources naming the same node
+    // must combine into one GraphNode, not add a second object with the same
+    // id - sliceToElements -> cy.add() throws on a duplicate node id.
+    const nodes = new Map<string, GraphNode>()
+    const addNode = (n: GraphNode) => {
+      const existing = nodes.get(n.id)
+      if (existing) existing.count += n.count
+      else nodes.set(n.id, { ...n })
+    }
+    const edges = new Map<string, GraphEdge>()
+    const addEdge = (e: GraphEdge) => {
+      const existing = edges.get(e.id)
+      if (existing) existing.count += e.count
+      else edges.set(e.id, { ...e })
+    }
+
+    for (const r of nodeRows) addNode(nodeFromId(r.nid as string, Number(r.c)))
+    for (const r of edgeRows) {
       const source = r.src as string
       const target = r.tgt as string
-      return { id: `${source}=>${target}`, source, target, count: Number(r.c) }
-    })
+      addEdge({ id: `${source}=>${target}`, source, target, count: Number(r.c) })
+    }
 
     // EPIC A: fold in the funcs engine's call/return records (retained
     // alongside syscalls since Phase 1) via the shared adapter, so a funcs run
-    // renders without a separate code path. Unfiltered - funcs/correlate carry
-    // no syscall filter surface yet (tracked as a follow-up in the Epic A plan).
+    // renders without a separate code path. `span IS NULL` excludes correlate's
+    // own span-tagged 'return' records (a real collision - correlate's
+    // `--returns` flag emits type='return' too; see the CorrelateReturnEvent
+    // comment in shared/events.ts). Unfiltered - funcs/correlate carry no
+    // syscall filter surface yet (tracked as a follow-up in the Epic A plan).
     const funcRows = await this.rows(
-      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type IN ('call', 'return')`,
+      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type IN ('call', 'return') AND span IS NULL`,
     )
     const fa = funcsAdapter(funcRows.map(r => JSON.parse(r.js as string) as FuncEvent))
-    nodes.push(...fa.nodes)
-    edges.push(...fa.edges)
+    for (const n of fa.nodes) addNode(n)
+    for (const e of fa.edges) addEdge(e)
 
-    return capSlice(nodes, edges, eventCount, cap)
+    return capSlice([...nodes.values()], [...edges.values()], eventCount, cap)
   }
 
   // Aggregated stack rollup over the filtered events: distinct full chains with
