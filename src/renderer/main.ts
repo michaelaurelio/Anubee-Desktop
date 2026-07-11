@@ -182,7 +182,7 @@ const TABLE_PAGE = 500
 
 let tableOffset = 0
 let selectedRowId: number | undefined // the row whose detail is open, so re-renders can re-highlight it
-const sel = makeEpoch() // guards stale-async paints across row-select / node-tap / canvas-clear
+const selEpoch = makeEpoch() // guards stale-async paints across row-select / node-tap / canvas-clear
 let currentColumns: ColumnKey[] = parseColumns(localStorage.getItem('ares.columns'))
 
 function renderPager(offset: number, pageLen: number, total: number): void {
@@ -316,18 +316,18 @@ function refreshMiddle(): void {
 }
 
 async function selectRow(row: TableRow): Promise<void> {
-  const e = sel.bump()
+  const e = selEpoch.bump()
   selectedRowId = row.id
   highlightTableRow(row.id)
   showSide(true)
   const host = document.getElementById('inspector')
   const ev = await window.ares.eventById(row.id, activeRunId)
-  if (!sel.isCurrent(e)) return // a newer selection superseded this row; drop the stale detail
+  if (!selEpoch.isCurrent(e)) return // a newer selection superseded this row; drop the stale detail
   if (host && ev) showRecordDetail(host, ev)
 
   showView('graph')
   const slice = await window.ares.slice(filterForRow(row, currentFilter()), GRAPH_SLICE_CAP, activeRunId)
-  if (!sel.isCurrent(e)) return // stale slice; do not repaint the graph for a row the user left
+  if (!selEpoch.isCurrent(e)) return // stale slice; do not repaint the graph for a row the user left
   const els = sliceToElements(slice)
   cy.elements().remove()
   cy.add(els.nodes)
@@ -352,7 +352,7 @@ function nodeBox(node: cytoscape.NodeSingular): NodeBox {
 }
 
 cy.on('tap', 'node', evt => {
-  const e = sel.bump()
+  const e = selEpoch.bump()
   const node = evt.target
   const nodeId = node.id()
   highlightNeighborhood(cy, node)
@@ -363,14 +363,14 @@ cy.on('tap', 'node', evt => {
       window.ares.nodeOffsets(nodeId, currentFilter(), activeRunId),
       window.ares.nodeEvents(nodeId, currentFilter(), activeRunId),
     ]).then(([rows, events]) => {
-      if (!sel.isCurrent(e)) return // node deselected / another selected during the round-trip
+      if (!selEpoch.isCurrent(e)) return // node deselected / another selected during the round-trip
       showNodeInspector(nodeId, events)
       showOffsetPopup({ nodeId, rows, anchor: box, eventForOffset: (row) => eventForOffset(events, row) })
     })
   } else {
     closeOffsetPopup()
     void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(events => {
-      if (!sel.isCurrent(e)) return // stale inspector repaint
+      if (!selEpoch.isCurrent(e)) return // stale inspector repaint
       showNodeInspector(nodeId, events)
     })
   }
@@ -394,7 +394,7 @@ cy.on('cxttap', 'node', evt => {
   })
 })
 
-cy.on('tap', evt => { if (evt.target === cy) { sel.bump(); clearHighlight(cy); closeOffsetPopup(); closeNodeMenu(); closeTagPopup() } })
+cy.on('tap', evt => { if (evt.target === cy) { selEpoch.bump(); clearHighlight(cy); closeOffsetPopup(); closeNodeMenu(); closeTagPopup() } })
 
 function applyGraphTheme(next: Theme): void {
   const c = themeColors(next)
@@ -440,7 +440,9 @@ async function refreshDiff(): Promise<void> {
   renderDiffTable(host, shown,
     id => badgeText(tagsByTarget(tags, id)),
     async id => {
+      const e = selEpoch.bump()
       const merged = await window.ares.diffSlice(activeRunId!, runB!, id, currentFilter())
+      if (!selEpoch.isCurrent(e)) return // superseded by a newer selection; don't repaint the graph
       const els = mergedToElements(merged)
       cy.elements().remove()
       cy.add(els.nodes)
