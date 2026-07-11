@@ -15,6 +15,12 @@ import { compileWhere, scoreWith, resolveRules, BUILTIN_RULES } from '../src/sha
 // to assert exact ids/counts against.
 const FIXTURE = resolve(__dirname, 'fixtures/oracle.jsonl')
 const REAL_FIXTURE = resolve(__dirname, 'fixtures/sample.jsonl')
+// mixed.jsonl carries the same 3 syscall + 1 lib lines as oracle.jsonl verbatim,
+// plus one record each from funcs/correlate/coverage/SENTINEL. EPIC A retains
+// those foreign rows instead of deleting them at ingest - this fixture is the
+// regression oracle proving that retention is byte-identical-invisible to every
+// syscall-only view (EPIC 0.2/0.3, folded into Epic A Phase 1).
+const MIXED_FIXTURE = resolve(__dirname, 'fixtures/mixed.jsonl')
 const store = new GraphStore()
 
 afterAll(() => store.close())
@@ -290,6 +296,76 @@ describe('orphan detection', () => {
     ]
     const orphans = await store.orphanTargets(targets)
     expect(orphans.sort()).toEqual(['edge:sys:openat=>sys:nope', 'nat:libexample.so!removed'])
+    await store.close()
+  })
+})
+
+describe('mixed-engine retention: no regression on the syscall-only views', () => {
+  it('retains funcs/correlate/coverage/sentinel rows without changing syscall eventCount/errors', async () => {
+    const store = new GraphStore()
+    const r = await store.ingest(MIXED_FIXTURE)
+    // eventCount is `count(*) WHERE type='syscall'`, unchanged by Epic A (out of
+    // scope for A1/A3) - it does not distinguish the main engine's syscalls from
+    // correlate's own span-tagged 'syscall' record, so it's 4 here (3 main + 1
+    // correlate), not 3. A known, documented counter quirk, not a regression:
+    // the query methods that matter (table/slice/stackRollup/...) all scope to
+    // `span IS NULL` and are asserted byte-identical to the syscall-only fixture
+    // in the next test. errors stays 0 - mixed.jsonl has no malformed line.
+    expect(r.eventCount).toBe(4)
+    expect(r.errors).toBe(0)
+    const retained = await store.raw(`SELECT type, count(*) AS n FROM ev WHERE run_id = ${r.runId} GROUP BY type`)
+    const byType = new Map(retained.map(row => [row.type as string, Number(row.n)]))
+    expect(byType.get('call')).toBe(1)
+    expect(byType.get('return')).toBe(1)
+    expect(byType.get('func')).toBe(1) // correlate's span-open record
+    expect(byType.get('coverage')).toBe(1)
+    expect(byType.get('sentinel')).toBe(1)
+    // correlate's own 'syscall' record (span-tagged) plus the main engine's 3 -> 4 total rows of type='syscall'.
+    expect(byType.get('syscall')).toBe(4)
+    await store.close()
+  })
+
+  it('table/slice/stackRollup are byte-identical between the syscall-only fixture and the mixed one', async () => {
+    const store = new GraphStore()
+    const oracleRun = await store.ingest(FIXTURE)
+    const mixedRun = await store.ingest(MIXED_FIXTURE)
+
+    const tableOracle = await store.table({}, { limit: 100, offset: 0 }, oracleRun.runId)
+    const tableMixed = await store.table({}, { limit: 100, offset: 0 }, mixedRun.runId)
+    expect(tableMixed).toEqual(tableOracle)
+
+    // slice()/stackRollup() group by unordered DuckDB aggregation, so row order
+    // isn't guaranteed stable across runs with different underlying row layouts
+    // (mixed.jsonl interleaves foreign rows between the syscall rows) - sort by
+    // id before comparing, same convention as the foldEvents oracle test above.
+    const byId = <T extends { id: string }>(xs: T[]) => [...xs].sort((a, b) => a.id.localeCompare(b.id))
+    const sliceOracle = await store.slice({}, undefined, oracleRun.runId)
+    const sliceMixed = await store.slice({}, undefined, mixedRun.runId)
+    expect(byId(sliceMixed.nodes)).toEqual(byId(sliceOracle.nodes))
+    expect(byId(sliceMixed.edges)).toEqual(byId(sliceOracle.edges))
+    expect(sliceMixed.eventCount).toBe(sliceOracle.eventCount)
+    expect(sliceMixed.truncated).toBe(sliceOracle.truncated)
+
+    const rollupOracle = await store.stackRollup({}, 5000, oracleRun.runId)
+    const rollupMixed = await store.stackRollup({}, 5000, mixedRun.runId)
+    const byChain = (rows: { chain: string[] }[]) => [...rows].sort((a, b) => a.chain.join('>').localeCompare(b.chain.join('>')))
+    expect(byChain(rollupMixed.rows)).toEqual(byChain(rollupOracle.rows))
+    expect(rollupMixed.eventCount).toBe(rollupOracle.eventCount)
+    expect(rollupMixed.distinctChains).toBe(rollupOracle.distinctChains)
+    expect(rollupMixed.truncated).toBe(rollupOracle.truncated)
+
+    // diffTable/diffSlice as a second, independent proof: every node/edge shows
+    // as fully present in both runs with zero delta - the diff machinery itself
+    // finds no divergence introduced by the retained foreign rows.
+    const diff = await store.diffTable(oracleRun.runId, mixedRun.runId)
+    for (const row of diff) {
+      expect(row.presence).toBe('both')
+      expect(row.delta).toBe(0)
+    }
+    const mergedSlice = await store.diffSlice(oracleRun.runId, mixedRun.runId, 'sys:openat')
+    for (const n of mergedSlice.nodes) expect(n.presence).toBe('both')
+    for (const e of mergedSlice.edges) expect(e.presence).toBe('both')
+
     await store.close()
   })
 })
