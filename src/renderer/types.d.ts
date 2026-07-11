@@ -48,6 +48,10 @@ declare global {
         Promise<{ code: number; kind: string; runId?: number }>
       tracerStop(): Promise<void>
       pickSavePath(): Promise<string | undefined>
+      tracerCheckPaths(binaryPath: string, specsDir: string): Promise<{
+        binary: { ok: boolean; detail: string }
+        specs: { ok: boolean; detail: string }
+      }>
       onTracerLine(cb: (line: string) => void): void
     }
   }
