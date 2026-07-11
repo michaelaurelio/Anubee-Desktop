@@ -168,4 +168,7 @@ describe('labelForId', () => {
       kind: 'func', label: 'libexample.so!JNI_OnLoad', module: null,
     })
   })
+  it('labels a check id', () => {
+    expect(labelForId('check:hook-scan')).toEqual({ kind: 'check', label: 'hook-scan', module: null })
+  })
 })

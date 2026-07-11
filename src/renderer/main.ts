@@ -56,6 +56,7 @@ const cy = cytoscape({
     { selector: 'node[kind = "native"]', style: { 'border-color': tc.native } },
     { selector: 'node[kind = "syscall"]', style: { 'border-color': tc.syscall } },
     { selector: 'node[kind = "func"]', style: { 'border-color': tc.func } },
+    { selector: 'node[kind = "check"]', style: { 'border-color': tc.check } },
     // Badge border marks a tagged node; scoped to non-native so it doesn't
     // double-mark native nodes, which use the RASP category accent instead.
     { selector: 'node[badge][kind != "native"]', style: { 'border-width': 3, 'border-color': '#8e44ad' } },
@@ -350,6 +351,7 @@ function applyGraphTheme(next: Theme): void {
     .selector('node[kind = "native"]').style({ 'border-color': c.native })
     .selector('node[kind = "syscall"]').style({ 'border-color': c.syscall })
     .selector('node[kind = "func"]').style({ 'border-color': c.func })
+    .selector('node[kind = "check"]').style({ 'border-color': c.check })
     .selector('edge').style({ 'line-color': c.edge, 'target-arrow-color': c.edge })
     .selector('edge.highlighted').style({ 'line-color': c.labelText, 'target-arrow-color': c.labelText, 'width': 3.5, 'arrow-scale': 1.3 })
     .update()
