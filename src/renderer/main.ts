@@ -6,7 +6,7 @@ import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
 import { DEFAULT_COLUMNS } from './columns'
 import { currentFilter, wireFilterControls } from './filter-controls'
-import { showNodeInspector } from './inspector'
+import { showNodeInspector, showRecordDetail } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
 import { highlightNeighborhood, clearHighlight } from './graph-highlight'
 import { showOffsetPopup, closeOffsetPopup, eventForOffset, type NodeBox } from './offset-popup'
@@ -17,6 +17,7 @@ import { renderRules } from './rules-view'
 import { raspNodeStates } from './rasp-node-state'
 import { upsertTag, removeTag, tagsByTarget, orphanedTags, isDismissed, addDismissed, type Tag, type Dismissed } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
+import { nativeNodeId } from '@shared/graph-shape'
 import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
 import { renderFlame } from './flame-view'
 import { buildFlame } from '@shared/flame-shape'
@@ -189,18 +190,26 @@ function renderPager(offset: number, pageLen: number, total: number): void {
   if (next) next.disabled = offset + TABLE_PAGE >= total
 }
 
+function highlightTableRow(id: number): void {
+  for (const tr of document.querySelectorAll('#table tr.sel')) tr.classList.remove('sel')
+  document.querySelector(`#table tr[data-row-id="${id}"]`)?.classList.add('sel')
+}
+
+// The tags cell for a master-table row: the RASP tags on the row's innermost
+// native frame (native nodes are where tags live, not the syscall aggregate).
+function tableBadgeFor(row: TableRow): string {
+  if (!row.topNative) return ''
+  const id = nativeNodeId(row.topNative)
+  return id ? badgeText(tagsByTarget(tags, id)) : ''
+}
+
 async function refreshTable(): Promise<void> {
   const filter = currentFilter()
   const [rows, total] = await Promise.all([
     window.ares.table(filter, { limit: TABLE_PAGE, offset: tableOffset }, activeRunId),
     window.ares.count(filter, activeRunId),
   ])
-  renderTable(rows, DEFAULT_COLUMNS, selectRow, row => {
-    const ids = [`sys:${row.syscall}`]
-    if (row.topJava) ids.push(`java:${row.topJava}`)
-    const rowTags = ids.flatMap(id => tagsByTarget(tags, id))
-    return badgeText(rowTags)
-  })
+  renderTable(rows, DEFAULT_COLUMNS, selectRow, tableBadgeFor)
   renderPager(tableOffset, rows.length, total)
   status(total > rows.length ? `showing ${rows.length} of ${total} rows` : `${total} rows`)
 }
@@ -299,6 +308,12 @@ function refreshMiddle(): void {
 }
 
 async function selectRow(row: TableRow): Promise<void> {
+  highlightTableRow(row.id)
+  showSide(true)
+  const host = document.getElementById('inspector')
+  const ev = await window.ares.eventById(row.id, activeRunId)
+  if (host && ev) showRecordDetail(host, ev)
+
   showView('graph')
   const slice = await window.ares.slice(filterForRow(row, currentFilter()), GRAPH_SLICE_CAP, activeRunId)
   const els = sliceToElements(slice)
@@ -328,6 +343,7 @@ cy.on('tap', 'node', evt => {
   const node = evt.target
   const nodeId = node.id()
   highlightNeighborhood(cy, node)
+  showSide(true)
   if (node.data('kind') === 'native') {
     const box = nodeBox(node)
     void Promise.all([
