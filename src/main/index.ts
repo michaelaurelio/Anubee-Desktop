@@ -151,6 +151,20 @@ ipcMain.handle('tracer:pickSavePath', async () => {
   return r.canceled ? undefined : r.filePath
 })
 
+ipcMain.handle('tracer:pickBinary', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    title: 'Select the host ares binary', properties: ['openFile'],
+  })
+  return r.canceled ? undefined : r.filePaths[0]
+})
+
+ipcMain.handle('tracer:pickSpecsDir', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    title: 'Select the host specs directory', properties: ['openDirectory'],
+  })
+  return r.canceled ? undefined : r.filePaths[0]
+})
+
 ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) => {
   const cap = capById(capId)
   if (!cap) throw new Error(`unknown capability ${capId}`)
