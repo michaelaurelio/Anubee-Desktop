@@ -8,10 +8,12 @@ declare global {
   interface Window {
     ares: {
       openFile(): Promise<{ runId: number; eventCount: number; errors: number } | null>
+      openFileForCompare(): Promise<{ runId: number; eventCount: number; errors: number } | null>
       quit(): Promise<void>
       copyToClipboard(text: string): Promise<void>
       runs(): Promise<{ runId: number; file: string; ingestedAt: string; eventCount: number }[]>
       table(filter: Filter, page: { limit: number; offset: number }, runId?: number): Promise<TableRow[]>
+      count(filter: Filter, runId?: number): Promise<number>
       slice(filter: Filter, cap?: number, runId?: number): Promise<GraphSlice>
       stackRollup(filter: Filter, maxChains?: number, runId?: number): Promise<StackRollup>
       eventById(id: number, runId?: number): Promise<SyscallEvent | undefined>
@@ -47,7 +49,6 @@ declare global {
       tracerStop(): Promise<void>
       pickSavePath(): Promise<string | undefined>
       onTracerLine(cb: (line: string) => void): void
-      onTracerDone(cb: (r: { code: number; kind: string; runId?: number }) => void): void
     }
   }
 }

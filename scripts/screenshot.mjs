@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const shots = resolve(root, 'screenshots')
 mkdirSync(shots, { recursive: true })
-const fixture = resolve(root, 'tests/fixtures/sample.jsonl')
+const fixture = resolve(root, 'tests/fixtures/detector_snap.jsonl')
 
 // Fresh userData dir per run: otherwise localStorage (panel widths, theme) persists
 // across invocations and the resize-drag step below can start already clamped at
@@ -255,13 +255,12 @@ await win.waitForTimeout(300)
 await shot('07-light-theme.png')
 await win.click('#theme-toggle') // back to dark
 
-// 8. Collapse the side panel, then the table.
-await win.click('.panel-chevron[data-target="side"]')
-await win.click('.panel-chevron[data-target="table"]')
+// 8. Dismiss the detail panel (its X), then collapse the table via the floating tab.
+await win.click('#side-close')          // hide the right detail panel
+await win.click('#tab-left')            // collapse the master table to its outer edge
 await win.waitForTimeout(200)
 await shot('08-collapsed.png')
-await win.click('.panel-chevron[data-target="side"]')  // expand back
-await win.click('.panel-chevron[data-target="table"]')
+await win.click('#tab-left')            // expand the table back
 
 // 9. Resize the table panel by dragging its handle right, then zoom the graph.
 const widthBefore = await win.evaluate(() =>

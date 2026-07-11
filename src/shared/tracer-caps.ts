@@ -117,10 +117,24 @@ export function capById(id: string): Capability | undefined {
   return CAPABILITIES.find(c => c.id === id)
 }
 
+// A token is safe to space-join inside the single-quoted `su -c '<...>'` body
+// (composeRunArg) only if it carries no shell metacharacter or whitespace: a
+// space would split one argument into two, a single quote would close the su -c
+// string early (broken command, or injected shell). Allowed: letters, digits,
+// and the punctuation that appears in real package/library/spec/syscall tokens.
+const SAFE_TOKEN = /^[A-Za-z0-9._:/,+-]+$/
+export function isSafeToken(s: string): boolean {
+  return SAFE_TOKEN.test(s)
+}
+
 export function validateInputs(cap: Capability, vals: CapValues): string[] {
   const errs: string[] = []
   for (const inp of cap.inputs) {
     if (inp.required && !vals[inp.key]) errs.push(`${inp.label} is required`)
+    const v = vals[inp.key]
+    if (inp.kind !== 'bool' && typeof v === 'string' && v && !isSafeToken(v)) {
+      errs.push(`${inp.label} has unsupported characters (allowed: letters, digits, and . _ - / : , +)`)
+    }
   }
   if (cap.validate) errs.push(...cap.validate(vals))
   return errs

@@ -89,23 +89,24 @@
       .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px;
         font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted);
         border-bottom: 1px solid var(--border-soft); }
-      .panel-chevron { cursor: pointer; color: var(--muted); user-select: none; padding: 0 4px; }
 
       #table { width: var(--table-w); flex: 0 0 auto; display: flex; flex-direction: column;
                overflow: hidden; background: var(--panel); }
       #table .table-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; }
-      #table.collapsed { width: 26px; }
-      #table.collapsed .table-scroll, #table.collapsed .panel-head span:not(.panel-chevron) { display: none; }
+      /* collapsed-table width is defined once in the redesign CSS block below */
+      #table.collapsed .table-scroll { display: none; }
       #table table { border-collapse: collapse; width: 100%; table-layout: fixed; }
       #table th, #table td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--border-soft);
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #table th { position: sticky; top: 0; background: var(--panel-2); }
-      #table td:nth-child(1), #table th:nth-child(1) { width: 34px; }
-      #table td:nth-child(2), #table th:nth-child(2) { width: 40px; }
-      #table td:nth-child(3), #table th:nth-child(3) { width: 64px; }
-      #table td:nth-child(4), #table th:nth-child(4) { width: 48px; text-align: center; }
-      #table td:nth-child(5), #table th:nth-child(5) { width: 96px; }
-      #table td:nth-child(6), #table th:nth-child(6) { width: 110px; }
+      /* Column widths are keyed by column (columns are user-configurable), not by
+         position. Narrow columns get a fixed width; the text-heavy ones
+         (top java / top native / args) are left unsized to share the remainder. */
+      #table .col-id { width: 40px; }
+      #table .col-tid { width: 48px; }
+      #table .col-syscall { width: 84px; }
+      #table .col-java { width: 44px; text-align: center; }
+      #table .col-tags { width: 64px; }
       #table tr:hover td { background: var(--hover); }
       #table tr:nth-child(even) td { background: var(--stripe); }
 
@@ -150,7 +151,6 @@
               overflow: hidden; background: var(--panel-2); border-left: 1px solid var(--border); }
       #side.collapsed { width: 26px; }
       #side.collapsed > *:not(.panel-head) { display: none; }
-      #side.collapsed .panel-head span:not(.panel-chevron) { display: none; }
       #inspector { flex: 1 1 auto; overflow: auto; padding: 8px; font-family: var(--mono); }
       #suggestions, #orphans, #diff-table { flex: 0 0 auto; overflow: auto; padding: 8px;
         border-top: 1px solid var(--border); }
@@ -290,6 +290,34 @@
       .modal-x { cursor: pointer; background: transparent; border: 0; color: var(--muted); font-size: 16px; line-height: 1; }
       .modal-x:hover { color: var(--text); }
       .modal-body { padding: 14px; }
+
+      /* --- redesign: visibility, collapse, pager, columns, selection --- */
+      .hidden { display: none !important; }
+      #table.collapsed { width: 0; border-right: 0; overflow: hidden; }
+      /* square collapse button, floats in the view just outside the table's right edge */
+      #tab-left { position: absolute; top: 8px; left: 8px; z-index: 6;
+        width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+        border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2);
+        color: var(--muted); cursor: pointer; box-shadow: var(--shadow); }
+      #tab-left:hover { background: var(--hover); color: var(--text); border-color: var(--accent-bd); }
+      /* table-header pager */
+      .pager { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+      .pager button { background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+        width: 24px; height: 22px; border-radius: 5px; cursor: pointer; line-height: 1; }
+      .pager button:hover:not(:disabled) { background: var(--hover); }
+      .pager button:disabled { opacity: .35; cursor: default; }
+      .pager .rng { font-family: var(--mono); }
+      #cols-btn { margin-left: auto; padding: 2px 8px; }
+      /* selected master-table row */
+      #table tr.sel td { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent-fg); }
+      /* right-panel close */
+      #side-close { margin-left: auto; width: 24px; height: 24px; border: 1px solid var(--border);
+        border-radius: 5px; background: var(--panel); color: var(--muted); cursor: pointer;
+        font-size: 14px; line-height: 1; }
+      #side-close:hover { background: var(--hover); color: var(--text); }
+      /* columns picker modal rows */
+      .col-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; color: var(--text); }
+      .col-row.fixed { color: var(--muted); }
     </style>
   </head>
   <body>
@@ -339,12 +367,20 @@
     </div>
 
     <div id="main">
-      <div id="table">
-        <div class="panel-head"><span>Master table</span><span class="panel-chevron" data-target="table" title="collapse">&#8249;</span></div>
+      <div id="table" class="hidden">
+        <div class="panel-head">
+          <div class="pager">
+            <button id="pager-prev" title="previous page">&#8249;</button>
+            <span class="rng" id="pager-range">0 / 0</span>
+            <button id="pager-next" title="next page">&#8250;</button>
+          </div>
+          <button id="cols-btn" class="btn" title="choose columns">&#9881; columns</button>
+        </div>
         <div class="table-scroll"></div>
       </div>
-      <div class="resize-handle" data-resize="table" title="drag to resize"></div>
+      <div class="resize-handle hidden" id="table-resize" data-resize="table" title="drag to resize"></div>
       <div id="view">
+        <button id="tab-left" class="hidden" title="collapse / expand table">&#8249;</button>
         <div id="cy">
           <div id="banner"></div>
           <div id="legend">
@@ -364,9 +400,9 @@
           <div>Open a run to begin - use <b>File &#9662; Open JSONL</b> above.</div>
         </div>
       </div>
-      <div class="resize-handle" data-resize="side" title="drag to resize"></div>
-      <div id="side">
-        <div class="panel-head"><span>Inspector</span><span class="panel-chevron" data-target="side" title="collapse">&#8250;</span></div>
+      <div class="resize-handle hidden" id="side-resize" data-resize="side" title="drag to resize"></div>
+      <div id="side" class="hidden">
+        <div class="panel-head"><button id="side-close" title="close">&#10005;</button></div>
         <div id="orphans"></div>
         <div id="inspector"></div>
         <div id="diff-table"></div>

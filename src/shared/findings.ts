@@ -44,8 +44,7 @@ export function buildFindings(tags: Tag[], reps: Record<string, SyscallEvent[]>)
 // Human-readable block label: the tag target minus its "nat:"/"java:"/"sys:"
 // prefix, plus an offset refinement when present.
 function blockLabel(f: Finding): string {
-  const bare = f.target.replace(/^(nat:|java:|sys:|edge:)/, '')
-  return f.offset ? `${f.offset}` : bare
+  return f.offset ? f.offset : f.target.replace(/^(nat:|java:|sys:|edge:)/, '')
 }
 
 export function renderMarkdown(findings: Finding[]): string {

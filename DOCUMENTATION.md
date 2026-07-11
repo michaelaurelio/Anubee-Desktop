@@ -42,12 +42,6 @@ coding used on the nodes themselves and reused verbatim by the flame view's
 `KIND_FILL` map (`src/renderer/flame-view.ts`) so the two views read as one
 system.
 
-### Master table column widths
-
-The master table's `top java` / `top native` columns are widened (96px / 110px,
-`#table td:nth-child(5)` / `nth-child(6)` in `index.html`) so a typical
-`com.example.app.Class.method` / `libexample.so!symbol` entry shows more of the
-name before eliding, on top of the existing ellipsis + `title` tooltip fallback.
 
 ## UI shell
 
@@ -62,6 +56,61 @@ the table and graph remain visible behind the modal and modals are dismissed by
 an explicit Close button or by clicking outside. An empty state is shown in place
 of the body until a run is loaded.
 
+### Master table and detail panels
+
+The body is split into a left **master table** and a right **detail panel**, both
+conditionally visible:
+
+- **Master table** appears only after a run is loaded. It displays all events
+  matching the current filter, paginated at 500 rows per page with a header pager
+  (`‹ from–to / total ›`) to step prev/next over the full result. The status line
+  shows "showing `<n>` of `<total>` rows" when the result exceeds a page (else just
+  "`<total>` rows"). Applying a filter or loading/switching a run resets to
+  page 1.
+
+- **Detail panel** appears only when a record or graph node is selected. It has
+  two modes:
+  - **Row selection:** clicking a master-table row opens a single-record detail
+    (Summary / Args / Java stack / Backtrace) AND still redraws the middle graph
+    slice to reflect that row's subgraph.
+  - **Graph-node selection:** clicking a graph node opens the records-behind-node
+    list (unchanged from earlier phases).
+
+The detail panel is dismissed via an explicit X button in its header; the master
+table is collapsed/expanded via a floating square button at the table's right edge
+(or far left when collapsed).
+
+### Master table columns
+
+The master table's columns are **configurable**. Default set: `id · syscall · top java · top native · args · tags`.
+
+- **Column picker:** a `⚙ columns` button in the table header opens a modal with
+  a checkbox per column (with `id` locked on). The chosen set persists to
+  `localStorage` under key `ares.columns`, so column preferences survive an app
+  restart.
+
+- **Column definitions:**
+  - `id` - event id (locked on).
+  - `syscall` - the syscall name.
+  - `top java` - the innermost Java method in the event's `java_stack` (or `—`
+    if no Java).
+  - `top native` - the innermost native symbol in the event's backtrace
+    (or `—` if syscall-only).
+  - `args` - the primary argument, computed by precedence in the DuckDB
+    `table()` SQL query: resolved string arg > fd path > decoded arg > raw arg.
+    Disambiguates which file/path/resource the syscall touched.
+  - `tags` - RASP tags on the row's innermost native frame (`topNative` node id,
+    offset dropped). Tags live on native library nodes; a syscall row shows a
+    badge only when its innermost native frame carries a tag. Multiple tags
+    render as a comma-separated badge list.
+
+- **Column widths:** each column width is keyed by column name (not position), so
+  any subset of columns lays out correctly. Text-heavy columns (`top java`,
+  `top native`, `args`) share the remaining width after fixed columns; the panel
+  is resizable, and widths are clamped per-column for readability. At the default
+  ~420px table width, the text columns truncate (mitigated by resize + `title`
+  tooltip on hover + full detail in the right-panel record view).
+
 ### Adjustable panels
 
 The table and side (graph/flame/capture) regions are drag-resizable and
@@ -71,8 +120,10 @@ collapsible. Pure width math (`clampWidth`, `DEFAULT_LAYOUT`, `parseLayout`/
 properties (`--table-w` / `--side-w`), clamped to 160-760px, and resizing is
 driven by **window-level** pointer listeners rather than listeners on the drag
 handle itself, so a drag that outruns the handle (fast mouse movement) doesn't
-drop the resize. Each panel collapses/expands independently via a header
-chevron. Both the widths and the collapsed/expanded state persist to
+drop the resize. The master table collapses/expands via a floating square button
+positioned just outside the table's right edge (or far left when collapsed); the
+right panel is dismissed via its header X button only (no collapse affordance).
+Both the widths and the collapsed/expanded state persist to
 `localStorage['ares.layout']`, so the layout survives an app restart.
 
 **Known limitation:** persistence is per-machine (`localStorage`), not
@@ -394,7 +445,11 @@ runs a named analyzer (default `stdout`). `correlate`/`trace` carry a
 chaining commands in one `su -c` breaks the on-device BPF load with `-EPERM`.
 Runs are wrapped `timeout -s INT -k 3 <secs>` for a graceful SIGINT stop with a
 SIGKILL backstop; the manual Stop button sends `pkill -INT -f …ares` as a
-separate `su -c`. A blank timeout means "run until Stop".
+separate `su -c`. A blank timeout means "run until Stop". User-entered tokens
+(package/library/pattern/spec/syscalls) are space-joined into that single-quoted
+body, so `validateInputs` (and the preflight entry) reject any value carrying a
+shell metacharacter or space - only `[A-Za-z0-9._:/,+-]` is admitted - before a
+run is dispatched.
 
 **Preflight** gates Start with five ordered checks (device reachable, `su`
 root, kernel BTF, package installed, on-device binary md5 vs the configured host
