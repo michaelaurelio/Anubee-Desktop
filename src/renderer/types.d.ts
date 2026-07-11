@@ -55,6 +55,7 @@ declare global {
       tracerPickBinary(): Promise<string | undefined>
       tracerPickSpecsDir(): Promise<string | undefined>
       onTracerLine(cb: (line: string) => void): void
+      onPreflightCheck(cb: (c: { id: string; label: string; ok: boolean; detail: string }) => void): void
     }
   }
 }

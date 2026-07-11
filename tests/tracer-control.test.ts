@@ -88,6 +88,20 @@ describe('preflight', () => {
     expect(binary.detail).toMatch(/specs/i)
     expect(adb.calls.some(c => c.startsWith('push'))).toBe(false)
   })
+
+  it('streams each check to onCheck in order as it resolves', async () => {
+    const adb = fakeAdb([
+      [/get-state/, { stdout: 'device' }],
+      [/id -u/, { stdout: '0' }],
+      [/btf\/vmlinux/, { stdout: '/sys/kernel/btf/vmlinux' }],
+      [/pm path/, { stdout: 'package:/data/app/base.apk' }],
+      [/md5sum \/data\/local\/tmp\/ares/, { stdout: 'abc123  /data/local/tmp/ares' }],
+    ])
+    const streamed: string[] = []
+    const checks = await preflight(adb, cfg, 'com.android.deskclock', async () => 'abc123', c => streamed.push(c.id))
+    expect(streamed).toEqual(checks.map(c => c.id))
+    expect(streamed).toEqual(['device', 'root', 'btf', 'package', 'binary'])
+  })
 })
 
 function fakeSpawner(): Spawner & { lastArgs: string[]; emitLine: (l: string) => void; exit: (c: number) => void } {

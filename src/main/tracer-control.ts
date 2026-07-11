@@ -30,27 +30,29 @@ export async function preflight(
   cfg: TracerConfig,
   pkg: string,
   md5: (path: string) => Promise<string>,
+  onCheck?: (c: PreflightCheck) => void,
 ): Promise<PreflightCheck[]> {
   const checks: PreflightCheck[] = []
+  const add = (c: PreflightCheck): void => { checks.push(c); onCheck?.(c) }
 
   const state = await adb.run(['get-state'])
   const reachable = state.code === 0 && /device/.test(state.stdout)
-  checks.push({ id: 'device', label: 'device reachable', ok: reachable, detail: state.stdout.trim() || state.stderr.trim() })
+  add({ id: 'device', label: 'device reachable', ok: reachable, detail: state.stdout.trim() || state.stderr.trim() })
   if (!reachable) return checks
 
   const uid = await adb.run(['shell', "su -c 'id -u'"])
   const rooted = uid.stdout.trim() === '0'
-  checks.push({ id: 'root', label: 'root available (su)', ok: rooted, detail: rooted ? 'uid 0' : `uid ${uid.stdout.trim()}` })
+  add({ id: 'root', label: 'root available (su)', ok: rooted, detail: rooted ? 'uid 0' : `uid ${uid.stdout.trim()}` })
   if (!rooted) return checks
 
   const btf = await adb.run(['shell', "su -c 'ls /sys/kernel/btf/vmlinux'"])
   const hasBtf = /btf\/vmlinux/.test(btf.stdout)
-  checks.push({ id: 'btf', label: 'kernel BTF present', ok: hasBtf, detail: hasBtf ? 'CO-RE ok' : 'missing /sys/kernel/btf/vmlinux' })
+  add({ id: 'btf', label: 'kernel BTF present', ok: hasBtf, detail: hasBtf ? 'CO-RE ok' : 'missing /sys/kernel/btf/vmlinux' })
   if (!hasBtf) return checks
 
   const path = await adb.run(['shell', `pm path ${pkg}`])
   const installed = /package:/.test(path.stdout)
-  checks.push({ id: 'package', label: `package installed (${pkg})`, ok: installed, detail: installed ? 'installed' : 'not installed' })
+  add({ id: 'package', label: `package installed (${pkg})`, ok: installed, detail: installed ? 'installed' : 'not installed' })
   if (!installed) return checks
 
   // Binary freshness: md5-compare, push if stale (kill_ares first -> no ETXTBSY).
@@ -59,7 +61,7 @@ export async function preflight(
   // empty specsDir would expand to `adb push /.` - the whole host filesystem.
   const hostSum = await md5(cfg.aresBinary)
   if (!hostSum) {
-    checks.push({
+    add({
       id: 'binary', label: 'host ares binary', ok: false,
       detail: cfg.aresBinary
         ? `cannot read host ares binary at ${cfg.aresBinary} - set a valid host path`
@@ -68,7 +70,7 @@ export async function preflight(
     return checks
   }
   if (!cfg.specsDir) {
-    checks.push({
+    add({
       id: 'binary', label: 'host specs dir', ok: false,
       detail: 'configure the host specs directory in the config row',
     })
@@ -77,14 +79,14 @@ export async function preflight(
   const devOut = await adb.run(['shell', `md5sum ${DEVICE_BIN}`])
   const devSum = DEVICE_MD5(devOut.stdout)
   if (hostSum && hostSum === devSum) {
-    checks.push({ id: 'binary', label: 'on-device binary up to date', ok: true, detail: `md5 ${hostSum.slice(0, 8)}` })
+    add({ id: 'binary', label: 'on-device binary up to date', ok: true, detail: `md5 ${hostSum.slice(0, 8)}` })
   } else {
     await adb.run(['shell', "su -c 'pkill -INT -f /data/local/tmp/ares; sleep 1; pkill -KILL -f /data/local/tmp/ares'"])
     const push = await adb.run(['push', cfg.aresBinary, DEVICE_BIN])
     await adb.run(['shell', `chmod 755 ${DEVICE_BIN}`])
     await adb.run(['shell', `mkdir -p ${DEVICE_SPECS}`])
     await adb.run(['push', `${cfg.specsDir}/.`, DEVICE_SPECS])
-    checks.push({ id: 'binary', label: 'binary pushed', ok: push.code === 0, detail: push.code === 0 ? 'pushed + chmod 755' : push.stderr.trim() })
+    add({ id: 'binary', label: 'binary pushed', ok: push.code === 0, detail: push.code === 0 ? 'pushed + chmod 755' : push.stderr.trim() })
   }
   return checks
 }

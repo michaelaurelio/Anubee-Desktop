@@ -58,4 +58,7 @@ contextBridge.exposeInMainWorld('ares', {
   tracerPickSpecsDir: () => ipcRenderer.invoke('tracer:pickSpecsDir'),
   onTracerLine: (cb: (line: string) => void) =>
     ipcRenderer.on('tracer:line', (_e, line) => cb(line as string)),
+  onPreflightCheck: (cb: (c: { id: string; label: string; ok: boolean; detail: string }) => void) =>
+    ipcRenderer.on('tracer:preflight-check', (_e, c) =>
+      cb(c as { id: string; label: string; ok: boolean; detail: string })),
 })

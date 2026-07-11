@@ -98,7 +98,8 @@ ipcMain.handle('tracer:config:set', (_e, cfg: { aresBinary: string; specsDir: st
   saveConfig(app.getPath('userData'), cfg)
 })
 ipcMain.handle('tracer:preflight', (_e, pkg: string) =>
-  preflight(adb, loadConfig(app.getPath('userData')), pkg, fileMd5))
+  preflight(adb, loadConfig(app.getPath('userData')), pkg, fileMd5,
+    c => win.webContents.send('tracer:preflight-check', c)))
 
 // Validate the host paths the form currently holds so the Capture view can show
 // green/red dots BEFORE a run. Pure decisions live in path-check; this does the
