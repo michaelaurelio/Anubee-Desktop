@@ -19,7 +19,9 @@ and open verification items. Newest concerns first.
   now captures a monotonic selection epoch (`src/renderer/selection-epoch.ts`) and
   bails both the `eventById` detail paint and the `slice` graph paint when a newer
   row selection has superseded it, so the last-to-resolve fetch can no longer paint
-  a stale record/graph under the current highlight.
+  a stale record/graph under the current highlight. The same epoch also guards the
+  diff-mode row's merged-subgraph paint (`diffSlice`), so switching diff rows mid
+  fetch can't repaint a superseded graph either.
 - **Column truncation at default table width** - at the default ~420px table
   width, text-heavy columns (`top native`, `args`) truncate. Mitigated by: (a)
   resizing the table panel wider (persistent in `localStorage`), (b) `title`
@@ -115,9 +117,11 @@ Design reference: overall spec §13.
   / filter-bar split; empty/loading/error states) are done. See
   `DOCUMENTATION.md`'s "UI shell" section.
 - **Still deferred: UI/UX production overhaul (conference-presentable bar).**
-  - **Confirm-to-tag produces no visible output** - investigate confirm→tag→
-    badge/table path; make the result observable (invisible confirmation = broken
-    loop).
+  - **Confirm-to-tag produces no visible output - RESOLVED** - the Suggestions
+    `onConfirm` handler (`src/renderer/main.ts`) now upserts the tag, persists the
+    sidecar, then repaints all three surfaces the tag can appear on: `refreshTable`
+    (master-table tag column), `redrawBadges` (graph node badge), and `recolorRasp`
+    (native-node RASP category border). Confirm is observable on every view.
   - **Filter into a popover/panel** - move off the non-scalable top toolbar.
 - **Final-review residual minors (not urgent, tracked for follow-up):**
   - Dedup: `CATEGORIES` array duplicated in `rasp-heuristics.ts` +
