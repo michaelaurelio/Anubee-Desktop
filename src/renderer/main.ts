@@ -178,10 +178,21 @@ function showBanner(truncated: boolean): void {
 // shows "first <PAGE> of <total>" so the hidden remainder is never silent.
 const TABLE_PAGE = 500
 
+let tableOffset = 0
+
+function renderPager(offset: number, pageLen: number, total: number): void {
+  const rng = document.getElementById('pager-range')
+  const prev = document.getElementById('pager-prev') as HTMLButtonElement | null
+  const next = document.getElementById('pager-next') as HTMLButtonElement | null
+  if (rng) rng.textContent = total === 0 ? '0 / 0' : `${offset + 1}–${offset + pageLen} / ${total}`
+  if (prev) prev.disabled = offset <= 0
+  if (next) next.disabled = offset + TABLE_PAGE >= total
+}
+
 async function refreshTable(): Promise<void> {
   const filter = currentFilter()
   const [rows, total] = await Promise.all([
-    window.ares.table(filter, { limit: TABLE_PAGE, offset: 0 }, activeRunId),
+    window.ares.table(filter, { limit: TABLE_PAGE, offset: tableOffset }, activeRunId),
     window.ares.count(filter, activeRunId),
   ])
   renderTable(rows, DEFAULT_COLUMNS, selectRow, row => {
@@ -190,7 +201,8 @@ async function refreshTable(): Promise<void> {
     const rowTags = ids.flatMap(id => tagsByTarget(tags, id))
     return badgeText(rowTags)
   })
-  status(total > rows.length ? `showing first ${rows.length} of ${total} rows` : `${total} rows`)
+  renderPager(tableOffset, rows.length, total)
+  status(total > rows.length ? `showing ${rows.length} of ${total} rows` : `${total} rows`)
 }
 
 // Populate the suggestions list into a given host. A suggestion drops off the
@@ -542,6 +554,7 @@ function wireExport(): void {
 window.ares.onProgress(pct => status(`Loading... ${pct}%`))
 window.ares.onLoaded(s => {
   activeRunId = s.runId
+  tableOffset = 0 // a fresh run starts at page 1; a stale offset could land past its row count
   document.getElementById('empty-state')?.classList.add('hidden')
   showTablePanel(true)
   status(`Loaded ${s.eventCount} events (${s.errors} parse errors)`)
@@ -562,7 +575,15 @@ document.getElementById('rules-btn')?.addEventListener('click', () => {
     render: host => { void renderRules(host, activeRunId, () => { void recolorRasp(); void refreshSuggestions() }) },
   })
 })
-wireFilterControls(() => { void refreshTable(); refreshMiddle() })
+document.getElementById('pager-prev')?.addEventListener('click', () => {
+  tableOffset = Math.max(0, tableOffset - TABLE_PAGE)
+  void refreshTable()
+})
+document.getElementById('pager-next')?.addEventListener('click', () => {
+  tableOffset += TABLE_PAGE
+  void refreshTable()
+})
+wireFilterControls(() => { tableOffset = 0; void refreshTable(); refreshMiddle() })
 wireExport()
 wireDiff()
 
