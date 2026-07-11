@@ -99,12 +99,14 @@
       #table th, #table td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--border-soft);
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #table th { position: sticky; top: 0; background: var(--panel-2); }
-      #table td:nth-child(1), #table th:nth-child(1) { width: 34px; }
-      #table td:nth-child(2), #table th:nth-child(2) { width: 40px; }
-      #table td:nth-child(3), #table th:nth-child(3) { width: 64px; }
-      #table td:nth-child(4), #table th:nth-child(4) { width: 48px; text-align: center; }
-      #table td:nth-child(5), #table th:nth-child(5) { width: 96px; }
-      #table td:nth-child(6), #table th:nth-child(6) { width: 110px; }
+      /* Column widths are keyed by column (columns are user-configurable), not by
+         position. Narrow columns get a fixed width; the text-heavy ones
+         (top java / top native / args) are left unsized to share the remainder. */
+      #table .col-id { width: 40px; }
+      #table .col-tid { width: 48px; }
+      #table .col-syscall { width: 84px; }
+      #table .col-java { width: 44px; text-align: center; }
+      #table .col-tags { width: 64px; }
       #table tr:hover td { background: var(--hover); }
       #table tr:nth-child(even) td { background: var(--stripe); }
 

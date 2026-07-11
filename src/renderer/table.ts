@@ -34,6 +34,7 @@ export function renderTable(
   const head = tbl.insertRow()
   for (const key of columns) {
     const th = document.createElement('th')
+    th.className = `col-${key}` // width is keyed by column, not position (columns are configurable)
     th.textContent = LABEL[key]
     th.title = LABEL[key]
     head.appendChild(th)
@@ -45,6 +46,7 @@ export function renderTable(
     const badge = badgeFor(r)
     for (const key of columns) {
       const td = tr.insertCell()
+      td.className = `col-${key}`
       const c = CELL[key](r, badge)
       td.textContent = c
       if (c) td.title = c
