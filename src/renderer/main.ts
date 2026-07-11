@@ -4,7 +4,7 @@ import { wirePanels } from './panels'
 import { sliceToElements, filterForRow } from './graph-view'
 import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
-import { DEFAULT_COLUMNS } from './columns'
+import { ALL_COLUMNS, parseColumns, serializeColumns, type ColumnKey } from './columns'
 import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector, showRecordDetail } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
@@ -180,6 +180,7 @@ function showBanner(truncated: boolean): void {
 const TABLE_PAGE = 500
 
 let tableOffset = 0
+let currentColumns: ColumnKey[] = parseColumns(localStorage.getItem('ares.columns'))
 
 function renderPager(offset: number, pageLen: number, total: number): void {
   const rng = document.getElementById('pager-range')
@@ -209,7 +210,7 @@ async function refreshTable(): Promise<void> {
     window.ares.table(filter, { limit: TABLE_PAGE, offset: tableOffset }, activeRunId),
     window.ares.count(filter, activeRunId),
   ])
-  renderTable(rows, DEFAULT_COLUMNS, selectRow, tableBadgeFor)
+  renderTable(rows, currentColumns, selectRow, tableBadgeFor)
   renderPager(tableOffset, rows.length, total)
   status(total > rows.length ? `showing ${rows.length} of ${total} rows` : `${total} rows`)
 }
@@ -602,6 +603,36 @@ document.getElementById('pager-next')?.addEventListener('click', () => {
 wireFilterControls(() => { tableOffset = 0; void refreshTable(); refreshMiddle() })
 wireExport()
 wireDiff()
+
+function openColumnsModal(): void {
+  showModal({
+    title: 'Table columns',
+    width: 300,
+    render: host => {
+      for (const def of ALL_COLUMNS) {
+        const row = document.createElement('label')
+        row.className = 'col-row' + (def.fixed ? ' fixed' : '')
+        const cb = document.createElement('input')
+        cb.type = 'checkbox'
+        cb.checked = currentColumns.includes(def.key)
+        cb.disabled = !!def.fixed
+        cb.addEventListener('change', () => {
+          const set = new Set(currentColumns)
+          if (cb.checked) set.add(def.key); else set.delete(def.key)
+          set.add('id')
+          currentColumns = ALL_COLUMNS.map(d => d.key).filter(k => set.has(k))
+          localStorage.setItem('ares.columns', serializeColumns(currentColumns))
+          void refreshTable()
+        })
+        const span = document.createElement('span')
+        span.textContent = def.label + (def.fixed ? ' (always)' : '')
+        row.append(cb, span)
+        host.appendChild(row)
+      }
+    },
+  })
+}
+document.getElementById('cols-btn')?.addEventListener('click', openColumnsModal)
 
 function zoomBy(factor: number): void {
   const c = cy.container()
