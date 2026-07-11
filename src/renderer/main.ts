@@ -4,6 +4,7 @@ import { wirePanels } from './panels'
 import { sliceToElements, filterForRow } from './graph-view'
 import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
+import { DEFAULT_COLUMNS } from './columns'
 import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
@@ -172,7 +173,7 @@ async function refreshTable(): Promise<void> {
     window.ares.table(filter, { limit: TABLE_PAGE, offset: 0 }, activeRunId),
     window.ares.count(filter, activeRunId),
   ])
-  renderTable(rows, selectRow, row => {
+  renderTable(rows, DEFAULT_COLUMNS, selectRow, row => {
     const ids = [`sys:${row.syscall}`]
     if (row.topJava) ids.push(`java:${row.topJava}`)
     const rowTags = ids.flatMap(id => tagsByTarget(tags, id))
