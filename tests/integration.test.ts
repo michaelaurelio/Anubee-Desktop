@@ -4,10 +4,13 @@ import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall } from '@shared/ares-parse'
-import { foldEvents } from '@shared/graph-shape'
+import { foldEvents, mergeGraphs } from '@shared/graph-shape'
 import { presenceOf } from '../src/shared/diff'
 import type { StackRollup } from '../src/shared/flame-shape'
 import { compileWhere, scoreWith, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
+import { funcsAdapter } from '@shared/adapters/funcs'
+import { correlateAdapter } from '@shared/adapters/correlate'
+import type { SyscallEvent, FuncEvent, CorrelateEvent } from '@shared/events'
 
 // oracle.jsonl is the tiny deterministic fixture these exact-value assertions pin
 // to. sample.jsonl is a real dev.ares.detector capture (see REAL_FIXTURE) used by
@@ -325,7 +328,7 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
     await store.close()
   })
 
-  it('table/slice/stackRollup are byte-identical between the syscall-only fixture and the mixed one', async () => {
+  it('table/stackRollup stay byte-identical; slice() folds in exactly what the funcs/correlate adapters + mergeGraphs compute', async () => {
     const store = new GraphStore()
     const oracleRun = await store.ingest(FIXTURE)
     const mixedRun = await store.ingest(MIXED_FIXTURE)
@@ -334,32 +337,37 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
     const tableMixed = await store.table({}, { limit: 100, offset: 0 }, mixedRun.runId)
     expect(tableMixed).toEqual(tableOracle)
 
-    // slice()/stackRollup() group by unordered DuckDB aggregation, so row order
-    // isn't guaranteed stable across runs with different underlying row layouts
-    // (mixed.jsonl interleaves foreign rows between the syscall rows) - sort by
-    // id before comparing, same convention as the foldEvents oracle test above.
+    // slice() groups by unordered DuckDB aggregation, so row order isn't
+    // guaranteed stable across runs with different underlying row layouts -
+    // sort by id before comparing, same convention as the foldEvents oracle
+    // test above.
     const byId = <T extends { id: string }>(xs: T[]) => [...xs].sort((a, b) => a.id.localeCompare(b.id))
+
+    // slice() also folds in the funcs/correlate adapters (Phase 2/3), so
+    // mixed.jsonl's foreign rows legitimately add/augment graph content that
+    // oracle.jsonl (no such data) doesn't have - including bumping the count
+    // of sys:openat itself, since mixed.jsonl's correlate syscall record is
+    // also 'openat'. Rather than hand-derive the expected numbers, compute
+    // them the same way slice() does: fold the oracle's own syscalls, then
+    // merge in the same adapters over mixed.jsonl's own funcs/correlate rows.
+    const mixedRaw = parseJsonl(readFileSync(MIXED_FIXTURE, 'utf-8')).events
+    const mainSyscalls = mixedRaw.filter((e): e is SyscallEvent => e.type === 'syscall' && !('span' in e))
+    const funcsRows = mixedRaw.filter((e): e is FuncEvent => (e.type === 'call' || e.type === 'return') && !('span' in e))
+    const corrRows = mixedRaw.filter((e): e is CorrelateEvent => 'span' in e)
+    const oracleFold = foldEvents(mainSyscalls)
+    const expectedMixed = mergeGraphs(oracleFold, funcsAdapter(funcsRows), correlateAdapter(corrRows))
+
     const sliceOracle = await store.slice({}, undefined, oracleRun.runId)
     const sliceMixed = await store.slice({}, undefined, mixedRun.runId)
-    // slice() also folds in the funcs adapter (Phase 2), so mixed.jsonl's one
-    // call+return pair legitimately adds a 'func' node + its caller edge that
-    // oracle.jsonl (no funcs data) doesn't have - that's the intended new
-    // behavior, not a regression. Assert the syscall-kind subset is still
-    // byte-identical, and check the func addition separately.
-    const syscallNodes = (ns: typeof sliceMixed.nodes) => ns.filter(n => n.kind !== 'func')
-    const syscallEdges = (es: typeof sliceMixed.edges, funcNodeIds: Set<string>) =>
-      es.filter(e => !funcNodeIds.has(e.source) && !funcNodeIds.has(e.target))
-    const mixedFuncIds = new Set(sliceMixed.nodes.filter(n => n.kind === 'func').map(n => n.id))
-    expect(byId(syscallNodes(sliceMixed.nodes))).toEqual(byId(sliceOracle.nodes))
-    expect(byId(syscallEdges(sliceMixed.edges, mixedFuncIds))).toEqual(byId(sliceOracle.edges))
-    expect(sliceMixed.eventCount).toBe(sliceOracle.eventCount)
+    expect(byId(sliceOracle.nodes)).toEqual(byId(oracleFold.nodes))
+    expect(byId(sliceOracle.edges)).toEqual(byId(oracleFold.edges))
+    expect(byId(sliceMixed.nodes)).toEqual(byId(expectedMixed.nodes))
+    expect(byId(sliceMixed.edges)).toEqual(byId(expectedMixed.edges))
+    expect(sliceMixed.eventCount).toBe(sliceOracle.eventCount) // eventCount is syscall-SQL-only, untouched by adapters
     expect(sliceMixed.truncated).toBe(sliceOracle.truncated)
-    // The func addition itself: one call + one return for the same symbol -> one
-    // node (count 2), plus its nesting edge from the resolved caller frame.
-    expect([...mixedFuncIds]).toEqual(['fn:libexample.so!JNI_OnLoad'])
-    const funcNode = sliceMixed.nodes.find(n => n.id === 'fn:libexample.so!JNI_OnLoad')!
-    expect(funcNode.count).toBe(2)
 
+    // table/stackRollup never merge adapter data (only slice() does - Task
+    // 2.4/3.3), so they stay fully byte-identical, unlike slice() above.
     const rollupOracle = await store.stackRollup({}, 5000, oracleRun.runId)
     const rollupMixed = await store.stackRollup({}, 5000, mixedRun.runId)
     const byChain = (rows: { chain: string[] }[]) => [...rows].sort((a, b) => a.chain.join('>').localeCompare(b.chain.join('>')))
@@ -368,17 +376,26 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
     expect(rollupMixed.distinctChains).toBe(rollupOracle.distinctChains)
     expect(rollupMixed.truncated).toBe(rollupOracle.truncated)
 
-    // diffTable/diffSlice as a second, independent proof: every node/edge shows
-    // as fully present in both runs with zero delta - the diff machinery itself
-    // finds no divergence introduced by the retained foreign rows.
+    // diffTable is built on nodeCounts, which (like table/stackRollup) never
+    // merges adapter data - still fully byte-identical/zero-delta.
     const diff = await store.diffTable(oracleRun.runId, mixedRun.runId)
     for (const row of diff) {
       expect(row.presence).toBe('both')
       expect(row.delta).toBe(0)
     }
+    // diffSlice calls slice() for both runs, so it DOES see the adapter
+    // additions: the neighbourhood of sys:openat now includes correlate's
+    // fn: node (mixed.jsonl's correlate span shares its syscall with the main
+    // engine's own openat) - genuinely 'B-only' since oracle.jsonl has no
+    // such node, not a regression. Every node/edge that already existed in
+    // oracle's own slice must still show 'both'.
+    const oracleIds = new Set(sliceOracle.nodes.map(n => n.id))
     const mergedSlice = await store.diffSlice(oracleRun.runId, mixedRun.runId, 'sys:openat')
-    for (const n of mergedSlice.nodes) expect(n.presence).toBe('both')
-    for (const e of mergedSlice.edges) expect(e.presence).toBe('both')
+    for (const n of mergedSlice.nodes) expect(n.presence).toBe(oracleIds.has(n.id) ? 'both' : 'B-only')
+    for (const e of mergedSlice.edges) {
+      const bothEndpointsPreexisting = oracleIds.has(e.source) && oracleIds.has(e.target)
+      expect(e.presence).toBe(bothEndpointsPreexisting ? 'both' : 'B-only')
+    }
 
     await store.close()
   })

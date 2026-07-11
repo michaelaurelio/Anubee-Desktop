@@ -1,9 +1,10 @@
 import { openSync, readSync, closeSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
-import type { SyscallEvent, FuncEvent } from '@shared/events'
+import type { SyscallEvent, FuncEvent, CorrelateEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
-import { capSlice, labelForId, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
+import { capSlice, labelForId, mergeGraphs, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
 import { funcsAdapter } from '@shared/adapters/funcs'
+import { correlateAdapter } from '@shared/adapters/correlate'
 import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
 import { compileWhere, scoreWith, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
@@ -253,31 +254,12 @@ export class GraphStore {
     )
     const eventCount = await this.scalar(`SELECT count(*) AS n FROM ev WHERE ${scoped}`, params)
 
-    // Merge nodes/edges from every source (SQL syscalls + engine adapters) into
-    // one id-deduplicated set, summing counts when two sources agree on the
-    // same id/edge. The shared nat:/sys: identity grammar is the whole point of
-    // cross-engine correlation (EPIC B), so two sources naming the same node
-    // must combine into one GraphNode, not add a second object with the same
-    // id - sliceToElements -> cy.add() throws on a duplicate node id.
-    const nodes = new Map<string, GraphNode>()
-    const addNode = (n: GraphNode) => {
-      const existing = nodes.get(n.id)
-      if (existing) existing.count += n.count
-      else nodes.set(n.id, { ...n })
-    }
-    const edges = new Map<string, GraphEdge>()
-    const addEdge = (e: GraphEdge) => {
-      const existing = edges.get(e.id)
-      if (existing) existing.count += e.count
-      else edges.set(e.id, { ...e })
-    }
-
-    for (const r of nodeRows) addNode(nodeFromId(r.nid as string, Number(r.c)))
-    for (const r of edgeRows) {
+    const sqlNodes = nodeRows.map(r => nodeFromId(r.nid as string, Number(r.c)))
+    const sqlEdges = edgeRows.map(r => {
       const source = r.src as string
       const target = r.tgt as string
-      addEdge({ id: `${source}=>${target}`, source, target, count: Number(r.c) })
-    }
+      return { id: `${source}=>${target}`, source, target, count: Number(r.c) }
+    })
 
     // EPIC A: fold in the funcs engine's call/return records (retained
     // alongside syscalls since Phase 1) via the shared adapter, so a funcs run
@@ -290,10 +272,22 @@ export class GraphStore {
       `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type IN ('call', 'return') AND span IS NULL`,
     )
     const fa = funcsAdapter(funcRows.map(r => JSON.parse(r.js as string) as FuncEvent))
-    for (const n of fa.nodes) addNode(n)
-    for (const e of fa.edges) addEdge(e)
 
-    return capSlice([...nodes.values()], [...edges.values()], eventCount, cap)
+    // Fold in correlate's span-tagged func/syscall/return records. `span IS
+    // NOT NULL` is exactly the complement of the syscall/funcs scoping above -
+    // every one of correlate's own record types sets it, and neither of the
+    // other two engines ever does.
+    const corrRows = await this.rows(
+      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND span IS NOT NULL`,
+    )
+    const ca = correlateAdapter(corrRows.map(r => JSON.parse(r.js as string) as CorrelateEvent))
+
+    // Merge every source into one id-deduplicated set (mergeGraphs sums counts
+    // when two sources agree on the same id - e.g. a correlate 'openat' and the
+    // main engine's own 'openat' both landing on sys:openat), shared with
+    // graph-shape.test.ts so a test oracle can compute the exact same result.
+    const { nodes, edges } = mergeGraphs({ nodes: sqlNodes, edges: sqlEdges }, fa, ca)
+    return capSlice(nodes, edges, eventCount, cap)
   }
 
   // Aggregated stack rollup over the filtered events: distinct full chains with

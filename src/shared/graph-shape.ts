@@ -95,6 +95,33 @@ export function foldEvents(events: SyscallEvent[], cap?: number): GraphSlice {
   return capSlice([...nodes.values()], [...edges.values()], events.length, cap)
 }
 
+// Combine node/edge sets from multiple sources (the syscall SQL path + each
+// engine adapter, in graph-store.ts's slice()) into one id-deduplicated set,
+// summing counts when two sources agree on the same node/edge id. The shared
+// nat:/sys:/fn:/... identity grammar is the whole point of cross-engine
+// correlation (EPIC B), so two sources naming the same node must combine into
+// one GraphNode, not add a second object with the same id - sliceToElements
+// -> cy.add() throws on a duplicate node id. Order-independent.
+export function mergeGraphs(
+  ...sources: { nodes: GraphNode[]; edges: GraphEdge[] }[]
+): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  const nodes = new Map<string, GraphNode>()
+  const edges = new Map<string, GraphEdge>()
+  for (const s of sources) {
+    for (const n of s.nodes) {
+      const existing = nodes.get(n.id)
+      if (existing) existing.count += n.count
+      else nodes.set(n.id, { ...n })
+    }
+    for (const e of s.edges) {
+      const existing = edges.get(e.id)
+      if (existing) existing.count += e.count
+      else edges.set(e.id, { ...e })
+    }
+  }
+  return { nodes: [...nodes.values()], edges: [...edges.values()] }
+}
+
 // Assemble a GraphSlice, flagging (and trimming to) a max node/edge count.
 // Shared by foldEvents (the oracle) and the DuckDB slice so both truncate the
 // same way: keep up to `cap` nodes, then the edges among the surviving nodes
