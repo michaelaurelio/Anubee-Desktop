@@ -17,6 +17,14 @@ export type { TableRow }
 // with `type`, `stack_id`, and `java_stack` - the last is the RASP bridge this
 // app is built around. `type` also lets ingest separate a malformed line
 // (all-null row → type NULL) from a valid non-syscall record (type='lib').
+//
+// EPIC A: widened with the funcs/correlate/SENTINEL fields (all nullable -
+// syscall rows leave them null, and vice versa). `span` is the disambiguator
+// between correlate's own `type='syscall'` records (which set it) and the
+// main syscalls engine's (which never does) - see the `span IS NULL` guard
+// on every syscall-only query below. correlate's `nr` and SENTINEL's nested
+// `snaps`/`cfi` (coverage) are deliberately left out of this schema for now;
+// read_json silently drops JSON fields that aren't declared here.
 const COLS =
   "{'type':'VARCHAR','id':'BIGINT','pid':'INTEGER','tid':'INTEGER'," +
   "'syscall_nr':'BIGINT','syscall':'VARCHAR','args':'VARCHAR[]','retval':'BIGINT'," +
@@ -24,7 +32,10 @@ const COLS =
   "'decoded_args':'MAP(VARCHAR,VARCHAR)','sock_addr':'VARCHAR','stack_id':'VARCHAR'," +
   "'java_stack':'VARCHAR[]'," +
   "'library':'VARCHAR','start':'VARCHAR','end':'VARCHAR','pgoff':'BIGINT'," +
-  "'backtrace':'STRUCT(frame INTEGER, addr VARCHAR, symbol VARCHAR)[]'}"
+  "'backtrace':'STRUCT(frame INTEGER, addr VARCHAR, symbol VARCHAR)[]'," +
+  "'engine':'VARCHAR','span':'BIGINT','parent_span':'BIGINT','entry_addr':'VARCHAR'," +
+  "'elapsed_ns':'BIGINT','symbol':'VARCHAR','module':'VARCHAR'," +
+  "'check_id':'VARCHAR','technique':'VARCHAR','result':'VARCHAR','detail':'VARCHAR','ts':'BIGINT'}"
 
 function sqlStr(s: string): string {
   return "'" + s.replace(/'/g, "''") + "'"
@@ -161,8 +172,12 @@ export class GraphStore {
     }
     this.modmap.set(runId, rmap)
 
+    // EPIC A: only drop malformed lines now - every other engine's records
+    // (func/call/return/coverage/sentinel/...) are retained, partitioned by
+    // `type` for downstream adapters. Queries below scope to `type = 'syscall'`
+    // explicitly instead of relying on `ev` being syscall-only.
     await this.conn().run(
-      `DELETE FROM ev WHERE run_id = ${runId} AND type IS DISTINCT FROM 'syscall'`,
+      `DELETE FROM ev WHERE run_id = ${runId} AND type IS NULL`,
     )
 
     this.runsMap.set(runId, {
@@ -201,7 +216,7 @@ export class GraphStore {
          (java_stack IS NOT NULL AND len(java_stack) > 0) AS hasJava,
          java_stack[1] AS topJava,
          backtrace[1].symbol AS topNative
-       FROM ev WHERE run_id = ${rid} AND (${where})
+       FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})
        ORDER BY id
        LIMIT ${limit} OFFSET ${offset}`,
       params,
@@ -223,7 +238,7 @@ export class GraphStore {
   async slice(filter: Filter = {}, cap?: number, runId?: number): Promise<GraphSlice> {
     const rid = this.resolveRun(runId)
     const { where, params } = filterToSql(filter)
-    const scoped = `run_id = ${rid} AND (${where})`
+    const scoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
     const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})`
 
     const nodeRows = await this.rows(
@@ -252,7 +267,7 @@ export class GraphStore {
   async stackRollup(filter: Filter = {}, maxChains = 5000, runId?: number): Promise<StackRollup> {
     const rid = this.resolveRun(runId)
     const { where, params } = filterToSql(filter)
-    const scoped = `run_id = ${rid} AND (${where})`
+    const scoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
     const cte = `WITH chains AS (SELECT ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})`
 
     const distinctChains = await this.scalar(
@@ -278,7 +293,7 @@ export class GraphStore {
   async eventById(id: number, runId?: number): Promise<SyscallEvent | undefined> {
     const rid = this.resolveRun(runId)
     const rows = await this.rows(
-      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND id = ${Math.trunc(id)}`,
+      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND id = ${Math.trunc(id)}`,
     )
     if (rows.length === 0) return undefined
     // to_json includes run_id; drop it so the shape stays a clean SyscallEvent.
@@ -297,7 +312,7 @@ export class GraphStore {
     const rid = this.resolveRun(runId)
     const { where, params } = filterToSql(filter)
     const lim = Math.max(0, Math.trunc(limit))
-    const scoped = `run_id = ${rid} AND (${where})`
+    const scoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
     const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})`
     const rows = await this.rows(
       `${cte} SELECT to_json(ev) AS js FROM ev JOIN chains ON ev.id = chains.eid AND ev.run_id = ${rid}
@@ -374,7 +389,7 @@ export class GraphStore {
     let rows
     try {
       rows = await this.rows(
-        `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND (${where})`,
+        `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`,
       )
     } catch (e) {
       // Defense in depth: a compiled rule DuckDB rejects (e.g. an RE2-incompatible
@@ -398,7 +413,7 @@ export class GraphStore {
     const where = compileWhere([rule])
     let rows
     try {
-      rows = await this.rows(`SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND (${where})`)
+      rows = await this.rows(`SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`)
     } catch (e) {
       console.error(`previewRule: rule query failed: ${(e as Error).message}`)
       return { events: 0, targets: 0 }
@@ -422,7 +437,7 @@ export class GraphStore {
 
   private async nodeCounts(runId: number, filter: Filter = {}): Promise<Map<string, number>> {
     const { where, params } = filterToSql(filter)
-    const scoped = `run_id = ${runId} AND (${where})`
+    const scoped = `run_id = ${runId} AND type = 'syscall' AND span IS NULL AND (${where})`
     const rows = await this.rows(
       `WITH chains AS (SELECT ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})
        SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`,
@@ -491,7 +506,8 @@ export class GraphStore {
     const rid = this.resolveRun(runId)
     const nodeIds = new Set((await this.nodeCounts(rid)).keys())
     const edgeRows = await this.rows(
-      `WITH chains AS (SELECT ${CHAIN_SQL} AS chain FROM ev WHERE run_id = ${rid})
+      `WITH chains AS (SELECT ${CHAIN_SQL} AS chain FROM ev
+        WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL)
        SELECT DISTINCT chain[i] AS src, chain[i + 1] AS tgt
        FROM chains, range(1, len(chain)) AS t(i)`,
     )
