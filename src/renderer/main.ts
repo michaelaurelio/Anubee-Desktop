@@ -20,6 +20,7 @@ import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from
 import { renderFlame } from './flame-view'
 import { buildFlame } from '@shared/flame-shape'
 import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
+import type { GraphSlice } from '@shared/graph-shape'
 import { renderCapabilityForm, appendConsoleLine } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, type CapValues } from '@shared/tracer-caps'
 import { showModal, isModalOpen } from './modal'
@@ -267,9 +268,10 @@ function refreshMiddle(): void {
   // graph view refreshes on row selection, not on filter apply
 }
 
-async function selectRow(row: TableRow): Promise<void> {
-  showView('graph')
-  const slice = await window.ares.slice(filterForRow(row, currentFilter()), GRAPH_SLICE_CAP, activeRunId)
+// Draws a fetched GraphSlice into the cytoscape canvas. Shared by selectRow
+// (a table row's filtered slice) and the syscall-less run auto-trigger below
+// (a funcs-only run has no table rows to select, so nothing else calls this).
+async function renderSlice(slice: GraphSlice): Promise<void> {
   const els = sliceToElements(slice)
   cy.elements().remove()
   cy.add(els.nodes)
@@ -279,6 +281,12 @@ async function selectRow(row: TableRow): Promise<void> {
   showBanner(slice.truncated)
   redrawBadges()
   void recolorRasp()
+}
+
+async function selectRow(row: TableRow): Promise<void> {
+  showView('graph')
+  const slice = await window.ares.slice(filterForRow(row, currentFilter()), GRAPH_SLICE_CAP, activeRunId)
+  await renderSlice(slice)
 }
 
 // Exposed for the screenshot harness / debugging to drive the graph deterministically.
@@ -532,6 +540,13 @@ window.ares.onLoaded(s => {
     void refreshSuggestions()
     void refreshOrphans()
   })
+  // A funcs-only run has zero syscalls: the table is empty, so selectRow never
+  // fires and the graph would stay blank. Render its slice directly instead -
+  // the funcs adapter (merged into slice() in EPIC A) is the only content.
+  if (s.eventCount === 0) {
+    showView('graph')
+    void window.ares.slice({}, GRAPH_SLICE_CAP, s.runId).then(renderSlice)
+  }
 })
 document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))
 document.getElementById('tab-flame')?.addEventListener('click', () => showView('flame'))
