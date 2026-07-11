@@ -316,6 +316,14 @@ check up front instead of running `adb push` - closing the previous
 - **stdout/artifact runs never send a UI "run loaded" signal** - only `jsonl`
   runs auto-switch to the table; `lib`/`dump` leave the result in the console /
   `userData/runs/` with no in-app artifact browser yet.
+- **Cross-modal streamed-row leak on `onPreflightCheck`** - the top-level
+  subscription appends each streamed check to whatever `cap-preflight-status`
+  element currently exists in the DOM. If a preflight is still streaming when
+  the user closes and reopens the Capture modal, late rows from the old run
+  can land in the new modal instance's status host. Fix approach: tag each
+  streamed check with a per-run token from the main process (or gate the
+  subscription on the active preflight epoch) and drop stale ones before
+  appending.
 
 ## Deferred features (post-core, spec §7)
 - **8** Session-only MCP (stdio) exposing the tagged graph. Decision C: headless
