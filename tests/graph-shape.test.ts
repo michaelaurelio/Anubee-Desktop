@@ -132,4 +132,9 @@ describe('labelForId', () => {
       kind: 'native', label: 'libexample.so', module: 'libexample.so',
     })
   })
+  it('labels a func id', () => {
+    expect(labelForId('fn:libexample.so!JNI_OnLoad')).toEqual({
+      kind: 'func', label: 'libexample.so!JNI_OnLoad', module: null,
+    })
+  })
 })

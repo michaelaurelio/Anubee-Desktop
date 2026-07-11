@@ -5,7 +5,7 @@ describe('theme', () => {
   it('themeColors returns a full color set for both themes', () => {
     for (const t of ['dark', 'light'] as const) {
       const c = themeColors(t)
-      for (const k of ['java', 'native', 'syscall', 'labelBacking', 'edge'] as (keyof KindColors)[]) {
+      for (const k of ['java', 'native', 'syscall', 'func', 'labelBacking', 'edge'] as (keyof KindColors)[]) {
         expect(typeof c[k]).toBe('string')
         expect(c[k]).toMatch(/^#[0-9a-f]{3,8}$/i)
       }

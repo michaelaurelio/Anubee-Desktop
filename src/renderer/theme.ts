@@ -10,18 +10,19 @@ export interface KindColors {
   java: string
   native: string
   syscall: string
+  func: string
   labelBacking: string // backing behind cytoscape node labels; must contrast the canvas
   labelText: string // node-label text color; mirrors the --text token per theme
   edge: string
 }
 
 const DARK: KindColors = {
-  java: '#5fd28f', native: '#6fa8ff', syscall: '#ff8b7a',
+  java: '#5fd28f', native: '#6fa8ff', syscall: '#ff8b7a', func: '#d9a441',
   // edge lifted from the near-invisible #3a4556 so lines + arrowheads read on the dark canvas
   labelBacking: '#1a1f2b', labelText: '#c9d1e0', edge: '#6b7a91',
 }
 const LIGHT: KindColors = {
-  java: '#27ae60', native: '#2980b9', syscall: '#c0392b',
+  java: '#27ae60', native: '#2980b9', syscall: '#c0392b', func: '#b8860b',
   labelBacking: '#ffffff', labelText: '#1e2530', edge: '#b0b0b0',
 }
 
