@@ -180,6 +180,7 @@ function showBanner(truncated: boolean): void {
 const TABLE_PAGE = 500
 
 let tableOffset = 0
+let selectedRowId: number | undefined // the row whose detail is open, so re-renders can re-highlight it
 let currentColumns: ColumnKey[] = parseColumns(localStorage.getItem('ares.columns'))
 
 function renderPager(offset: number, pageLen: number, total: number): void {
@@ -211,6 +212,7 @@ async function refreshTable(): Promise<void> {
     window.ares.count(filter, activeRunId),
   ])
   renderTable(rows, currentColumns, selectRow, tableBadgeFor)
+  if (selectedRowId !== undefined) highlightTableRow(selectedRowId) // survive paging/filter/column re-render
   renderPager(tableOffset, rows.length, total)
   status(total > rows.length ? `showing ${rows.length} of ${total} rows` : `${total} rows`)
 }
@@ -265,6 +267,9 @@ async function refreshOrphans(): Promise<void> {
   if (!host || activeRunId === undefined) return
   const targets = [...new Set(tags.map(t => t.target))]
   const orphanSet = new Set(targets.length ? await window.ares.orphans(activeRunId, targets) : [])
+  // Orphan warnings live in the (now selection-gated) side panel; reveal it when
+  // there are any, so they aren't silently hidden until a row/node is clicked.
+  if (orphanedTags(tags, orphanSet).length) showSide(true)
   const drop = async (target: string, off?: string) => {
     tags = removeTag(tags, target, off)
     await persistTags()
@@ -309,6 +314,7 @@ function refreshMiddle(): void {
 }
 
 async function selectRow(row: TableRow): Promise<void> {
+  selectedRowId = row.id
   highlightTableRow(row.id)
   showSide(true)
   const host = document.getElementById('inspector')
@@ -419,7 +425,11 @@ async function refreshDiff(): Promise<void> {
   if (!host || activeRunId === undefined || runB === undefined) return
   const rows = await window.ares.diffTable(activeRunId, runB, currentFilter(), 1000)
   const taggedIds = new Set(tags.map(t => t.target))
-  renderDiffTable(host, filterDiffRows(rows, diffMode, taggedIds),
+  const shown = filterDiffRows(rows, diffMode, taggedIds)
+  // The diff table renders into the selection-gated side panel; reveal it so a
+  // Load-run-B comparison is visible without first clicking a row/node.
+  if (shown.length) showSide(true)
+  renderDiffTable(host, shown,
     id => badgeText(tagsByTarget(tags, id)),
     async id => {
       const merged = await window.ares.diffSlice(activeRunId!, runB!, id, currentFilter())
@@ -572,8 +582,10 @@ window.ares.onProgress(pct => status(`Loading... ${pct}%`))
 window.ares.onLoaded(s => {
   activeRunId = s.runId
   tableOffset = 0 // a fresh run starts at page 1; a stale offset could land past its row count
+  selectedRowId = undefined
   document.getElementById('empty-state')?.classList.add('hidden')
   showTablePanel(true)
+  showSide(false) // clear a prior run's open detail; refreshOrphans re-opens it if this run has orphans
   status(`Loaded ${s.eventCount} events (${s.errors} parse errors)`)
   void refreshTags().then(() => {
     void refreshTable()
