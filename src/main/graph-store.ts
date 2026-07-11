@@ -1,8 +1,9 @@
 import { openSync, readSync, closeSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
-import type { SyscallEvent } from '@shared/events'
+import type { SyscallEvent, FuncEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
 import { capSlice, labelForId, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
+import { funcsAdapter } from '@shared/adapters/funcs'
 import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
 import { compileWhere, scoreWith, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
@@ -258,6 +259,18 @@ export class GraphStore {
       const target = r.tgt as string
       return { id: `${source}=>${target}`, source, target, count: Number(r.c) }
     })
+
+    // EPIC A: fold in the funcs engine's call/return records (retained
+    // alongside syscalls since Phase 1) via the shared adapter, so a funcs run
+    // renders without a separate code path. Unfiltered - funcs/correlate carry
+    // no syscall filter surface yet (tracked as a follow-up in the Epic A plan).
+    const funcRows = await this.rows(
+      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type IN ('call', 'return')`,
+    )
+    const fa = funcsAdapter(funcRows.map(r => JSON.parse(r.js as string) as FuncEvent))
+    nodes.push(...fa.nodes)
+    edges.push(...fa.edges)
+
     return capSlice(nodes, edges, eventCount, cap)
   }
 

@@ -341,10 +341,24 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
     const byId = <T extends { id: string }>(xs: T[]) => [...xs].sort((a, b) => a.id.localeCompare(b.id))
     const sliceOracle = await store.slice({}, undefined, oracleRun.runId)
     const sliceMixed = await store.slice({}, undefined, mixedRun.runId)
-    expect(byId(sliceMixed.nodes)).toEqual(byId(sliceOracle.nodes))
-    expect(byId(sliceMixed.edges)).toEqual(byId(sliceOracle.edges))
+    // slice() also folds in the funcs adapter (Phase 2), so mixed.jsonl's one
+    // call+return pair legitimately adds a 'func' node + its caller edge that
+    // oracle.jsonl (no funcs data) doesn't have - that's the intended new
+    // behavior, not a regression. Assert the syscall-kind subset is still
+    // byte-identical, and check the func addition separately.
+    const syscallNodes = (ns: typeof sliceMixed.nodes) => ns.filter(n => n.kind !== 'func')
+    const syscallEdges = (es: typeof sliceMixed.edges, funcNodeIds: Set<string>) =>
+      es.filter(e => !funcNodeIds.has(e.source) && !funcNodeIds.has(e.target))
+    const mixedFuncIds = new Set(sliceMixed.nodes.filter(n => n.kind === 'func').map(n => n.id))
+    expect(byId(syscallNodes(sliceMixed.nodes))).toEqual(byId(sliceOracle.nodes))
+    expect(byId(syscallEdges(sliceMixed.edges, mixedFuncIds))).toEqual(byId(sliceOracle.edges))
     expect(sliceMixed.eventCount).toBe(sliceOracle.eventCount)
     expect(sliceMixed.truncated).toBe(sliceOracle.truncated)
+    // The func addition itself: one call + one return for the same symbol -> one
+    // node (count 2), plus its nesting edge from the resolved caller frame.
+    expect([...mixedFuncIds]).toEqual(['fn:libexample.so!JNI_OnLoad'])
+    const funcNode = sliceMixed.nodes.find(n => n.id === 'fn:libexample.so!JNI_OnLoad')!
+    expect(funcNode.count).toBe(2)
 
     const rollupOracle = await store.stackRollup({}, 5000, oracleRun.runId)
     const rollupMixed = await store.stackRollup({}, 5000, mixedRun.runId)
