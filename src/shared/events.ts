@@ -57,10 +57,55 @@ export interface FuncEvent {
   elapsed_ns?: number // return only
 }
 
+// `ares correlate` span-gated func->syscall correlation records - verified
+// against ../ARES/src/correlate/corr_emit.c. All three share a `span` id
+// (correlate's stack-based call tracking key) plus a `type` string that
+// collides with another engine's record of the same name:
+//   - CorrelateSyscallEvent's `type:'syscall'` collides with SyscallEvent's.
+//   - CorrelateReturnEvent's `type:'return'` collides with FuncEvent's (emitted
+//     when correlate is run with `--returns`, a real, non-dead flag).
+// `span` is always set on correlate's own records and never set on the main
+// syscalls/funcs engines' - that's the disambiguator graph-store.ts scopes on
+// (`span IS NULL` for syscalls/funcs, `span IS NOT NULL` for correlate).
+export interface CorrelateFuncEvent {
+  type: 'func' // correlate's span-open record; unrelated to FuncEvent's 'call'/'return'
+  span: number
+  parent_span: number
+  pid: number
+  tid: number
+  // No symbol/module - correlate's span-open record only carries the raw
+  // address (a known limitation; see EPIC A Phase 3 plan notes).
+  entry_addr: string
+  args: string[]
+}
+
+export interface CorrelateSyscallEvent {
+  type: 'syscall'
+  span: number
+  pid: number
+  tid: number
+  nr: number
+  syscall: string
+  args: string[]
+  decoded: string[] // parallel to args; empty string per slot with no decode
+}
+
+export interface CorrelateReturnEvent {
+  type: 'return'
+  span: number
+  pid: number
+  tid: number
+  entry_addr: string
+  retval: string // hex string (unlike FuncEvent.retval, a signed number)
+  elapsed_ns: number
+}
+
+export type CorrelateEvent = CorrelateFuncEvent | CorrelateSyscallEvent | CorrelateReturnEvent
+
 // Any other non-syscall record (e.g. "lib", "unlib", "stack") is kept but opaque.
 export interface UnknownEvent {
   type: string
   [k: string]: unknown
 }
 
-export type TraceEvent = SyscallEvent | CoverageEvent | FuncEvent | UnknownEvent
+export type TraceEvent = SyscallEvent | CoverageEvent | FuncEvent | CorrelateEvent | UnknownEvent
