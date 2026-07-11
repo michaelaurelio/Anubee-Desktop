@@ -10,7 +10,8 @@ import type { StackRollup } from '../src/shared/flame-shape'
 import { compileWhere, scoreWith, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
 import { funcsAdapter } from '@shared/adapters/funcs'
 import { correlateAdapter } from '@shared/adapters/correlate'
-import type { SyscallEvent, FuncEvent, CorrelateEvent } from '@shared/events'
+import { sentinelAdapter } from '@shared/adapters/sentinel'
+import type { SyscallEvent, FuncEvent, CorrelateEvent, DetectorEvent } from '@shared/events'
 
 // oracle.jsonl is the tiny deterministic fixture these exact-value assertions pin
 // to. sample.jsonl is a real dev.ares.detector capture (see REAL_FIXTURE) used by
@@ -354,8 +355,12 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
     const mainSyscalls = mixedRaw.filter((e): e is SyscallEvent => e.type === 'syscall' && !('span' in e))
     const funcsRows = mixedRaw.filter((e): e is FuncEvent => (e.type === 'call' || e.type === 'return') && !('span' in e))
     const corrRows = mixedRaw.filter((e): e is CorrelateEvent => 'span' in e)
+    const sentinelRows = mixedRaw.filter((e): e is DetectorEvent => e.type === 'sentinel')
     const oracleFold = foldEvents(mainSyscalls)
-    const expectedMixed = mergeGraphs(oracleFold, funcsAdapter(funcsRows), correlateAdapter(corrRows))
+    const natNodeIds = oracleFold.nodes.filter(n => n.kind === 'native').map(n => n.id)
+    const expectedMixed = mergeGraphs(
+      oracleFold, funcsAdapter(funcsRows), correlateAdapter(corrRows), sentinelAdapter(sentinelRows, natNodeIds),
+    )
 
     const sliceOracle = await store.slice({}, undefined, oracleRun.runId)
     const sliceMixed = await store.slice({}, undefined, mixedRun.runId)

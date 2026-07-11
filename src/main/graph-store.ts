@@ -1,10 +1,11 @@
 import { openSync, readSync, closeSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
-import type { SyscallEvent, FuncEvent, CorrelateEvent } from '@shared/events'
+import type { SyscallEvent, FuncEvent, CorrelateEvent, DetectorEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
 import { capSlice, labelForId, mergeGraphs, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
 import { funcsAdapter } from '@shared/adapters/funcs'
 import { correlateAdapter } from '@shared/adapters/correlate'
+import { sentinelAdapter } from '@shared/adapters/sentinel'
 import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
 import { compileWhere, scoreWith, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
@@ -282,11 +283,21 @@ export class GraphStore {
     )
     const ca = correlateAdapter(corrRows.map(r => JSON.parse(r.js as string) as CorrelateEvent))
 
+    // Fold in SENTINEL check verdicts, linked to the native block that
+    // implements them by symbol-name match. Only the SQL-built `nat:` ids are
+    // passed as match candidates (not funcs'/correlate's fn:/sys: nodes) -
+    // a RASP check verdict names a native block, never a func/syscall span.
+    const sentinelRows = await this.rows(
+      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type = 'sentinel'`,
+    )
+    const natNodeIds = sqlNodes.filter(n => n.kind === 'native').map(n => n.id)
+    const sa = sentinelAdapter(sentinelRows.map(r => JSON.parse(r.js as string) as DetectorEvent), natNodeIds)
+
     // Merge every source into one id-deduplicated set (mergeGraphs sums counts
     // when two sources agree on the same id - e.g. a correlate 'openat' and the
     // main engine's own 'openat' both landing on sys:openat), shared with
     // graph-shape.test.ts so a test oracle can compute the exact same result.
-    const { nodes, edges } = mergeGraphs({ nodes: sqlNodes, edges: sqlEdges }, fa, ca)
+    const { nodes, edges } = mergeGraphs({ nodes: sqlNodes, edges: sqlEdges }, fa, ca, sa)
     return capSlice(nodes, edges, eventCount, cap)
   }
 
