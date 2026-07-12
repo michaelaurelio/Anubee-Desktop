@@ -75,9 +75,32 @@ describe('tracer-caps registry', () => {
       .toEqual([])
     expect(validateInputs(capById('funcs')!, { pkg: 'com.app', spec: 'common-file.spec' })).toEqual([])
   })
+
+  it('adds the common tuning inputs only to syscalls/funcs/correlate', () => {
+    const tuningKeys = ['bufmb', 'queuemb', 'verbose']
+    for (const id of ['syscalls', 'funcs', 'correlate']) {
+      const keys = capById(id)!.inputs.map(i => i.key)
+      expect(keys).toEqual(expect.arrayContaining(tuningKeys))
+      expect(capById(id)!.common).toBe(true)
+    }
+    for (const id of ['trace', 'lib', 'dump', 'mod']) {
+      const keys = capById(id)!.inputs.map(i => i.key)
+      expect(keys).not.toEqual(expect.arrayContaining(tuningKeys))
+      expect(capById(id)!.common).toBeFalsy()
+    }
+  })
+
+  it('marks the tuning inputs advanced with ares defaults', () => {
+    const buf = capById('syscalls')!.inputs.find(i => i.key === 'bufmb')!
+    const q = capById('syscalls')!.inputs.find(i => i.key === 'queuemb')!
+    const v = capById('syscalls')!.inputs.find(i => i.key === 'verbose')!
+    expect(buf).toMatchObject({ kind: 'int', default: 4, min: 1, advanced: true })
+    expect(q).toMatchObject({ kind: 'int', default: 256, min: 1, advanced: true })
+    expect(v).toMatchObject({ kind: 'bool', advanced: true })
+  })
 })
 
-import { composeRunArg, outJsonlPath, outDumpDir, DEVICE_BIN, STOP_ARG } from '../src/shared/tracer-caps'
+import { composeRunArg, outJsonlPath, outDumpDir, DEVICE_BIN, STOP_ARG, commonArgv } from '../src/shared/tracer-caps'
 
 describe('composeRunArg', () => {
   const syscalls = capById('syscalls')!
@@ -119,6 +142,39 @@ describe('composeRunArg', () => {
       "lib<example>.so -d /data/local/tmp/ares-dump-20260707T101500'")
     expect(outDumpDir('X')).toBe('/data/local/tmp/ares-dump-X')
   })
+
+  it('splices -b/-Q/-v before -o for a common cap', () => {
+    const arg = composeRunArg({
+      cap: syscalls, vals: { pkg: 'com.android.deskclock', lib: 'libc.so', bufmb: '8', verbose: true },
+      timeoutSecs: 20, jsonlPath: outJsonlPath('20260712T101500'),
+    })
+    expect(arg).toBe(
+      "su -c 'timeout -s INT -k 3 20 /data/local/tmp/ares syscalls -P com.android.deskclock " +
+      "-l libc.so -b 8 -v -o /data/local/tmp/ares-20260712T101500.jsonl'")
+  })
+
+  it('never emits tuning flags for a non-common cap even if values are present', () => {
+    const arg = composeRunArg({ cap: lib, vals: { pkg: 'com.android.deskclock', bufmb: '8', verbose: true } })
+    expect(arg).toBe("su -c '/data/local/tmp/ares lib com.android.deskclock'")
+  })
+})
+
+describe('commonArgv', () => {
+  it('emits nothing for blank or default values', () => {
+    expect(commonArgv({})).toEqual([])
+    expect(commonArgv({ bufmb: '4', queuemb: '256' })).toEqual([])
+  })
+
+  it('emits -b/-Q only when diverging from the ares default', () => {
+    expect(commonArgv({ bufmb: '8' })).toEqual(['-b', '8'])
+    expect(commonArgv({ queuemb: '512' })).toEqual(['-Q', '512'])
+    expect(commonArgv({ bufmb: '8', queuemb: '512', verbose: true }))
+      .toEqual(['-b', '8', '-Q', '512', '-v'])
+  })
+
+  it('emits -v when verbose is checked', () => {
+    expect(commonArgv({ verbose: true })).toEqual(['-v'])
+  })
 })
 
 describe('fieldErrors', () => {
@@ -135,6 +191,16 @@ describe('fieldErrors', () => {
     const { fields, form } = fieldErrors(syscalls, { pkg: 'com.x' })
     expect(fields.pkg).toBeUndefined()
     expect(form).toEqual(['provide a library filter or check "capture all libraries"'])
+  })
+  it('validates int inputs as whole numbers >= min', () => {
+    const sys = capById('syscalls')!
+    const base = { pkg: 'com.android.deskclock', all: true }
+    expect(fieldErrors(sys, { ...base }).fields.bufmb).toBeUndefined()        // blank ok
+    expect(fieldErrors(sys, { ...base, bufmb: '4' }).fields.bufmb).toBeUndefined()
+    expect(fieldErrors(sys, { ...base, bufmb: '0' }).fields.bufmb).toBe('must be a whole number >= 1')
+    expect(fieldErrors(sys, { ...base, bufmb: '-1' }).fields.bufmb).toBe('must be a whole number >= 1')
+    expect(fieldErrors(sys, { ...base, bufmb: '3.5' }).fields.bufmb).toBe('must be a whole number >= 1')
+    expect(fieldErrors(sys, { ...base, bufmb: 'abc' }).fields.bufmb).toBe('must be a whole number >= 1')
   })
 })
 

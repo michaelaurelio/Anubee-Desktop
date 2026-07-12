@@ -511,6 +511,15 @@ enforced by `syscalls`'s `validate` before dispatch. `dump` rebuilds one `.so`
 per matching library (named `<lib>.<pid>.<addr>.so`) into a directory (`-d DIR`);
 the handler creates the device dir up front and pulls the whole directory.
 
+**Advanced tuning flags.** A collapsible **Advanced** section on the capture form
+exposes three ares runtime flags for the `syscalls`, `funcs`, and `correlate`
+engines (the three that embed ares' shared `common_args` block): `-b` (ring buffer
+in MB, ares default 4), `-Q` (worker queue in MB, ares default 256), and `-v`
+(verbose debug output). A blank field means use the ares default; a flag is
+emitted only when the value diverges from the default. Note: JSONL framing (`-J`)
+is not a form control - it is guaranteed because every capture's output path ends
+in `.jsonl`, which ares treats as newline-per-record framing.
+
 **Storage + privacy.** Pulled captures land in `<userData>/runs/` (outside the
 repo); the target package is user-entered at runtime, never hardcoded.
 

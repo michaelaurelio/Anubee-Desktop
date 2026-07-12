@@ -1,6 +1,6 @@
 // Feature 9 capture panel: renders a capability's input form and a live console.
 // Pure DOM (jsdom-testable); the main.ts wiring owns IPC + preflight.
-import type { Capability, CapValues } from '@shared/tracer-caps'
+import type { Capability, CapValues, CapInput } from '@shared/tracer-caps'
 
 export interface FormOpts {
   specNames?: string[]
@@ -17,42 +17,77 @@ export function renderCapabilityForm(
   host.innerHTML = ''
   const current: CapValues = { ...vals }
 
+  let advBody: HTMLElement | null = null
   for (const inp of cap.inputs) {
-    // A spec input renders as a dropdown, preceded by the host specs-dir config
-    // row (persisted config, wired by main.ts via the data-* markers).
-    if (inp.kind === 'spec') host.appendChild(specsDirRow(opts.specsDir ?? ''))
-
-    const row = document.createElement('label')
-    row.className = 'cap-input'
-    const caption = document.createElement('span')
-    caption.textContent = inp.required ? `${inp.label} *` : inp.label
-
-    let ctrl: HTMLElement
-    if (inp.kind === 'spec') {
-      const sel = document.createElement('select')
-      sel.dataset.key = inp.key
-      fillSpecOptions(sel, opts.specNames ?? [], String(current[inp.key] ?? ''))
-      sel.addEventListener('change', () => { current[inp.key] = sel.value; onChange({ ...current }) })
-      ctrl = sel
-    } else if (inp.kind === 'bool') {
-      const cb = document.createElement('input')
-      cb.type = 'checkbox'; cb.dataset.key = inp.key
-      cb.checked = Boolean(current[inp.key])
-      cb.addEventListener('change', () => { current[inp.key] = cb.checked; onChange({ ...current }) })
-      ctrl = cb
+    if (inp.advanced) {
+      if (!advBody) advBody = appendAdvanced(host)
+      advBody.appendChild(buildRow(inp, current, onChange, opts))
     } else {
-      const tx = document.createElement('input')
-      tx.type = 'text'; tx.dataset.key = inp.key
-      tx.value = String(current[inp.key] ?? ''); tx.placeholder = inp.label
-      tx.addEventListener('input', () => { current[inp.key] = tx.value; onChange({ ...current }) })
-      ctrl = tx
+      // A spec input renders the host specs-dir config row before its dropdown.
+      if (inp.kind === 'spec') host.appendChild(specsDirRow(opts.specsDir ?? ''))
+      host.appendChild(buildRow(inp, current, onChange, opts))
     }
-
-    const err = document.createElement('span')
-    err.className = 'cap-input-err'; err.dataset.err = inp.key
-    row.append(caption, ctrl, err)
-    host.appendChild(row)
   }
+}
+
+// Create (once) the collapsed Advanced disclosure and return its body container.
+function appendAdvanced(host: HTMLElement): HTMLElement {
+  const details = document.createElement('details')
+  details.className = 'cap-advanced'
+  const summary = document.createElement('summary')
+  summary.textContent = 'Advanced'
+  const body = document.createElement('div')
+  body.className = 'cap-advanced-body'
+  details.append(summary, body)
+  host.appendChild(details)
+  return body
+}
+
+// Build one input row (caption + control + error span) for any input kind.
+function buildRow(
+  inp: CapInput,
+  current: CapValues,
+  onChange: (vals: CapValues) => void,
+  opts: FormOpts,
+): HTMLElement {
+  const row = document.createElement('label')
+  row.className = 'cap-input'
+  const caption = document.createElement('span')
+  caption.textContent = inp.required ? `${inp.label} *` : inp.label
+
+  let ctrl: HTMLElement
+  if (inp.kind === 'spec') {
+    const sel = document.createElement('select')
+    sel.dataset.key = inp.key
+    fillSpecOptions(sel, opts.specNames ?? [], String(current[inp.key] ?? ''))
+    sel.addEventListener('change', () => { current[inp.key] = sel.value; onChange({ ...current }) })
+    ctrl = sel
+  } else if (inp.kind === 'bool') {
+    const cb = document.createElement('input')
+    cb.type = 'checkbox'; cb.dataset.key = inp.key
+    cb.checked = Boolean(current[inp.key])
+    cb.addEventListener('change', () => { current[inp.key] = cb.checked; onChange({ ...current }) })
+    ctrl = cb
+  } else if (inp.kind === 'int') {
+    const num = document.createElement('input')
+    num.type = 'number'; num.dataset.key = inp.key
+    num.min = String(inp.min ?? 1)
+    if (inp.default !== undefined) num.placeholder = String(inp.default)
+    num.value = String(current[inp.key] ?? '')
+    num.addEventListener('input', () => { current[inp.key] = num.value; onChange({ ...current }) })
+    ctrl = num
+  } else {
+    const tx = document.createElement('input')
+    tx.type = 'text'; tx.dataset.key = inp.key
+    tx.value = String(current[inp.key] ?? ''); tx.placeholder = inp.label
+    tx.addEventListener('input', () => { current[inp.key] = tx.value; onChange({ ...current }) })
+    ctrl = tx
+  }
+
+  const err = document.createElement('span')
+  err.className = 'cap-input-err'; err.dataset.err = inp.key
+  row.append(caption, ctrl, err)
+  return row
 }
 
 // The host specs-dir config row shown for spec engines. Structure + markers only;

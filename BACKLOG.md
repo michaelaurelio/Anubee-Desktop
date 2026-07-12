@@ -302,6 +302,14 @@ The probe-spec field is now a dropdown populated from `tracer:listSpecs` →
 repopulated in place via `applySpecChoices` on every specs-dir edit.
 
 ### Known drawbacks / follow-ups from feature 9
+- **`trace` capability argv is rejected by ares.** The `trace` cap builds
+  `trace -P <pkg> -F <spec>`, but the real `trace` engine
+  (`../ARES/src/trace/trace_args.c`) accepts only `-P/-p/-A/-o` plus section
+  delimiters (`--syscalls`, `--funcs`, `--lib`, `--dump`, `--correlate`) at top
+  level; a top-level `-F` is an unknown-arg parse error. Rebuild the `trace` cap
+  as a section-based builder (e.g. `--funcs -F <spec>`). Until then `trace` runs
+  fail on device. The `-b/-Q/-v` tuning flags were intentionally not wired to
+  `trace` because its top level does not accept them either.
 - **Rules editor is a single-stacked form** - the predicate-builder form
   (`id`, `category`, `confidence`, `rationale`, `syscalls`, `field`, `op`,
   `argIndex`, `value`) renders as a vertical column without per-field inline
