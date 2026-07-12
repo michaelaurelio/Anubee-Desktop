@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('ares', {
   stackRollup: (filter: Filter, maxChains?: number, runId?: number) =>
     ipcRenderer.invoke('graph:stackRollup', filter, maxChains, runId),
   eventById: (id: number, runId?: number) => ipcRenderer.invoke('graph:eventById', id, runId),
+  coverage: (runId?: number) => ipcRenderer.invoke('graph:coverage', runId),
   nodeEvents: (nodeId: string, filter: Filter, runId?: number) =>
     ipcRenderer.invoke('graph:nodeEvents', nodeId, filter, runId),
   nodeOffsets: (nodeId: string, filter: Filter, runId?: number) =>
@@ -62,4 +63,12 @@ contextBridge.exposeInMainWorld('ares', {
   onPreflightCheck: (cb: (c: { id: string; label: string; ok: boolean; detail: string }) => void) =>
     ipcRenderer.on('tracer:preflight-check', (_e, c) =>
       cb(c as { id: string; label: string; ok: boolean; detail: string })),
+  // EPIC E2: live `adb logcat -s SENTINEL` reader. sentinelStop() resolves the
+  // same { runId, eventCount, errors } shape as openFile()/tracerStart() (it
+  // funnels through the same loadPath), which also fires the existing
+  // onLoaded/trace:loaded broadcast - no separate "done" event needed.
+  sentinelStart: () => ipcRenderer.invoke('sentinel:start'),
+  sentinelStop: () => ipcRenderer.invoke('sentinel:stop'),
+  onSentinelLine: (cb: (line: string) => void) =>
+    ipcRenderer.on('sentinel:line', (_e, line) => cb(line as string)),
 })

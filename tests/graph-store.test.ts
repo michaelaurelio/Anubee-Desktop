@@ -98,6 +98,33 @@ describe('GraphStore.eventById', () => {
   })
 })
 
+describe('GraphStore.coverage', () => {
+  it('returns undefined when the run has no coverage record', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    expect(await store.coverage()).toBeUndefined()
+  })
+
+  it('returns the run\'s coverage record when present', async () => {
+    const coverageLine = JSON.stringify({
+      type: 'coverage', engine: 'funcs', snaps: { total: 10, truncated: 1 },
+      cfi: { walks: 5, stops: { unwind_error: 1 } },
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-store-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, [...LINES, coverageLine].join('\n') + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const cov = await store.coverage()
+    expect(cov).toBeDefined()
+    expect(cov!.type).toBe('coverage')
+    expect(cov!.engine).toBe('funcs')
+    expect(cov!.snaps).toEqual({ total: 10, truncated: 1 })
+    expect(cov!.cfi).toEqual({ walks: 5, stops: { unwind_error: 1 } })
+  })
+})
+
 // The DuckDB slice SQL must reconstruct the same graph as the pure-TS oracle.
 const oracleEvents = parseJsonl(LINES.join('\n')).events.filter(isSyscall)
 
@@ -126,6 +153,36 @@ describe('GraphStore.slice', () => {
     await store.ingest(fixture())
     const slice = await store.slice({}, 2)
     expect(slice.truncated).toBe(true)
+  })
+
+  it('merges a funcs-adapter node into the SQL node of the same id instead of duplicating it', async () => {
+    // The funcs call's caller frame resolves to nat:libexample.so!check_su -
+    // the same id the syscall SQL path already builds from LINES[0]/[1]'s
+    // backtrace. Two GraphNode objects sharing one id would make
+    // sliceToElements -> cy.add() throw; the merge must combine them into one.
+    const funcsLine = JSON.stringify({
+      type: 'call', pid: 100, tid: 101, module: 'libexample.so', symbol: 'derive_key', entry_addr: '0x3000',
+      backtrace: [
+        { frame: 0, addr: '0x3000', symbol: 'libexample.so!derive_key' },
+        { frame: 1, addr: '0x1', symbol: 'libexample.so!check_su+0x10' },
+      ],
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-store-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, [...LINES, funcsLine].join('\n') + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const slice = await store.slice()
+
+    const checkSuNodes = slice.nodes.filter(n => n.id === 'nat:libexample.so!check_su')
+    expect(checkSuNodes).toHaveLength(1) // not duplicated
+    expect(checkSuNodes[0].count).toBe(3) // 2 syscall events + 1 funcs-adapter bump
+
+    const funcNode = slice.nodes.find(n => n.id === 'fn:libexample.so!derive_key')
+    expect(funcNode).toEqual({ id: 'fn:libexample.so!derive_key', kind: 'func', label: 'libexample.so!derive_key', module: null, count: 1 })
+    const edge = slice.edges.find(e => e.id === 'nat:libexample.so!check_su=>fn:libexample.so!derive_key')
+    expect(edge?.count).toBe(1)
   })
 })
 

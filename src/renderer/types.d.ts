@@ -2,7 +2,7 @@ import type { Filter } from '@shared/filter'
 import type { GraphSlice } from '@shared/graph-shape'
 import type { StackRollup } from '@shared/flame-shape'
 import type { TableRow } from '@shared/table'
-import type { SyscallEvent } from '@shared/events'
+import type { SyscallEvent, CoverageEvent } from '@shared/events'
 
 declare global {
   interface Window {
@@ -17,6 +17,7 @@ declare global {
       slice(filter: Filter, cap?: number, runId?: number): Promise<GraphSlice>
       stackRollup(filter: Filter, maxChains?: number, runId?: number): Promise<StackRollup>
       eventById(id: number, runId?: number): Promise<SyscallEvent | undefined>
+      coverage(runId?: number): Promise<CoverageEvent | undefined>
       nodeEvents(nodeId: string, filter: Filter, runId?: number): Promise<SyscallEvent[]>
       nodeOffsets(nodeId: string, filter: Filter, runId?: number): Promise<import('@shared/origins').OffsetRow[]>
       suggest: (runId?: number) => Promise<import('@shared/rasp-heuristics').Suggestion[]>
@@ -57,6 +58,9 @@ declare global {
       tracerPickSpecsDir(): Promise<string | undefined>
       onTracerLine(cb: (line: string) => void): void
       onPreflightCheck(cb: (c: { id: string; label: string; ok: boolean; detail: string }) => void): void
+      sentinelStart(): Promise<void>
+      sentinelStop(): Promise<{ runId: number; eventCount: number; errors: number } | null>
+      onSentinelLine(cb: (line: string) => void): void
     }
   }
 }

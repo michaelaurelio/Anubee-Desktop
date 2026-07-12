@@ -1,7 +1,7 @@
 import cytoscape from 'cytoscape'
-import { themeColors, categoryColors, parseTheme, serializeTheme, type Theme } from './theme'
+import { themeColors, categoryColors, edgeEngineColors, parseTheme, serializeTheme, type Theme } from './theme'
 import { wirePanels } from './panels'
-import { sliceToElements, filterForRow } from './graph-view'
+import { sliceToElements, filterForRow, shouldHideEdge, type EngineToggleState } from './graph-view'
 import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
 import { ALL_COLUMNS, parseColumns, serializeColumns, type ColumnKey } from './columns'
@@ -22,6 +22,7 @@ import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from
 import { renderFlame } from './flame-view'
 import { buildFlame } from '@shared/flame-shape'
 import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
+import type { GraphSlice } from '@shared/graph-shape'
 import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
 import { showModal, isModalOpen } from './modal'
@@ -30,6 +31,7 @@ import { makeEpoch } from './selection-epoch'
 let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
 document.documentElement.setAttribute('data-theme', theme)
 const tc = themeColors(theme)
+const ec = edgeEngineColors(theme)
 
 const cy = cytoscape({
   container: document.getElementById('cy'),
@@ -57,6 +59,8 @@ const cy = cytoscape({
     { selector: 'node[kind = "java"]', style: { 'border-color': tc.java } },
     { selector: 'node[kind = "native"]', style: { 'border-color': tc.native } },
     { selector: 'node[kind = "syscall"]', style: { 'border-color': tc.syscall } },
+    { selector: 'node[kind = "func"]', style: { 'border-color': tc.func } },
+    { selector: 'node[kind = "check"]', style: { 'border-color': tc.check } },
     // Badge border marks a tagged node; scoped to non-native so it doesn't
     // double-mark native nodes, which use the RASP category accent instead.
     { selector: 'node[badge][kind != "native"]', style: { 'border-width': 3, 'border-color': '#8e44ad' } },
@@ -71,12 +75,23 @@ const cy = cytoscape({
         'target-arrow-color': tc.edge,
       },
     },
+    // Per-engine edge colors (EPIC B4). Untagged/syscall edges keep the base
+    // tc.edge above, unchanged. Must sit before the presence/highlighted rules
+    // below so diff mode and node-selection highlighting still win.
+    { selector: 'edge[engine = "funcs"]', style: { 'line-color': ec.funcs, 'target-arrow-color': ec.funcs } },
+    { selector: 'edge[engine = "correlate"]', style: { 'line-color': ec.correlate, 'target-arrow-color': ec.correlate } },
+    { selector: 'edge[engine = "sentinel"]', style: { 'line-color': ec.sentinel, 'target-arrow-color': ec.sentinel } },
     { selector: 'node[presence = "A-only"]', style: { 'background-color': '#c0392b' } },
     { selector: 'node[presence = "B-only"]', style: { 'background-color': '#27ae60' } },
     { selector: 'node[presence = "both"]', style: { 'background-color': '#95a5a6' } },
     { selector: 'edge[presence = "A-only"]', style: { 'line-color': '#c0392b', 'target-arrow-color': '#c0392b' } },
     { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
     { selector: '.dimmed', style: { 'opacity': 0.12 } },
+    // Engine-overlay toggle (EPIC B4): a separate class from .dimmed so
+    // clearing a node-selection (which does removeClass('dimmed')) never
+    // wipes this. Sits before edge.highlighted so an explicit node selection
+    // can still light an engine-off edge in its neighbourhood.
+    { selector: '.engine-off', style: { 'opacity': 0.06 } },
     // Edges read grey by default; the selected node's fan-in/out lights them
     // brightly so a single click clearly connects the chain.
     { selector: 'edge.highlighted', style: {
@@ -169,11 +184,16 @@ function showSide(visible: boolean): void {
   document.getElementById('side-resize')?.classList.toggle('hidden', !visible)
 }
 
-function showBanner(truncated: boolean): void {
+// #banner is shared by the graph-truncation warning and the EPIC A coverage
+// health summary - whichever call comes last wins (both are simple one-off
+// informational states, not stacked notifications), so callers that render a
+// slice (which always calls showBanner(slice.truncated)) must settle before
+// a coverage banner call, or the coverage message gets clobbered.
+function showBanner(show: boolean, message?: string): void {
   const b = document.getElementById('banner')
   if (!b) return
-  b.style.display = truncated ? 'block' : 'none'
-  if (truncated) b.textContent = 'Graph truncated - narrow the filter to see the full slice.'
+  b.style.display = show ? 'block' : 'none'
+  if (show) b.textContent = message ?? 'Graph truncated - narrow the filter to see the full slice.'
 }
 
 // The master table renders at most one page; a filter matching more than this
@@ -315,6 +335,37 @@ function refreshMiddle(): void {
   // graph view refreshes on row selection, not on filter apply
 }
 
+// Draws a fetched GraphSlice into the cytoscape canvas. Shared by selectRow
+// (a table row's filtered slice) and the syscall-less run auto-trigger below
+// (a funcs-only run has no table rows to select, so nothing else calls this).
+async function renderSlice(slice: GraphSlice): Promise<void> {
+  const els = sliceToElements(slice)
+  cy.elements().remove()
+  cy.add(els.nodes)
+  cy.add(els.edges)
+  await runElkLayout(cy)
+  cy.fit(undefined, 48) // frame the slice with padding; consistent zoom per selection
+  showBanner(slice.truncated)
+  redrawBadges()
+  void recolorRasp()
+  applyEngineOverlay() // renderSlice rebuilds every element, so classes are lost per render
+}
+
+// Engine-overlay toggle (EPIC B4): hide every edge whose engine checkbox is
+// unchecked. Renderer-side (cytoscape .engine-off), no re-query - engine
+// provenance already rides on edge data (Phase 2).
+function currentEngineToggles(): EngineToggleState {
+  const on = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.checked ?? true
+  return { syscall: on('e-syscall'), funcs: on('e-funcs'), correlate: on('e-correlate'), sentinel: on('e-sentinel') }
+}
+function applyEngineOverlay(): void {
+  const state = currentEngineToggles()
+  cy.edges().forEach(e => { e.toggleClass('engine-off', shouldHideEdge(e.data('engine') as string | undefined, state)) })
+}
+for (const id of ['e-syscall', 'e-funcs', 'e-correlate', 'e-sentinel']) {
+  document.getElementById(id)?.addEventListener('change', () => applyEngineOverlay())
+}
+
 async function selectRow(row: TableRow): Promise<void> {
   const e = selEpoch.bump()
   selectedRowId = row.id
@@ -328,15 +379,7 @@ async function selectRow(row: TableRow): Promise<void> {
   showView('graph')
   const slice = await window.ares.slice(filterForRow(row, currentFilter()), GRAPH_SLICE_CAP, activeRunId)
   if (!selEpoch.isCurrent(e)) return // stale slice; do not repaint the graph for a row the user left
-  const els = sliceToElements(slice)
-  cy.elements().remove()
-  cy.add(els.nodes)
-  cy.add(els.edges)
-  await runElkLayout(cy)
-  cy.fit(undefined, 48) // frame the slice with padding; consistent zoom per selection
-  showBanner(slice.truncated)
-  redrawBadges()
-  void recolorRasp()
+  await renderSlice(slice)
 }
 
 // Exposed for the screenshot harness / debugging to drive the graph deterministically.
@@ -398,12 +441,18 @@ cy.on('tap', evt => { if (evt.target === cy) { selEpoch.bump(); clearHighlight(c
 
 function applyGraphTheme(next: Theme): void {
   const c = themeColors(next)
+  const nec = edgeEngineColors(next)
   cy.style()
     .selector('node').style({ color: c.labelText, 'background-color': c.labelBacking, 'border-color': c.native })
     .selector('node[kind = "java"]').style({ 'border-color': c.java })
     .selector('node[kind = "native"]').style({ 'border-color': c.native })
     .selector('node[kind = "syscall"]').style({ 'border-color': c.syscall })
+    .selector('node[kind = "func"]').style({ 'border-color': c.func })
+    .selector('node[kind = "check"]').style({ 'border-color': c.check })
     .selector('edge').style({ 'line-color': c.edge, 'target-arrow-color': c.edge })
+    .selector('edge[engine = "funcs"]').style({ 'line-color': nec.funcs, 'target-arrow-color': nec.funcs })
+    .selector('edge[engine = "correlate"]').style({ 'line-color': nec.correlate, 'target-arrow-color': nec.correlate })
+    .selector('edge[engine = "sentinel"]').style({ 'line-color': nec.sentinel, 'target-arrow-color': nec.sentinel })
     .selector('edge.highlighted').style({ 'line-color': c.labelText, 'target-arrow-color': c.labelText, 'width': 3.5, 'arrow-scale': 1.3 })
     .update()
 }
@@ -669,6 +718,52 @@ function openCaptureModal(): void {
   })
 }
 
+// EPIC E2: live `adb logcat -s SENTINEL` reader. Deliberately separate from
+// Capture above - a logcat stream has no preflight/capability form and its
+// start->stream->stop->ingest lifecycle differs from a tracer run's own
+// preflight->run->pull->ingest, so sharing one modal would tangle two
+// different state machines for little gain.
+function wireSentinel(): void {
+  const startBtn = document.getElementById('sentinel-start') as HTMLButtonElement | null
+  const stopBtn = document.getElementById('sentinel-stop') as HTMLButtonElement | null
+  const consoleHost = document.getElementById('sentinel-console')
+  if (!startBtn || !stopBtn || !consoleHost) return
+
+  startBtn.addEventListener('click', async () => {
+    consoleHost.innerHTML = ''
+    startBtn.disabled = true; stopBtn.disabled = false
+    await window.ares.sentinelStart()
+  })
+
+  stopBtn.addEventListener('click', async () => {
+    stopBtn.disabled = true
+    try {
+      // sentinelStop() funnels the captured verdicts through the same
+      // ingest -> trace:loaded path as openFile()/tracerStart(), so the
+      // existing onLoaded handler below refreshes table/graph/suggestions -
+      // no separate switch-to-graph call needed here.
+      const r = await window.ares.sentinelStop()
+      appendConsoleLine(consoleHost, r ? `--- done (${r.eventCount} verdicts) ---` : '--- done (no verdicts captured) ---')
+    } catch (err) {
+      appendConsoleLine(consoleHost, `--- error: ${err instanceof Error ? err.message : String(err)} ---`)
+    } finally {
+      startBtn.disabled = false
+    }
+  })
+}
+
+function openSentinelModal(): void {
+  showModal({
+    title: 'SENTINEL logcat',
+    width: 560,
+    render: host => {
+      const tpl = document.getElementById('sentinel-template') as HTMLTemplateElement | null
+      if (tpl) host.appendChild(tpl.content.cloneNode(true))
+      wireSentinel()
+    },
+  })
+}
+
 function wireExport(): void {
   const md = document.getElementById('export-md')
   const json = document.getElementById('export-json')
@@ -695,6 +790,21 @@ window.ares.onLoaded(s => {
     redrawBadges()
     void refreshSuggestions()
     void refreshOrphans()
+  })
+  // A funcs-only run has zero syscalls: the table is empty, so selectRow never
+  // fires and the graph would stay blank. Render its slice directly instead -
+  // the funcs adapter (merged into slice() in EPIC A) is the only content.
+  let renderTrigger: Promise<void> = Promise.resolve()
+  if (s.eventCount === 0) {
+    showView('graph')
+    renderTrigger = window.ares.slice({}, GRAPH_SLICE_CAP, s.runId).then(renderSlice)
+  }
+  // EPIC A coverage health banner: not graph data, so it waits for any
+  // auto-triggered render above to settle first (renderSlice's own
+  // showBanner(false) call would otherwise clobber this one).
+  void renderTrigger.then(() => window.ares.coverage(s.runId)).then(cov => {
+    if (!cov) return
+    showBanner(true, `Coverage: ${cov.snaps.total} snapshots (${cov.snaps.truncated} truncated) · CFI walks ${cov.cfi.walks}`)
   })
 })
 document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))
@@ -770,6 +880,7 @@ window.addEventListener('keydown', e => {
 document.getElementById('file-open')?.addEventListener('click', () => { void window.ares.openFile() })
 document.getElementById('file-quit')?.addEventListener('click', () => { void window.ares.quit() })
 document.getElementById('file-capture')?.addEventListener('click', () => openCaptureModal())
+document.getElementById('file-sentinel')?.addEventListener('click', () => openSentinelModal())
 
 // Registered once (not per Capture-modal open) so re-opening Capture doesn't
 // stack tracer:line subscriptions; appends to whichever cap-console is live.
@@ -786,6 +897,12 @@ window.ares.onPreflightCheck(c => {
   row.className = c.ok ? 'preflight-ok' : 'preflight-bad'
   row.textContent = `${c.ok ? 'OK' : 'FAIL'}  ${c.label} - ${c.detail}`
   host.appendChild(row)
+})
+
+// Same once-registered pattern as onTracerLine above, for the SENTINEL modal.
+window.ares.onSentinelLine(line => {
+  const c = document.getElementById('sentinel-console')
+  if (c) appendConsoleLine(c, line)
 })
 
 // Ctrl/Cmd+O opens a run (replaces the removed native-menu accelerator).

@@ -15,7 +15,8 @@
         --border: #262d3d; --border-soft: #202634;
         --text: #c9d1e0; --muted: #8b96a8; --stripe: #181d27; --hover: #1b2230;
         --accent: #2647a8; --accent-bd: #3159c9; --accent-soft: #1e3a8a33; --accent-fg: #7aa2ff;
-        --k-java: #5fd28f; --k-native: #6fa8ff; --k-syscall: #ff8b7a;
+        --k-java: #5fd28f; --k-native: #6fa8ff; --k-syscall: #ff8b7a; --k-func: #d9a441; --k-check: #e5484d;
+        --e-funcs: #d9a441; --e-correlate: #8a7dd6; --e-sentinel: #e5484d;
         --warn-bg: #3a2f12; --warn-bd: #5c4a1a; --warn-fg: #e8c977;
         --input-bg: #0e1219; --input-bd: #2a3346;
         --shadow: 0 2px 10px rgba(0,0,0,.35);
@@ -25,7 +26,8 @@
         --border: #e2e6ea; --border-soft: #eef1f4;
         --text: #1e2530; --muted: #6b7684; --stripe: #f7f9fb; --hover: #f2f7ff;
         --accent: #1a56db; --accent-bd: #1a56db; --accent-soft: #e8f0fe; --accent-fg: #1a56db;
-        --k-java: #27ae60; --k-native: #2980b9; --k-syscall: #c0392b;
+        --k-java: #27ae60; --k-native: #2980b9; --k-syscall: #c0392b; --k-func: #b8860b; --k-check: #a8324a;
+        --e-funcs: #b8860b; --e-correlate: #6c5ce7; --e-sentinel: #a8324a;
         --warn-bg: #fff3cd; --warn-bd: #ffe08a; --warn-fg: #7a5c00;
         --input-bg: #ffffff; --input-bd: #cbd2da;
         --shadow: 0 1px 4px rgba(0,0,0,.12);
@@ -139,6 +141,12 @@
       #legend .k-java { background: var(--k-java); transform: rotate(45deg); }
       #legend .k-native { background: var(--k-native); border-radius: 50%; }
       #legend .k-syscall { background: var(--k-syscall); border-radius: 2px; }
+      #legend .k-func { background: var(--k-func); border-radius: 2px; }
+      #legend .k-check { background: var(--k-check); border-radius: 50%; }
+      #legend i.e-line { width: 14px; height: 2px; border-radius: 1px; }
+      #legend .e-funcs { background: var(--e-funcs); }
+      #legend .e-correlate { background: var(--e-correlate); }
+      #legend .e-sentinel { background: var(--e-sentinel); }
 
       /* empty state */
       #empty-state { position: absolute; inset: 0; display: flex; flex-direction: column;
@@ -349,6 +357,7 @@
         <div class="menu-body">
           <button id="file-open" class="btn">Open JSONL&hellip;</button>
           <button id="file-capture" class="btn">Capture&hellip;</button>
+          <button id="file-sentinel" class="btn">SENTINEL logcat&hellip;</button>
           <button id="export-md" class="btn">Export Markdown</button>
           <button id="export-json" class="btn">Export JSON</button>
           <button id="file-quit" class="btn">Quit</button>
@@ -385,6 +394,11 @@
       <input id="f-tid" type="text" size="5" placeholder="tid" />
       <label><input type="checkbox" id="f-hasjava" /> has java_stack</label>
       <button id="apply" class="btn pri">Apply</button>
+      <span class="flabel">engines</span>
+      <label><input type="checkbox" id="e-syscall" checked /> syscall</label>
+      <label><input type="checkbox" id="e-funcs" checked /> funcs</label>
+      <label><input type="checkbox" id="e-correlate" checked /> correlate</label>
+      <label><input type="checkbox" id="e-sentinel" checked /> sentinel</label>
     </div>
 
     <div id="main">
@@ -408,6 +422,11 @@
             <span><i class="k-java"></i> java method</span>
             <span><i class="k-native"></i> native</span>
             <span><i class="k-syscall"></i> syscall</span>
+            <span><i class="k-func"></i> func</span>
+            <span><i class="k-check"></i> RASP check</span>
+            <span><i class="e-line e-funcs"></i> funcs edge</span>
+            <span><i class="e-line e-correlate"></i> correlate edge</span>
+            <span><i class="e-line e-sentinel"></i> sentinel edge</span>
           </div>
           <div id="zoom">
             <button id="zoom-in" title="zoom in">+</button>
@@ -459,6 +478,15 @@
         </div>
         <div id="cap-preflight-status"></div>
         <div id="cap-console"></div>
+      </div>
+    </template>
+    <template id="sentinel-template">
+      <div id="sentinel-capture">
+        <div id="sentinel-form-row">
+          <button id="sentinel-start" class="btn pri">Start</button>
+          <button id="sentinel-stop" class="btn" disabled>Stop</button>
+        </div>
+        <div id="sentinel-console"></div>
       </div>
     </template>
     <script type="module" src="./main.ts"></script>

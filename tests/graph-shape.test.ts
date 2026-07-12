@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chainOf, foldEvents, labelForId, capSlice, nativeNodeId } from '@shared/graph-shape'
+import { chainOf, foldEvents, labelForId, capSlice, mergeGraphs, nativeNodeId } from '@shared/graph-shape'
 import type { SyscallEvent } from '@shared/events'
 
 function syscall(over: Partial<SyscallEvent> = {}): SyscallEvent {
@@ -113,6 +113,37 @@ describe('capSlice', () => {
   })
 })
 
+describe('mergeGraphs', () => {
+  const n = (id: string, count: number) => ({ id, kind: 'native' as const, label: id, module: null, count })
+  const e = (s: string, t: string, count: number) => ({ id: `${s}=>${t}`, source: s, target: t, count })
+
+  it('sums counts when two sources agree on the same node/edge id', () => {
+    const a = { nodes: [n('sys:openat', 2)], edges: [e('nat:x', 'sys:openat', 2)] }
+    const b = { nodes: [n('sys:openat', 1)], edges: [e('nat:x', 'sys:openat', 1)] }
+    const merged = mergeGraphs(a, b)
+    expect(merged.nodes).toEqual([{ ...n('sys:openat', 3) }])
+    expect(merged.edges).toEqual([{ ...e('nat:x', 'sys:openat', 3) }])
+  })
+
+  it('keeps distinct ids from different sources side by side', () => {
+    const a = { nodes: [n('fn:a', 1)], edges: [] }
+    const b = { nodes: [n('fn:b', 1)], edges: [] }
+    const merged = mergeGraphs(a, b)
+    expect(merged.nodes.map(x => x.id).sort()).toEqual(['fn:a', 'fn:b'])
+  })
+
+  it('mutating the result does not mutate the input sources', () => {
+    const a = { nodes: [n('x', 1)], edges: [] }
+    const merged = mergeGraphs(a)
+    merged.nodes[0].count = 99
+    expect(a.nodes[0].count).toBe(1)
+  })
+
+  it('returns empty for no sources', () => {
+    expect(mergeGraphs()).toEqual({ nodes: [], edges: [] })
+  })
+})
+
 describe('labelForId', () => {
   it('labels a java id', () => {
     expect(labelForId('java:com.example.app.RootCheck.run')).toEqual({
@@ -131,6 +162,14 @@ describe('labelForId', () => {
     expect(labelForId('nat:libexample.so')).toEqual({
       kind: 'native', label: 'libexample.so', module: 'libexample.so',
     })
+  })
+  it('labels a func id', () => {
+    expect(labelForId('fn:libexample.so!JNI_OnLoad')).toEqual({
+      kind: 'func', label: 'libexample.so!JNI_OnLoad', module: null,
+    })
+  })
+  it('labels a check id', () => {
+    expect(labelForId('check:hook-scan')).toEqual({ kind: 'check', label: 'hook-scan', module: null })
   })
 })
 

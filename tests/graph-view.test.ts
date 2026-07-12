@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sliceToElements, sliceToElkGraph, elkResultToPositions, filterForRow, truncateLabel } from '../src/renderer/graph-view'
+import { sliceToElements, sliceToElkGraph, elkResultToPositions, filterForRow, truncateLabel, shouldHideEdge, type EngineToggleState } from '../src/renderer/graph-view'
 import type { GraphSlice } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
 
@@ -64,6 +64,28 @@ describe('filterForRow', () => {
   it('ANDs the currently active toolbar filter', () => {
     expect(filterForRow(row(), { library: 'libexample' }))
       .toEqual({ library: 'libexample', text: 'com.example.Sec.check', hasJavaStack: true })
+  })
+})
+
+describe('shouldHideEdge', () => {
+  const allOn: EngineToggleState = { syscall: true, funcs: true, correlate: true, sentinel: true }
+
+  it('undefined engine (the syscall SQL path) follows the syscall toggle', () => {
+    expect(shouldHideEdge(undefined, allOn)).toBe(false)
+    expect(shouldHideEdge(undefined, { ...allOn, syscall: false })).toBe(true)
+  })
+
+  it('an unrecognized engine string also falls back to the syscall toggle', () => {
+    expect(shouldHideEdge('bogus', { ...allOn, syscall: false })).toBe(true)
+    expect(shouldHideEdge('bogus', allOn)).toBe(false)
+  })
+
+  it('each toggle flips only its own engine, others stay shown', () => {
+    const funcsOff = { ...allOn, funcs: false }
+    expect(shouldHideEdge('funcs', funcsOff)).toBe(true)
+    expect(shouldHideEdge('correlate', funcsOff)).toBe(false)
+    expect(shouldHideEdge('sentinel', funcsOff)).toBe(false)
+    expect(shouldHideEdge(undefined, funcsOff)).toBe(false)
   })
 })
 

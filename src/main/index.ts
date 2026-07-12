@@ -15,7 +15,7 @@ import type { DiffRow } from '@shared/diff'
 import { mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { readFile, open } from 'node:fs/promises'
-import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
+import { preflight, startRun, startLogcat, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
 import { loadConfig, saveConfig } from './tracer-config'
 import { capById, composeRunArg, outJsonlPath, outDumpDir, resolveSavePath } from '@shared/tracer-caps'
 import { isElf, specNames, type PathCheck, type PathStatus } from './path-check'
@@ -31,6 +31,8 @@ let win!: BrowserWindow
 const adb = realAdb()
 const spawner = realSpawner()
 let activeRun: RunHandle | null = null
+let activeSentinel: RunHandle | null = null
+let sentinelBuffer: string[] = []
 
 async function fileMd5(path: string): Promise<string> {
   try {
@@ -217,6 +219,34 @@ ipcMain.handle('tracer:stop', async () => {
   if (activeRun) await activeRun.stop()
 })
 
+// EPIC E2: live `adb logcat -s SENTINEL` reader. Distinct lifecycle from
+// tracer:start/stop above (a logcat stream has no natural end - it runs
+// until Stop is clicked, so sentinel:start returns immediately instead of
+// awaiting .done). Every line goes to the console for visibility; only
+// JSON-shaped lines (a real verdict, not a logcat banner) are kept for the
+// JSONL that gets ingested on stop - E1's ingest-time COALESCE then
+// synthesizes type:'sentinel' for them.
+ipcMain.handle('sentinel:start', async () => {
+  sentinelBuffer = []
+  activeSentinel = startLogcat(spawner, line => {
+    win.webContents.send('sentinel:line', line)
+    const t = line.trim()
+    if (t.startsWith('{')) sentinelBuffer.push(t)
+  })
+})
+
+ipcMain.handle('sentinel:stop', async () => {
+  if (!activeSentinel) return null
+  await activeSentinel.stop()
+  await activeSentinel.done
+  activeSentinel = null
+  if (sentinelBuffer.length === 0) return null
+  const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
+  const hostPath = resolve(runsDir(), `sentinel-${ts}.jsonl`)
+  writeFileSync(hostPath, sentinelBuffer.join('\n'))
+  return loadPath(hostPath)
+})
+
 ipcMain.handle('trace:open', () => openViaDialog(true))
 ipcMain.handle('trace:openCompare', () => openViaDialog(false))
 ipcMain.handle('app:quit', () => app.quit())
@@ -227,6 +257,7 @@ ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number, runId?: number)
 ipcMain.handle('graph:stackRollup', (_e, filter: Filter, maxChains?: number, runId?: number) =>
   store.stackRollup(filter, maxChains, runId))
 ipcMain.handle('graph:eventById', (_e, id: number, runId?: number) => store.eventById(id, runId))
+ipcMain.handle('graph:coverage', (_e, runId?: number) => store.coverage(runId))
 ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter, runId?: number) => store.nodeEvents(nodeId, filter, 500, runId))
 ipcMain.handle('graph:nodeOffsets', (_e, nodeId: string, filter: Filter, runId?: number) =>
   store.nodeOffsets(nodeId, filter, runId))
