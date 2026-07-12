@@ -21,3 +21,9 @@ export function isElf(head: Uint8Array): boolean {
 export function hasSpecFile(entryNames: string[]): boolean {
   return entryNames.some(n => n.endsWith('.spec'))
 }
+
+// The .spec files among a directory's entry names, sorted ascending. Feeds the
+// capture form's probe-spec dropdown.
+export function specNames(entryNames: string[]): string[] {
+  return entryNames.filter(n => n.endsWith('.spec')).sort()
+}
