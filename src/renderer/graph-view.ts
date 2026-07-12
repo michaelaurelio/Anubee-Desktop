@@ -23,6 +23,25 @@ export function sliceToElements(slice: GraphSlice): {
   }
 }
 
+// Per-engine overlay toggle (EPIC B4). Whether an edge with the given
+// `engine` (undefined = syscall, the SQL path never tags its own edges -
+// see graph-shape.ts's GraphEdge.engine comment) should be hidden given the
+// current toggle checkboxes. Any unrecognized engine string also falls back
+// to the syscall toggle, same as undefined.
+export interface EngineToggleState {
+  syscall: boolean
+  funcs: boolean
+  correlate: boolean
+  sentinel: boolean
+}
+
+export function shouldHideEdge(engine: string | undefined, state: EngineToggleState): boolean {
+  if (engine === 'funcs') return !state.funcs
+  if (engine === 'correlate') return !state.correlate
+  if (engine === 'sentinel') return !state.sentinel
+  return !state.syscall
+}
+
 // ELK layered layout options, flowing DOWN so java -> native -> syscall reads
 // top to bottom. Values are strings (ELK's option format). The layout runs in
 // a Web Worker (see elk.worker.ts); cytoscape only applies the resulting

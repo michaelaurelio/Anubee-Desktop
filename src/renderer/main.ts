@@ -1,7 +1,7 @@
 import cytoscape from 'cytoscape'
 import { themeColors, categoryColors, edgeEngineColors, parseTheme, serializeTheme, type Theme } from './theme'
 import { wirePanels } from './panels'
-import { sliceToElements, filterForRow } from './graph-view'
+import { sliceToElements, filterForRow, shouldHideEdge, type EngineToggleState } from './graph-view'
 import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
 import { currentFilter, wireFilterControls } from './filter-controls'
@@ -84,6 +84,11 @@ const cy = cytoscape({
     { selector: 'edge[presence = "A-only"]', style: { 'line-color': '#c0392b', 'target-arrow-color': '#c0392b' } },
     { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
     { selector: '.dimmed', style: { 'opacity': 0.12 } },
+    // Engine-overlay toggle (EPIC B4): a separate class from .dimmed so
+    // clearing a node-selection (which does removeClass('dimmed')) never
+    // wipes this. Sits before edge.highlighted so an explicit node selection
+    // can still light an engine-off edge in its neighbourhood.
+    { selector: '.engine-off', style: { 'opacity': 0.06 } },
     // Edges read grey by default; the selected node's fan-in/out lights them
     // brightly so a single click clearly connects the chain.
     { selector: 'edge.highlighted', style: {
@@ -294,6 +299,22 @@ async function renderSlice(slice: GraphSlice): Promise<void> {
   showBanner(slice.truncated)
   redrawBadges()
   void recolorRasp()
+  applyEngineOverlay() // renderSlice rebuilds every element, so classes are lost per render
+}
+
+// Engine-overlay toggle (EPIC B4): hide every edge whose engine checkbox is
+// unchecked. Renderer-side (cytoscape .engine-off), no re-query - engine
+// provenance already rides on edge data (Phase 2).
+function currentEngineToggles(): EngineToggleState {
+  const on = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.checked ?? true
+  return { syscall: on('e-syscall'), funcs: on('e-funcs'), correlate: on('e-correlate'), sentinel: on('e-sentinel') }
+}
+function applyEngineOverlay(): void {
+  const state = currentEngineToggles()
+  cy.edges().forEach(e => { e.toggleClass('engine-off', shouldHideEdge(e.data('engine') as string | undefined, state)) })
+}
+for (const id of ['e-syscall', 'e-funcs', 'e-correlate', 'e-sentinel']) {
+  document.getElementById(id)?.addEventListener('change', () => applyEngineOverlay())
 }
 
 async function selectRow(row: TableRow): Promise<void> {
