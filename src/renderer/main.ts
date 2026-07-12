@@ -556,6 +556,52 @@ function openCaptureModal(): void {
   })
 }
 
+// EPIC E2: live `adb logcat -s SENTINEL` reader. Deliberately separate from
+// Capture above - a logcat stream has no preflight/capability form and its
+// start->stream->stop->ingest lifecycle differs from a tracer run's own
+// preflight->run->pull->ingest, so sharing one modal would tangle two
+// different state machines for little gain.
+function wireSentinel(): void {
+  const startBtn = document.getElementById('sentinel-start') as HTMLButtonElement | null
+  const stopBtn = document.getElementById('sentinel-stop') as HTMLButtonElement | null
+  const consoleHost = document.getElementById('sentinel-console')
+  if (!startBtn || !stopBtn || !consoleHost) return
+
+  startBtn.addEventListener('click', async () => {
+    consoleHost.innerHTML = ''
+    startBtn.disabled = true; stopBtn.disabled = false
+    await window.ares.sentinelStart()
+  })
+
+  stopBtn.addEventListener('click', async () => {
+    stopBtn.disabled = true
+    try {
+      // sentinelStop() funnels the captured verdicts through the same
+      // ingest -> trace:loaded path as openFile()/tracerStart(), so the
+      // existing onLoaded handler below refreshes table/graph/suggestions -
+      // no separate switch-to-graph call needed here.
+      const r = await window.ares.sentinelStop()
+      appendConsoleLine(consoleHost, r ? `--- done (${r.eventCount} verdicts) ---` : '--- done (no verdicts captured) ---')
+    } catch (err) {
+      appendConsoleLine(consoleHost, `--- error: ${err instanceof Error ? err.message : String(err)} ---`)
+    } finally {
+      startBtn.disabled = false
+    }
+  })
+}
+
+function openSentinelModal(): void {
+  showModal({
+    title: 'SENTINEL logcat',
+    width: 560,
+    render: host => {
+      const tpl = document.getElementById('sentinel-template') as HTMLTemplateElement | null
+      if (tpl) host.appendChild(tpl.content.cloneNode(true))
+      wireSentinel()
+    },
+  })
+}
+
 function wireExport(): void {
   const md = document.getElementById('export-md')
   const json = document.getElementById('export-json')
@@ -629,11 +675,18 @@ window.addEventListener('keydown', e => {
 document.getElementById('file-open')?.addEventListener('click', () => { void window.ares.openFile() })
 document.getElementById('file-quit')?.addEventListener('click', () => { void window.ares.quit() })
 document.getElementById('file-capture')?.addEventListener('click', () => openCaptureModal())
+document.getElementById('file-sentinel')?.addEventListener('click', () => openSentinelModal())
 
 // Registered once (not per Capture-modal open) so re-opening Capture doesn't
 // stack tracer:line subscriptions; appends to whichever cap-console is live.
 window.ares.onTracerLine(line => {
   const c = document.getElementById('cap-console')
+  if (c) appendConsoleLine(c, line)
+})
+
+// Same once-registered pattern as onTracerLine above, for the SENTINEL modal.
+window.ares.onSentinelLine(line => {
+  const c = document.getElementById('sentinel-console')
   if (c) appendConsoleLine(c, line)
 })
 

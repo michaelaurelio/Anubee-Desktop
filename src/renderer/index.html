@@ -308,6 +308,7 @@
         <div class="menu-body">
           <button id="file-open" class="btn">Open JSONL&hellip;</button>
           <button id="file-capture" class="btn">Capture&hellip;</button>
+          <button id="file-sentinel" class="btn">SENTINEL logcat&hellip;</button>
           <button id="export-md" class="btn">Export Markdown</button>
           <button id="export-json" class="btn">Export JSON</button>
           <button id="file-quit" class="btn">Quit</button>
@@ -408,6 +409,15 @@
         <div id="cap-form"></div>
         <div id="cap-preflight-status"></div>
         <div id="cap-console"></div>
+      </div>
+    </template>
+    <template id="sentinel-template">
+      <div id="sentinel-capture">
+        <div id="sentinel-form-row">
+          <button id="sentinel-start" class="btn pri">Start</button>
+          <button id="sentinel-stop" class="btn" disabled>Stop</button>
+        </div>
+        <div id="sentinel-console"></div>
       </div>
     </template>
     <script type="module" src="./main.ts"></script>
