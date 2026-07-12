@@ -55,4 +55,12 @@ contextBridge.exposeInMainWorld('ares', {
     ipcRenderer.on('tracer:line', (_e, line) => cb(line as string)),
   onTracerDone: (cb: (r: { code: number; kind: string; runId?: number }) => void) =>
     ipcRenderer.on('tracer:done', (_e, r) => cb(r as { code: number; kind: string; runId?: number })),
+  // EPIC E2: live `adb logcat -s SENTINEL` reader. sentinelStop() resolves the
+  // same { runId, eventCount, errors } shape as openFile()/tracerStart() (it
+  // funnels through the same loadPath), which also fires the existing
+  // onLoaded/trace:loaded broadcast - no separate "done" event needed.
+  sentinelStart: () => ipcRenderer.invoke('sentinel:start'),
+  sentinelStop: () => ipcRenderer.invoke('sentinel:stop'),
+  onSentinelLine: (cb: (line: string) => void) =>
+    ipcRenderer.on('sentinel:line', (_e, line) => cb(line as string)),
 })
