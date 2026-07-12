@@ -4,13 +4,16 @@
 // Verified against ../ARES src/*/*.c argp tables (see spec s2).
 
 export type OutputKind = 'jsonl' | 'stdout' | 'artifact'
-export type InputKind = 'package' | 'text' | 'bool' | 'csv' | 'pattern' | 'spec' | 'analyzer'
+export type InputKind = 'package' | 'text' | 'bool' | 'csv' | 'pattern' | 'spec' | 'analyzer' | 'int'
 
 export interface CapInput {
   key: string
   label: string
   kind: InputKind
   required?: boolean
+  default?: number   // int inputs: ares default, shown as placeholder ("use default")
+  min?: number       // int inputs: minimum accepted whole number (defaults to 1)
+  advanced?: boolean // render inside the collapsible Advanced disclosure
 }
 
 export type CapValues = Record<string, string | boolean | undefined>
@@ -21,6 +24,11 @@ export interface Capability {
   engine: string
   outputKind: OutputKind
   loud?: boolean
+  // Engine embeds the shared common_args block (-b/-Q/-v). Only syscalls, funcs,
+  // and correlate do; drives COMMON_TUNING_INPUTS + commonArgv. trace is jsonl
+  // too but hand-rolls its args and takes these only inside sections, so it is
+  // deliberately excluded.
+  common?: boolean
   inputs: CapInput[]
   buildArgv(vals: CapValues): string[]
   // Cross-field validation beyond per-input `required` (e.g. syscalls needs a
@@ -32,14 +40,23 @@ export const DEVICE_SPECS = '/data/local/tmp/specs'
 
 const s = (v: CapValues[string]): string => (typeof v === 'string' ? v : '')
 
+// Shared common_args tuning knobs, appended to every `common` capability. -b/-Q
+// are sized in MB; blank means "let ares use its default" (4 / 256).
+export const COMMON_TUNING_INPUTS: CapInput[] = [
+  { key: 'bufmb', label: 'ring buffer (MB)', kind: 'int', default: 4, min: 1, advanced: true },
+  { key: 'queuemb', label: 'worker queue (MB)', kind: 'int', default: 256, min: 1, advanced: true },
+  { key: 'verbose', label: 'verbose debug', kind: 'bool', advanced: true },
+]
+
 export const CAPABILITIES: Capability[] = [
   {
-    id: 'syscalls', label: 'syscalls (stealthy)', engine: 'syscalls', outputKind: 'jsonl',
+    id: 'syscalls', label: 'syscalls (stealthy)', engine: 'syscalls', outputKind: 'jsonl', common: true,
     inputs: [
       { key: 'pkg', label: 'package', kind: 'package', required: true },
       { key: 'lib', label: 'library filter', kind: 'text' },
       { key: 'all', label: 'capture all libraries', kind: 'bool' },
       { key: 'syscalls', label: 'syscalls (comma-separated)', kind: 'csv' },
+      ...COMMON_TUNING_INPUTS,
     ],
     buildArgv(v) {
       const a = ['syscalls', '-P', s(v.pkg)]
@@ -55,20 +72,22 @@ export const CAPABILITIES: Capability[] = [
     },
   },
   {
-    id: 'funcs', label: 'funcs (uprobe, detectable)', engine: 'funcs', outputKind: 'jsonl',
+    id: 'funcs', label: 'funcs (uprobe, detectable)', engine: 'funcs', outputKind: 'jsonl', common: true,
     inputs: [
       { key: 'pkg', label: 'package', kind: 'package', required: true },
       { key: 'spec', label: 'probe spec', kind: 'spec', required: true },
+      ...COMMON_TUNING_INPUTS,
     ],
     buildArgv(v) {
       return ['funcs', '-P', s(v.pkg), '-F', `${DEVICE_SPECS}/${s(v.spec)}`]
     },
   },
   {
-    id: 'correlate', label: 'correlate (loud)', engine: 'correlate', outputKind: 'jsonl', loud: true,
+    id: 'correlate', label: 'correlate (loud)', engine: 'correlate', outputKind: 'jsonl', loud: true, common: true,
     inputs: [
       { key: 'pkg', label: 'package', kind: 'package', required: true },
       { key: 'spec', label: 'probe spec', kind: 'spec', required: true },
+      ...COMMON_TUNING_INPUTS,
     ],
     buildArgv(v) {
       return ['correlate', '-P', s(v.pkg), '-F', `${DEVICE_SPECS}/${s(v.spec)}`]

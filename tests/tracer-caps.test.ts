@@ -75,6 +75,29 @@ describe('tracer-caps registry', () => {
       .toEqual([])
     expect(validateInputs(capById('funcs')!, { pkg: 'com.app', spec: 'common-file.spec' })).toEqual([])
   })
+
+  it('adds the common tuning inputs only to syscalls/funcs/correlate', () => {
+    const tuningKeys = ['bufmb', 'queuemb', 'verbose']
+    for (const id of ['syscalls', 'funcs', 'correlate']) {
+      const keys = capById(id)!.inputs.map(i => i.key)
+      expect(keys).toEqual(expect.arrayContaining(tuningKeys))
+      expect(capById(id)!.common).toBe(true)
+    }
+    for (const id of ['trace', 'lib', 'dump', 'mod']) {
+      const keys = capById(id)!.inputs.map(i => i.key)
+      expect(keys).not.toEqual(expect.arrayContaining(tuningKeys))
+      expect(capById(id)!.common).toBeFalsy()
+    }
+  })
+
+  it('marks the tuning inputs advanced with ares defaults', () => {
+    const buf = capById('syscalls')!.inputs.find(i => i.key === 'bufmb')!
+    const q = capById('syscalls')!.inputs.find(i => i.key === 'queuemb')!
+    const v = capById('syscalls')!.inputs.find(i => i.key === 'verbose')!
+    expect(buf).toMatchObject({ kind: 'int', default: 4, min: 1, advanced: true })
+    expect(q).toMatchObject({ kind: 'int', default: 256, min: 1, advanced: true })
+    expect(v).toMatchObject({ kind: 'bool', advanced: true })
+  })
 })
 
 import { composeRunArg, outJsonlPath, outDumpDir, DEVICE_BIN, STOP_ARG } from '../src/shared/tracer-caps'
