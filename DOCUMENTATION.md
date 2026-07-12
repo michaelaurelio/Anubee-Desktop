@@ -459,32 +459,51 @@ Each check streams to the renderer as it completes (`tracer:preflight-check`,
 one event per `PreflightCheck`) rather than arriving as a single batch after
 the whole sequence finishes, so the status list fills in row by row while the
 device is queried. The push branch is guarded against an unconfigured host
-*before* any `adb push`: an unreadable/empty host binary (md5 `''`) or an
-empty `specsDir` now fails a `binary` check with an explanatory detail instead
-of shelling out - previously an empty `specsDir` would expand to `adb push /.`,
-pushing the entire host filesystem to the device.
+*before* any `adb push`: an unreadable/empty host binary (md5 `''`) fails the
+`binary` check with an explanatory detail instead of shelling out - the
+binary is always required and always pushed when stale. The **host specs
+dir is optional** - only the spec engines (`funcs`/`correlate`/`trace`) use
+it. An empty `specsDir` is *skipped*, not failed: the binary push proceeds
+regardless, and the specs push (`mkdir -p` + `push .../.`) runs only when
+`cfg.specsDir` is set, closing the earlier `adb push /.` (whole host
+filesystem) hazard from an empty-string path expansion.
 
 **Capture form layout, path validation, and Browse pickers.** The modal is a
 sectioned form - "1. host setup", "2. engine & arguments", "3. run" - each
 introduced by a numbered `.cap-section-hd` header, replacing the earlier
-single-stacked layout. Host setup carries the ares binary and specs dir
-fields, each with a Browse button (`tracer:pickBinary` opens a native
-open-file dialog; `tracer:pickSpecsDir` opens a native open-directory dialog)
-and a validity dot fed by `tracer:checkPaths` → `path-check.ts`'s pure
-`isElf` (checks the file's first four bytes for the ELF magic number) and
-`hasSpecFile` (checks the directory listing for at least one `.spec` entry);
-the dot repaints on every path edit and after each Browse pick. Engine and
-argument fields, the timeout, and the host setup fields all render per-field
-inline errors under an adjacent `.cap-input-err` span, populated from
-`fieldErrors` as the analyst types - no more silent rejection at Start. The
-engine dropdown lists each capability's plain `engine` name. The loud-engine
-warning banner was removed entirely from the form (no in-form loud cue remains);
-the `loud` flag survives only as unused data in `tracer-caps.ts`. The
-renderer's preflight click handler wraps the `tracer:preflight` IPC call in a
-try/catch: if the call rejects, the handler now reports a `preflight-bad` row
-with an informative "preflight failed: <message>" status (no longer frozen on
+single-stacked layout. Host setup carries only the ares binary field, with a
+Browse button (`tracer:pickBinary` opens a native open-file dialog) and a
+validity dot fed by `tracer:checkPaths` → `path-check.ts`'s pure `isElf`
+(checks the file's first four bytes for the ELF magic number); the dot
+repaints on every path edit and after each Browse pick. Engine and argument
+fields, the timeout, and the host binary field all render per-field inline
+errors under an adjacent `.cap-input-err` span, populated from `fieldErrors`
+as the analyst types - no more silent rejection at Start. The engine dropdown
+lists each capability's plain `engine` name. The loud-engine warning banner
+was removed entirely from the form (no in-form loud cue remains); the `loud`
+flag survives only as unused data in `tracer-caps.ts`. The renderer's
+preflight click handler wraps the `tracer:preflight` IPC call in a try/catch:
+if the call rejects, the handler now reports a `preflight-bad` row with an
+informative "preflight failed: <message>" status (no longer frozen on
 "running preflight...") and Start remains disabled after a failure - the
 original failure mode before this guard was added.
+
+**Optional specs dir + probe-spec discovery.** The specs-dir field no longer
+lives in host setup - it moved into the engine section, gated by
+`capNeedsSpec(cap)` (`tracer-caps.ts`, true iff a capability has a `spec`
+input), so `syscalls`/`lib`/`dump`/`mod` never render it and only the three
+spec engines do. For those engines, `renderCapabilityForm` (`capture-view.ts`)
+renders the specs-dir row directly above the probe-spec control, with its own
+Browse (`tracer:pickSpecsDir`) and validity dot (`hasSpecFile` - at least one
+`.spec` entry in the directory listing). The probe-spec input itself renders
+as a `<select>` dropdown, not free text: `tracer:listSpecs` (`src/main/index.ts`)
+→ `path-check.ts`'s pure `specNames` lists the `.spec` basenames (sorted) found
+in the configured specs dir, and `applySpecChoices` repopulates the dropdown's
+options in place whenever the specs dir changes - so editing that field never
+rebuilds or refocuses the rest of the form. Because the dir is optional,
+Start for a spec engine is still gated on it being set and non-empty via the
+existing `hasSpecFile` validity check, even though preflight itself no longer
+requires it.
 
 **Engine-specific arg rules learned from the device.** `syscalls` rejects
 `-P <pkg>` alone - a library filter (`-l`) or capture-all (`-a`) is mandatory,

@@ -292,6 +292,15 @@ unreadable/empty host binary or an empty `specsDir` now fails a `binary`
 check up front instead of running `adb push` - closing the previous
 `adb push /.` (whole host filesystem) hazard from an unconfigured host.
 
+**Shipped: optional specs dir + probe-spec discovery** - the host specs dir
+moved out of host setup into the engine section, shown only for spec engines
+(`funcs`/`correlate`/`trace`, gated by `capNeedsSpec`); an empty specs dir is
+now *skipped* by preflight rather than failing it, and the specs push runs
+only when the dir is set (the binary is always pushed when stale, regardless).
+The probe-spec field is now a dropdown populated from `tracer:listSpecs` →
+`path-check.ts`'s `specNames` (the `.spec` basenames in the configured dir),
+repopulated in place via `applySpecChoices` on every specs-dir edit.
+
 ### Known drawbacks / follow-ups from feature 9
 - **Rules editor is a single-stacked form** - the predicate-builder form
   (`id`, `category`, `confidence`, `rationale`, `syscalls`, `field`, `op`,
@@ -309,10 +318,12 @@ check up front instead of running `adb push` - closing the previous
 - **`mod` analyzer is a free-text field** - the analyzer name is typed by the
   user, not discovered from `ares mod --help`. Parse the analyzer list at
   runtime when this is exercised on device (spec §9 open item).
-- **`funcs`/`correlate`/`trace` spec is a free-text filename** - the UI expects
-  a spec basename under the pushed `specs/` dir; it does not list the available
-  specs. These JSONL engines were not exercised on-device this session (only
-  `syscalls`, `lib`, `dump` were); smoke them when a spec-driven run is needed.
+- **`funcs`/`correlate`/`trace` spec is a free-text filename** - **RESOLVED
+  (2026-07-12)**: the probe-spec input now renders as a dropdown
+  (`tracer:listSpecs` → `path-check.ts`'s `specNames` lists the `.spec`
+  basenames from the configured host specs dir), not free text. These JSONL
+  engines were not exercised on-device this session (only `syscalls`, `lib`,
+  `dump` were); smoke them when a spec-driven run is needed.
 - **stdout/artifact runs never send a UI "run loaded" signal** - only `jsonl`
   runs auto-switch to the table; `lib`/`dump` leave the result in the console /
   `userData/runs/` with no in-app artifact browser yet.
@@ -324,6 +335,24 @@ check up front instead of running `adb push` - closing the previous
   streamed check with a per-run token from the main process (or gate the
   subscription on the active preflight epoch) and drop stale ones before
   appending.
+- **Preflight only refreshes the on-device specs on a binary push** - the
+  specs push (`mkdir -p` + `push .../.`) lives inside the same branch as the
+  stale-binary push in `preflight()`. If the on-device binary is already
+  current, a spec-engine run is not guaranteed a fresh specs push even if the
+  host specs dir changed since the last run. Follow-up: give the specs push
+  its own freshness check instead of piggybacking on the binary's.
+- **Specs-dir field can go stale if the analyst switches to a spec engine
+  before `getTracerConfig()` resolves** - `wireCapture()` draws the initial
+  form synchronously and only later awaits `getTracerConfig()`. If the
+  analyst switches the engine dropdown to a spec engine in that window,
+  `drawForm()` renders the specs-dir input from whatever `specsDir` currently
+  holds - `''` if config hasn't resolved yet. When the config promise later
+  resolves, `refreshSpecList` repopulates the spec dropdown, but nothing
+  pushes the resolved `specsDir` value into the rendered `<input>`, so the
+  field stays blank even though the closure variable now holds the real path.
+  Fix approach: on config-load, if `capNeedsSpec(capById(sel.value))`, also
+  set the rendered `[data-config="specsDir"]` input's value from the resolved
+  config (and re-run `refreshSpecsDot`).
 
 ## Deferred features (post-core, spec §7)
 - **8** Session-only MCP (stdio) exposing the tagged graph. Decision C: headless

@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('ares', {
   pickSavePath: () => ipcRenderer.invoke('tracer:pickSavePath'),
   tracerCheckPaths: (binaryPath: string, specsDir: string) =>
     ipcRenderer.invoke('tracer:checkPaths', binaryPath, specsDir),
+  tracerListSpecs: (specsDir: string) => ipcRenderer.invoke('tracer:listSpecs', specsDir),
   tracerPickBinary: () => ipcRenderer.invoke('tracer:pickBinary'),
   tracerPickSpecsDir: () => ipcRenderer.invoke('tracer:pickSpecsDir'),
   onTracerLine: (cb: (line: string) => void) =>

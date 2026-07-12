@@ -22,8 +22,8 @@ import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from
 import { renderFlame } from './flame-view'
 import { buildFlame } from '@shared/flame-shape'
 import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
-import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot } from './capture-view'
-import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, type CapValues } from '@shared/tracer-caps'
+import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices } from './capture-view'
+import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
 import { showModal, isModalOpen } from './modal'
 import { makeEpoch } from './selection-epoch'
 
@@ -477,9 +477,8 @@ function wireCapture(): void {
   const startBtn = document.getElementById('cap-start') as HTMLButtonElement | null
   const stopBtn = document.getElementById('cap-stop') as HTMLButtonElement | null
   const binIn = document.getElementById('cfg-binary') as HTMLInputElement | null
-  const specIn = document.getElementById('cfg-specs') as HTMLInputElement | null
   const saveIn = document.getElementById('cap-savepath') as HTMLInputElement | null
-  if (!sel || !formHost || !statusHost || !consoleHost || !startBtn || !stopBtn || !binIn || !specIn) return
+  if (!sel || !formHost || !statusHost || !consoleHost || !startBtn || !stopBtn || !binIn) return
 
   document.getElementById('cap-browse')?.addEventListener('click', async () => {
     const p = await window.ares.pickSavePath()
@@ -487,28 +486,22 @@ function wireCapture(): void {
   })
 
   const binDot = document.getElementById('cfg-binary-dot')
-  const specDot = document.getElementById('cfg-specs-dot')
   const binErr = document.getElementById('cfg-binary-err')
-  const specErr = document.getElementById('cfg-specs-err')
 
-  const refreshPaths = async (): Promise<void> => {
-    const r = await window.ares.tracerCheckPaths(binIn.value, specIn.value)
+  let specsDir = ''            // persisted host specs dir; rendered in-form for spec engines
+  let specNames: string[] = [] // discovered .spec basenames for the current specsDir
+
+  const refreshBinary = async (): Promise<void> => {
+    const r = await window.ares.tracerCheckPaths(binIn.value, specsDir)
     if (binDot) renderDot(binDot, r.binary)
-    if (specDot) renderDot(specDot, r.specs)
     if (binErr) binErr.textContent = r.binary.ok ? '' : `Required - ${r.binary.detail}`
-    if (specErr) specErr.textContent = r.specs.ok ? '' : `Required - ${r.specs.detail}`
   }
 
   document.getElementById('cfg-binary-browse')?.addEventListener('click', async () => {
     const p = await window.ares.tracerPickBinary()
-    if (p) { binIn.value = p; saveCfg(); void refreshPaths() }
+    if (p) { binIn.value = p; saveCfg(); void refreshBinary() }
   })
-  document.getElementById('cfg-specs-browse')?.addEventListener('click', async () => {
-    const p = await window.ares.tracerPickSpecsDir()
-    if (p) { specIn.value = p; saveCfg(); void refreshPaths() }
-  })
-  binIn.addEventListener('input', () => void refreshPaths())
-  specIn.addEventListener('input', () => void refreshPaths())
+  binIn.addEventListener('input', () => void refreshBinary())
 
   let vals: CapValues = {}
   let preflightOk = false
@@ -528,35 +521,87 @@ function wireCapture(): void {
     startBtn.disabled = true
     statusHost.innerHTML = ''
   }
+  const onFormChange = (cap: Capability, v: CapValues): void => {
+    vals = v
+    invalidatePreflight()
+    const { fields, form } = fieldErrors(cap, vals)
+    applyFieldErrors(formHost, fields)
+    const formErr = document.getElementById('cap-form-err')
+    if (formErr) formErr.textContent = form.join('; ')
+  }
+
+  // Repaint the in-form specs-dir dot + error from a host-path check.
+  const refreshSpecsDot = async (): Promise<void> => {
+    const dot = formHost.querySelector<HTMLElement>('[data-role="specsDot"]')
+    const err = formHost.querySelector<HTMLElement>('[data-err="specsDir"]')
+    if (!dot && !err) return
+    const r = await window.ares.tracerCheckPaths(binIn.value, specsDir)
+    if (dot) renderDot(dot, r.specs)
+    if (err) err.textContent = r.specs.ok ? '' : `Required - ${r.specs.detail}`
+  }
+
+  // Reload the .spec list for the current specsDir and repopulate the select in
+  // place; drop a now-invalid selection and re-run the field-error pass.
+  const refreshSpecList = async (cap: Capability): Promise<void> => {
+    specNames = await window.ares.tracerListSpecs(specsDir)
+    if (typeof vals.spec === 'string' && vals.spec && !specNames.includes(vals.spec)) {
+      vals = { ...vals, spec: '' }
+    }
+    applySpecChoices(formHost, specNames, String(vals.spec ?? ''))
+    const { fields, form } = fieldErrors(cap, vals)
+    applyFieldErrors(formHost, fields)
+    const formErr = document.getElementById('cap-form-err')
+    if (formErr) formErr.textContent = form.join('; ')
+  }
+
+  // Bind the specs-dir config row that renderCapabilityForm emits for spec engines.
+  const bindSpecsRow = (cap: Capability): void => {
+    const dir = formHost.querySelector<HTMLInputElement>('[data-config="specsDir"]')
+    if (!dir) return
+    const onDirChange = async (): Promise<void> => {
+      specsDir = dir.value
+      saveCfg()
+      await refreshSpecsDot()
+      await refreshSpecList(cap)
+      invalidatePreflight()
+    }
+    formHost.querySelector('[data-role="specsBrowse"]')?.addEventListener('click', async () => {
+      const p = await window.ares.tracerPickSpecsDir()
+      if (p) { dir.value = p; await onDirChange() }
+    })
+    dir.addEventListener('input', () => void onDirChange())
+    void refreshSpecsDot()
+  }
+
   const drawForm = (): void => {
     vals = {}
     const cap = capById(sel.value)!
-    renderCapabilityForm(formHost, cap, vals, v => {
-      vals = v
-      invalidatePreflight()
-      const { fields, form } = fieldErrors(cap, vals)
-      applyFieldErrors(formHost, fields)
-      const formErr = document.getElementById('cap-form-err')
-      if (formErr) formErr.textContent = form.join('; ')
-    })
+    const opts = capNeedsSpec(cap) ? { specNames, specsDir } : {}
+    renderCapabilityForm(formHost, cap, vals, v => onFormChange(cap, v), opts)
+    bindSpecsRow(cap)
   }
   sel.addEventListener('change', () => {
     drawForm()
     invalidatePreflight()
+    const cap = capById(sel.value)!
+    if (capNeedsSpec(cap)) void refreshSpecList(cap)
   })
   drawForm()
 
   let configLoaded = false
-  void window.ares.getTracerConfig().then(cfg => {
-    binIn.value = cfg.aresBinary; specIn.value = cfg.specsDir; configLoaded = true
-    void refreshPaths()
+  void window.ares.getTracerConfig().then(async cfg => {
+    binIn.value = cfg.aresBinary
+    specsDir = cfg.specsDir
+    configLoaded = true
+    void refreshBinary()
+    const cap = capById(sel.value)!
+    if (capNeedsSpec(cap)) { await refreshSpecList(cap); void refreshSpecsDot() }
   })
   const saveCfg = (): void => {
     if (!configLoaded) return
-    void window.ares.setTracerConfig({ aresBinary: binIn.value, specsDir: specIn.value })
+    void window.ares.setTracerConfig({ aresBinary: binIn.value, specsDir })
   }
   binIn.addEventListener('change', saveCfg)
-  specIn.addEventListener('change', saveCfg)
 
   const preflightBtn = document.getElementById('cap-preflight') as HTMLButtonElement | null
   preflightBtn?.addEventListener('click', async () => {

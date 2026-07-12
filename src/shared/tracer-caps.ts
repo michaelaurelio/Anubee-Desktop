@@ -117,6 +117,12 @@ export function capById(id: string): Capability | undefined {
   return CAPABILITIES.find(c => c.id === id)
 }
 
+// A capability needs the host specs dir iff it takes a probe spec (funcs /
+// correlate / trace). Drives whether the form shows the specs-dir + spec fields.
+export function capNeedsSpec(cap: Capability): boolean {
+  return cap.inputs.some(i => i.kind === 'spec')
+}
+
 // A token is safe to space-join inside the single-quoted `su -c '<...>'` body
 // (composeRunArg) only if it carries no shell metacharacter or whitespace: a
 // space would split one argument into two, a single quote would close the su -c

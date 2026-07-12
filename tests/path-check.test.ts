@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isElf, hasSpecFile } from '../src/main/path-check'
+import { isElf, hasSpecFile, specNames } from '../src/main/path-check'
 
 describe('isElf', () => {
   it('accepts the ELF magic', () => {
@@ -22,5 +22,17 @@ describe('hasSpecFile', () => {
   })
   it('rejects an empty directory', () => {
     expect(hasSpecFile([])).toBe(false)
+  })
+})
+
+describe('specNames', () => {
+  it('returns only .spec entries, sorted', () => {
+    expect(specNames(['b.spec', 'README.md', 'a.spec', 'c.txt'])).toEqual(['a.spec', 'b.spec'])
+  })
+  it('returns [] when there are no .spec files', () => {
+    expect(specNames(['README.md', 'notes.txt'])).toEqual([])
+  })
+  it('returns [] for empty input', () => {
+    expect(specNames([])).toEqual([])
   })
 })

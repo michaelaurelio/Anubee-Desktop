@@ -18,7 +18,7 @@ import { readFile, open } from 'node:fs/promises'
 import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
 import { loadConfig, saveConfig } from './tracer-config'
 import { capById, composeRunArg, outJsonlPath, outDumpDir, resolveSavePath } from '@shared/tracer-caps'
-import { isElf, type PathCheck, type PathStatus } from './path-check'
+import { isElf, specNames, type PathCheck, type PathStatus } from './path-check'
 import { readdir } from 'node:fs/promises'
 import { basename } from 'node:path'
 
@@ -144,6 +144,15 @@ async function checkHostPaths(binaryPath: string, specsDir: string): Promise<Pat
 
 ipcMain.handle('tracer:checkPaths', (_e, binaryPath: string, specsDir: string) =>
   checkHostPaths(binaryPath, specsDir))
+
+ipcMain.handle('tracer:listSpecs', async (_e, specsDir: string): Promise<string[]> => {
+  if (!specsDir) return []
+  try {
+    return specNames(await readdir(specsDir))
+  } catch {
+    return []
+  }
+})
 
 ipcMain.handle('tracer:pickSavePath', async () => {
   const r = await dialog.showSaveDialog(win, {

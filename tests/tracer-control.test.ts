@@ -74,7 +74,7 @@ describe('preflight', () => {
     expect(adb.calls.some(c => c.startsWith('push'))).toBe(false)
   })
 
-  it('fails without pushing /. when specsDir is empty', async () => {
+  it('pushes the binary but skips the specs push when specsDir is empty', async () => {
     const adb = fakeAdb([
       [/get-state/, { stdout: 'device' }],
       [/id -u/, { stdout: '0' }],
@@ -84,9 +84,10 @@ describe('preflight', () => {
     ])
     const checks = await preflight(adb, { aresBinary: '/host/build/ares', specsDir: '' }, 'com.android.deskclock', async () => 'fresh')
     const binary = checks.find(c => c.id === 'binary')!
-    expect(binary.ok).toBe(false)
-    expect(binary.detail).toMatch(/specs/i)
-    expect(adb.calls.some(c => c.startsWith('push'))).toBe(false)
+    expect(binary.ok).toBe(true)
+    expect(adb.calls.some(c => c.startsWith('push /host/build/ares'))).toBe(true)
+    expect(adb.calls.some(c => c.startsWith('push /.'))).toBe(false)
+    expect(adb.calls.some(c => /push .*\/data\/local\/tmp\/specs/.test(c))).toBe(false)
   })
 
   it('streams each check to onCheck in order as it resolves', async () => {
