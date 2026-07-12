@@ -548,8 +548,10 @@ function wireCapture(): void {
       vals = { ...vals, spec: '' }
     }
     applySpecChoices(formHost, specNames, String(vals.spec ?? ''))
-    const { fields } = fieldErrors(cap, vals)
+    const { fields, form } = fieldErrors(cap, vals)
     applyFieldErrors(formHost, fields)
+    const formErr = document.getElementById('cap-form-err')
+    if (formErr) formErr.textContent = form.join('; ')
   }
 
   // Bind the specs-dir config row that renderCapabilityForm emits for spec engines.
@@ -581,6 +583,8 @@ function wireCapture(): void {
   sel.addEventListener('change', () => {
     drawForm()
     invalidatePreflight()
+    const cap = capById(sel.value)!
+    if (capNeedsSpec(cap)) void refreshSpecList(cap)
   })
   drawForm()
 
