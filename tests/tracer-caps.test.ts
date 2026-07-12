@@ -98,6 +98,28 @@ describe('tracer-caps registry', () => {
     expect(q).toMatchObject({ kind: 'int', default: 256, min: 1, advanced: true })
     expect(v).toMatchObject({ kind: 'bool', advanced: true })
   })
+
+  it('adds the --snapshot input to syscalls and funcs only', () => {
+    for (const id of ['syscalls', 'funcs']) {
+      expect(capById(id)!.inputs.map(i => i.key)).toContain('snapshot')
+    }
+    for (const id of ['correlate', 'trace', 'lib', 'dump', 'mod']) {
+      expect(capById(id)!.inputs.map(i => i.key)).not.toContain('snapshot')
+    }
+    const snap = capById('syscalls')!.inputs.find(i => i.key === 'snapshot')!
+    expect(snap).toMatchObject({ kind: 'bool', advanced: true })
+  })
+
+  it('emits --snapshot in syscalls/funcs argv only when checked', () => {
+    expect(capById('syscalls')!.buildArgv({ pkg: 'com.android.deskclock', all: true, snapshot: true }))
+      .toEqual(['syscalls', '-P', 'com.android.deskclock', '-a', '--snapshot'])
+    expect(capById('syscalls')!.buildArgv({ pkg: 'com.android.deskclock', all: true }))
+      .toEqual(['syscalls', '-P', 'com.android.deskclock', '-a'])
+    expect(capById('funcs')!.buildArgv({ pkg: 'com.android.deskclock', spec: 'x.spec', snapshot: true }))
+      .toEqual(['funcs', '-P', 'com.android.deskclock', '-F', '/data/local/tmp/specs/x.spec', '--snapshot'])
+    expect(capById('funcs')!.buildArgv({ pkg: 'com.android.deskclock', spec: 'x.spec' }))
+      .toEqual(['funcs', '-P', 'com.android.deskclock', '-F', '/data/local/tmp/specs/x.spec'])
+  })
 })
 
 import { composeRunArg, outJsonlPath, outDumpDir, DEVICE_BIN, STOP_ARG, commonArgv } from '../src/shared/tracer-caps'
@@ -156,6 +178,16 @@ describe('composeRunArg', () => {
   it('never emits tuning flags for a non-common cap even if values are present', () => {
     const arg = composeRunArg({ cap: lib, vals: { pkg: 'com.android.deskclock', bufmb: '8', verbose: true } })
     expect(arg).toBe("su -c '/data/local/tmp/ares lib com.android.deskclock'")
+  })
+
+  it('places --snapshot before the internally-managed -o', () => {
+    const arg = composeRunArg({
+      cap: syscalls, vals: { pkg: 'com.android.deskclock', lib: 'libc.so', snapshot: true },
+      timeoutSecs: 20, jsonlPath: outJsonlPath('20260713T101500'),
+    })
+    expect(arg).toBe(
+      "su -c 'timeout -s INT -k 3 20 /data/local/tmp/ares syscalls -P com.android.deskclock " +
+      "-l libc.so --snapshot -o /data/local/tmp/ares-20260713T101500.jsonl'")
   })
 })
 
