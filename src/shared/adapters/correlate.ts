@@ -7,7 +7,17 @@ import { labelForId, type GraphNode, type GraphEdge } from '../graph-shape'
 // func->sys: edges for the syscalls each span issued. `sys:` ids use the same
 // grammar the syscall SQL path builds, so a correlate run's syscalls line up
 // with any syscall-engine data in the same run (the point of EPIC B).
-export function correlateAdapter(rows: CorrelateEvent[]): { nodes: GraphNode[]; edges: GraphEdge[] } {
+// symbolByAddr: entry_addr -> `<module>!<symbol>`, supplied from funcs' own
+// call/return records in the same run (funcs carries both entry_addr and
+// symbol; correlate's span-open record carries only entry_addr). When a
+// correlate span's entry_addr is known to funcs, the func node adopts the
+// shared `fn:<module>!<symbol>` id so the two engines' views of the same
+// function merge in mergeGraphs (EPIC B1). Absent a match, it stays
+// `fn:<addr>` - correct, just unmerged (documented limitation).
+export function correlateAdapter(
+  rows: CorrelateEvent[],
+  symbolByAddr?: Map<string, string>,
+): { nodes: GraphNode[]; edges: GraphEdge[] } {
   const nodes = new Map<string, GraphNode>()
   const edges = new Map<string, GraphEdge>()
   const bump = (id: string) => {
@@ -30,7 +40,8 @@ export function correlateAdapter(rows: CorrelateEvent[]): { nodes: GraphNode[]; 
   const spanToId = new Map<number, string>()
   for (const r of rows) {
     if (r.type !== 'func') continue
-    const id = `fn:${r.entry_addr}` // entry_addr already carries its own "0x" prefix
+    const sym = symbolByAddr?.get(r.entry_addr)
+    const id = sym ? `fn:${sym}` : `fn:${r.entry_addr}` // entry_addr carries its own "0x" prefix
     spanToId.set(r.span, id)
     if (!nodes.has(id)) nodes.set(id, { id, ...labelForId(id), count: 0 })
   }

@@ -25,6 +25,11 @@ const REAL_FIXTURE = resolve(__dirname, 'fixtures/sample.jsonl')
 // regression oracle proving that retention is byte-identical-invisible to every
 // syscall-only view (EPIC 0.2/0.3, folded into Epic A Phase 1).
 const MIXED_FIXTURE = resolve(__dirname, 'fixtures/mixed.jsonl')
+// sentinel.jsonl mirrors the real dev.ares.detector logcat/JSONL shape verbatim
+// (CheckResult.toJson(): check_id/technique/result/detail/ts, no `type` field at
+// all) plus one malformed line. EPIC E1's ingest-time COALESCE must synthesize
+// type:'sentinel' for the two real-shape lines and still drop the malformed one.
+const SENTINEL_FIXTURE = resolve(__dirname, 'fixtures/sentinel.jsonl')
 const store = new GraphStore()
 
 afterAll(() => store.close())
@@ -402,6 +407,67 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
       expect(e.presence).toBe(bothEndpointsPreexisting ? 'both' : 'B-only')
     }
 
+    await store.close()
+  })
+
+  it('EPIC B1: mixed.jsonl entry_addrs do not collide (funcs 0x1000 vs correlate 0x2000) - bridge is a no-op here, existing merge stays unchanged', async () => {
+    const store = new GraphStore()
+    const mixedRun = await store.ingest(MIXED_FIXTURE)
+    const sliceMixed = await store.slice({}, undefined, mixedRun.runId)
+    // funcs' JNI_OnLoad call/return -> fn:libexample.so!JNI_OnLoad (symbol-keyed).
+    expect(sliceMixed.nodes.some(n => n.id === 'fn:libexample.so!JNI_OnLoad')).toBe(true)
+    // correlate's span-open record (entry_addr 0x2000) has no funcs counterpart
+    // in this fixture -> stays addr-keyed, unmerged. This is the exact
+    // no-regression case the Phase 1 bridge must not disturb.
+    expect(sliceMixed.nodes.some(n => n.id === 'fn:0x2000')).toBe(true)
+    await store.close()
+  })
+
+  it('EPIC B1: a correlate span sharing an entry_addr with a funcs call merges into one symbol-keyed node', async () => {
+    const store = new GraphStore()
+    const lines = [
+      ...readFileSync(MIXED_FIXTURE, 'utf-8').trim().split('\n'),
+      JSON.stringify({
+        type: 'func', span: 9001, parent_span: 0, pid: 100, tid: 101, entry_addr: '0x1000', args: [],
+      }),
+    ]
+    const dir = mkdtempSync(join(tmpdir(), 'ares-b1-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, lines.join('\n') + '\n')
+
+    const run = await store.ingest(p)
+    const slice = await store.slice({}, undefined, run.runId)
+    // funcs' call/return at entry_addr 0x1000 (module libexample.so, symbol
+    // JNI_OnLoad) and the new correlate span at the same entry_addr must merge
+    // into one fn:libexample.so!JNI_OnLoad node, not two separate ids.
+    const merged = slice.nodes.filter(n => n.id === 'fn:libexample.so!JNI_OnLoad')
+    expect(merged).toHaveLength(1)
+    expect(slice.nodes.some(n => n.id === 'fn:0x1000')).toBe(false)
+    await store.close()
+  })
+})
+
+describe('EPIC E1: SENTINEL JSONL importer (type-less records auto-detected at ingest)', () => {
+  it('synthesizes type:sentinel for type-less check_id records and still drops the malformed line', async () => {
+    const store = new GraphStore()
+    const r = await store.ingest(SENTINEL_FIXTURE)
+    expect(r.eventCount).toBe(0) // no syscalls in this fixture
+    expect(r.errors).toBe(1) // the "not valid json at all" line
+    const rows = await store.raw(
+      `SELECT check_id, result FROM ev WHERE run_id = ${r.runId} AND type = 'sentinel' ORDER BY check_id`,
+    )
+    expect(rows).toEqual([
+      { check_id: 'hook-scan', result: 'DETECTED' },
+      { check_id: 'root-su', result: 'CLEAN' },
+    ])
+    await store.close()
+  })
+
+  it('slice() surfaces check: nodes from an auto-detected sentinel-only run', async () => {
+    const store = new GraphStore()
+    await store.ingest(SENTINEL_FIXTURE)
+    const slice = await store.slice()
+    expect(slice.nodes.map(n => n.id).sort()).toEqual(['check:hook-scan', 'check:root-su'])
     await store.close()
   })
 })

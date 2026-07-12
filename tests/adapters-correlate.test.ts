@@ -61,4 +61,24 @@ describe('correlateAdapter', () => {
   it('returns empty for no rows', () => {
     expect(correlateAdapter([])).toEqual({ nodes: [], edges: [] })
   })
+
+  it('EPIC B1: adopts the shared fn:<module>!<symbol> id when symbolByAddr resolves the entry_addr', () => {
+    const symbolByAddr = new Map([['0x2000', 'libexample.so!check']])
+    const { nodes } = correlateAdapter([rootFunc, childFunc], symbolByAddr)
+    const byId = new Map(nodes.map(n => [n.id, n]))
+    // Root span's 0x1000 has no entry in the map -> stays addr-keyed.
+    expect(byId.get('fn:0x1000')).toBeDefined()
+    // Child span's 0x2000 resolves -> adopts the symbol id, unmerged addr id absent.
+    expect(byId.get('fn:libexample.so!check')).toEqual({
+      id: 'fn:libexample.so!check', kind: 'func', label: 'libexample.so!check', module: null, count: 1,
+    })
+    expect(byId.get('fn:0x2000')).toBeUndefined()
+  })
+
+  it('EPIC B1: without symbolByAddr, correlate func nodes stay addr-keyed (default-path no-regression)', () => {
+    const { nodes } = correlateAdapter([rootFunc, childFunc])
+    const ids = nodes.map(n => n.id)
+    expect(ids).toContain('fn:0x1000')
+    expect(ids).toContain('fn:0x2000')
+  })
 })

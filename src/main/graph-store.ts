@@ -146,7 +146,15 @@ export class GraphStore {
     const firstRun = this.runsMap.size === 0
 
     const source =
-      `SELECT ${runId} AS run_id, * FROM read_json(${sqlStr(path)}, ` +
+      `SELECT ${runId} AS run_id, ` +
+      // EPIC E1: a real SENTINEL record (dev.ares.detector's CheckResult.toJson())
+      // has no `type` field at all - it's the only type-less record kind ARES
+      // emits, and it always carries check_id. So type-less + check_id present =>
+      // synthesize 'sentinel' here; a genuinely malformed line has neither and
+      // stays type NULL (dropped below). ponytail: one COALESCE covers it: upgrade
+      // to an explicit import mode only if a second type-less record kind appears.
+      `COALESCE(type, CASE WHEN check_id IS NOT NULL THEN 'sentinel' END) AS type, ` +
+      `* EXCLUDE (type) FROM read_json(${sqlStr(path)}, ` +
       `format='${fmt}', columns=${COLS}, maximum_object_size=20000000, ignore_errors=true)`
 
     if (firstRun) await this.conn().run(`CREATE TABLE ev AS ${source}`)
@@ -275,7 +283,8 @@ export class GraphStore {
     const funcRows = await this.rows(
       `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type IN ('call', 'return') AND span IS NULL`,
     )
-    const fa = funcsAdapter(funcRows.map(r => JSON.parse(r.js as string) as FuncEvent))
+    const funcEvents = funcRows.map(r => JSON.parse(r.js as string) as FuncEvent)
+    const fa = funcsAdapter(funcEvents)
 
     // Fold in correlate's span-tagged func/syscall/return records. `span IS
     // NOT NULL` is exactly the complement of the syscall/funcs scoping above -
@@ -284,7 +293,11 @@ export class GraphStore {
     const corrRows = await this.rows(
       `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND span IS NOT NULL`,
     )
-    const ca = correlateAdapter(corrRows.map(r => JSON.parse(r.js as string) as CorrelateEvent))
+    // EPIC B1: let correlate's addr-keyed func nodes adopt funcs' shared
+    // symbol id when both engines saw the same entry_addr, so they merge.
+    const symbolByAddr = new Map<string, string>()
+    for (const e of funcEvents) symbolByAddr.set(e.entry_addr, `${e.module}!${e.symbol}`)
+    const ca = correlateAdapter(corrRows.map(r => JSON.parse(r.js as string) as CorrelateEvent), symbolByAddr)
 
     // Fold in SENTINEL check verdicts, linked to the native block that
     // implements them by symbol-name match. Only the SQL-built `nat:` ids are
