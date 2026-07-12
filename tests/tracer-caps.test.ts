@@ -100,7 +100,7 @@ describe('tracer-caps registry', () => {
   })
 })
 
-import { composeRunArg, outJsonlPath, outDumpDir, DEVICE_BIN, STOP_ARG } from '../src/shared/tracer-caps'
+import { composeRunArg, outJsonlPath, outDumpDir, DEVICE_BIN, STOP_ARG, commonArgv } from '../src/shared/tracer-caps'
 
 describe('composeRunArg', () => {
   const syscalls = capById('syscalls')!
@@ -141,6 +141,39 @@ describe('composeRunArg', () => {
       "su -c 'timeout -s INT -k 3 20 /data/local/tmp/ares dump com.android.deskclock " +
       "lib<example>.so -d /data/local/tmp/ares-dump-20260707T101500'")
     expect(outDumpDir('X')).toBe('/data/local/tmp/ares-dump-X')
+  })
+
+  it('splices -b/-Q/-v before -o for a common cap', () => {
+    const arg = composeRunArg({
+      cap: syscalls, vals: { pkg: 'com.android.deskclock', lib: 'libc.so', bufmb: '8', verbose: true },
+      timeoutSecs: 20, jsonlPath: outJsonlPath('20260712T101500'),
+    })
+    expect(arg).toBe(
+      "su -c 'timeout -s INT -k 3 20 /data/local/tmp/ares syscalls -P com.android.deskclock " +
+      "-l libc.so -b 8 -v -o /data/local/tmp/ares-20260712T101500.jsonl'")
+  })
+
+  it('never emits tuning flags for a non-common cap even if values are present', () => {
+    const arg = composeRunArg({ cap: lib, vals: { pkg: 'com.android.deskclock', bufmb: '8', verbose: true } })
+    expect(arg).toBe("su -c '/data/local/tmp/ares lib com.android.deskclock'")
+  })
+})
+
+describe('commonArgv', () => {
+  it('emits nothing for blank or default values', () => {
+    expect(commonArgv({})).toEqual([])
+    expect(commonArgv({ bufmb: '4', queuemb: '256' })).toEqual([])
+  })
+
+  it('emits -b/-Q only when diverging from the ares default', () => {
+    expect(commonArgv({ bufmb: '8' })).toEqual(['-b', '8'])
+    expect(commonArgv({ queuemb: '512' })).toEqual(['-Q', '512'])
+    expect(commonArgv({ bufmb: '8', queuemb: '512', verbose: true }))
+      .toEqual(['-b', '8', '-Q', '512', '-v'])
+  })
+
+  it('emits -v when verbose is checked', () => {
+    expect(commonArgv({ verbose: true })).toEqual(['-v'])
   })
 })
 

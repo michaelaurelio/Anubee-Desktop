@@ -40,6 +40,26 @@ export const DEVICE_SPECS = '/data/local/tmp/specs'
 
 const s = (v: CapValues[string]): string => (typeof v === 'string' ? v : '')
 
+// Parse an int input value; undefined when blank or non-numeric.
+function intVal(v: CapValues[string]): number | undefined {
+  if (typeof v !== 'string' || v.trim() === '') return undefined
+  const n = Number(v)
+  return Number.isInteger(n) ? n : undefined
+}
+
+// Shared common_args flags for a `common` capability. Emit -b/-Q only when the
+// value is set and diverges from ares' own default (4 / 256) so the argv stays
+// minimal and ares owns the defaults; emit -v when verbose is checked.
+export function commonArgv(vals: CapValues): string[] {
+  const a: string[] = []
+  const b = intVal(vals.bufmb)
+  const q = intVal(vals.queuemb)
+  if (b !== undefined && b !== 4) a.push('-b', String(b))
+  if (q !== undefined && q !== 256) a.push('-Q', String(q))
+  if (vals.verbose) a.push('-v')
+  return a
+}
+
 // Shared common_args tuning knobs, appended to every `common` capability. -b/-Q
 // are sized in MB; blank means "let ares use its default" (4 / 256).
 export const COMMON_TUNING_INPUTS: CapInput[] = [
@@ -217,6 +237,7 @@ export function composeRunArg(opts: {
   dumpDir?: string
 }): string {
   const argv = opts.cap.buildArgv(opts.vals)
+  if (opts.cap.common) argv.push(...commonArgv(opts.vals))
   if (opts.cap.outputKind === 'jsonl' && opts.jsonlPath) argv.push('-o', opts.jsonlPath)
   if (opts.cap.outputKind === 'artifact' && opts.dumpDir) argv.push('-d', opts.dumpDir)
   const inner = opts.timeoutSecs
