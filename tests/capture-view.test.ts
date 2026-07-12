@@ -61,6 +61,23 @@ describe('renderCapabilityForm', () => {
     buf.dispatchEvent(new Event('input'))
     expect(latest).toMatchObject({ bufmb: '8' })
   })
+
+  it('renders the --snapshot checkbox inside Advanced for syscalls/funcs', () => {
+    for (const id of ['syscalls', 'funcs']) {
+      const host = document.createElement('div')
+      renderCapabilityForm(host, capById(id)!, {}, () => {})
+      const cb = host.querySelector<HTMLInputElement>('[data-key="snapshot"]')
+      expect(cb).not.toBeNull()
+      expect(cb!.type).toBe('checkbox')
+      expect(cb!.closest('details.cap-advanced')).not.toBeNull()
+    }
+  })
+
+  it('renders no --snapshot checkbox for correlate', () => {
+    const host = document.createElement('div')
+    renderCapabilityForm(host, capById('correlate')!, {}, () => {})
+    expect(host.querySelector('[data-key="snapshot"]')).toBeNull()
+  })
 })
 
 describe('applyFieldErrors', () => {

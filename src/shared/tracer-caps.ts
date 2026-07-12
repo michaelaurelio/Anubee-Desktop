@@ -68,6 +68,17 @@ export const COMMON_TUNING_INPUTS: CapInput[] = [
   { key: 'verbose', label: 'verbose debug', kind: 'bool', advanced: true },
 ]
 
+// --snapshot: opt-in per-engine flag (syscalls/funcs only). Populates stack_id
+// on device, which is what gates inline java_stack - so this toggle is what
+// makes a capture reach Java level. Also writes a native <out>.stacks sidecar
+// the desktop does not consume (not pulled).
+export const SNAPSHOT_INPUT: CapInput = {
+  key: 'snapshot',
+  label: 'stack snapshots',
+  kind: 'bool',
+  advanced: true,
+}
+
 export const CAPABILITIES: Capability[] = [
   {
     id: 'syscalls', label: 'syscalls (stealthy)', engine: 'syscalls', outputKind: 'jsonl', common: true,
@@ -76,6 +87,7 @@ export const CAPABILITIES: Capability[] = [
       { key: 'lib', label: 'library filter', kind: 'text' },
       { key: 'all', label: 'capture all libraries', kind: 'bool' },
       { key: 'syscalls', label: 'syscalls (comma-separated)', kind: 'csv' },
+      SNAPSHOT_INPUT,
       ...COMMON_TUNING_INPUTS,
     ],
     buildArgv(v) {
@@ -83,6 +95,7 @@ export const CAPABILITIES: Capability[] = [
       if (v.all) a.push('-a')
       else if (v.lib) a.push('-l', s(v.lib))
       if (v.syscalls) a.push('-s', s(v.syscalls))
+      if (v.snapshot) a.push('--snapshot')
       return a
     },
     // ares rejects `syscalls -P <pkg>` alone: a stack-origin library filter (-l)
@@ -96,10 +109,13 @@ export const CAPABILITIES: Capability[] = [
     inputs: [
       { key: 'pkg', label: 'package', kind: 'package', required: true },
       { key: 'spec', label: 'probe spec', kind: 'spec', required: true },
+      SNAPSHOT_INPUT,
       ...COMMON_TUNING_INPUTS,
     ],
     buildArgv(v) {
-      return ['funcs', '-P', s(v.pkg), '-F', `${DEVICE_SPECS}/${s(v.spec)}`]
+      const a = ['funcs', '-P', s(v.pkg), '-F', `${DEVICE_SPECS}/${s(v.spec)}`]
+      if (v.snapshot) a.push('--snapshot')
+      return a
     },
   },
   {

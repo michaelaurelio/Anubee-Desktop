@@ -520,6 +520,15 @@ emitted only when the value diverges from the default. Note: JSONL framing (`-J`
 is not a form control - it is guaranteed because every capture's output path ends
 in `.jsonl`, which ares treats as newline-per-record framing.
 
+**Stack snapshots (`--snapshot`).** The Advanced section on `syscalls` and `funcs`
+engines includes a stack-snapshots toggle (opt-in, default off). When enabled, it
+populates the on-device `stack_id` field, which gates inline `java_stack` delivery
+- a capture reaches Java-level backtrace only when this toggle is on. The toggle
+applies to `syscalls` and `funcs` only (the two engines ARES accepts `--snapshot`
+on). Note: enabling the toggle also writes a native `<out>.jsonl.stacks` sidecar
+(raw CFI stack snapshots for off-device DWARF unwinding) alongside the pulled
+`.jsonl`; the desktop does not pull or consume this sidecar, leaving it on device.
+
 **Storage + privacy.** Pulled captures land in `<userData>/runs/` (outside the
 repo); the target package is user-entered at runtime, never hardcoded.
 

@@ -302,6 +302,13 @@ The probe-spec field is now a dropdown populated from `tracer:listSpecs` →
 repopulated in place via `applySpecChoices` on every specs-dir edit.
 
 ### Known drawbacks / follow-ups from feature 9
+- **`--snapshot` native `.stacks` sidecar is not pulled or consumed.** Enabling
+  the capture form's stack-snapshot toggle makes ARES write a native
+  `<out>.jsonl.stacks` sidecar (raw CFI stack snapshots for off-device DWARF
+  unwinding) next to the pulled `.jsonl`. The desktop pulls only the `.jsonl`
+  and has no in-app CFI/DWARF unwinder, so the sidecar is left on device. The
+  Java-frame payoff still lands inline in the `.jsonl` (that path does not need
+  the sidecar); native off-device unwinding would need a separate unwinder.
 - **`trace` capability argv is rejected by ares.** The `trace` cap builds
   `trace -P <pkg> -F <spec>`, but the real `trace` engine
   (`../ARES/src/trace/trace_args.c`) accepts only `-P/-p/-A/-o` plus section
