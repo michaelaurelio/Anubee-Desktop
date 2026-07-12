@@ -28,6 +28,39 @@ describe('renderCapabilityForm', () => {
     renderCapabilityForm(host, capById('syscalls')!, {}, () => {})
     expect(host.querySelector('[data-err="pkg"]')).not.toBeNull()
   })
+
+  it('renders tuning inputs inside a collapsible Advanced section', () => {
+    const host = document.createElement('div')
+    renderCapabilityForm(host, capById('syscalls')!, {}, () => {})
+    const adv = host.querySelector<HTMLDetailsElement>('details.cap-advanced')
+    expect(adv).not.toBeNull()
+    expect(adv!.open).toBe(false)
+    expect(adv!.querySelector('summary')!.textContent).toBe('Advanced')
+    // primary field stays outside the disclosure
+    expect(host.querySelector('[data-key="pkg"]')!.closest('details.cap-advanced')).toBeNull()
+    // tuning fields live inside it
+    const buf = host.querySelector<HTMLInputElement>('[data-key="bufmb"]')!
+    expect(buf.type).toBe('number')
+    expect(buf.min).toBe('1')
+    expect(buf.placeholder).toBe('4')
+    expect(buf.closest('details.cap-advanced')).not.toBeNull()
+  })
+
+  it('emits no Advanced section for a cap without advanced inputs', () => {
+    const host = document.createElement('div')
+    renderCapabilityForm(host, capById('lib')!, {}, () => {})
+    expect(host.querySelector('details.cap-advanced')).toBeNull()
+  })
+
+  it('reports number-input changes through onChange', () => {
+    const host = document.createElement('div')
+    let latest: Record<string, unknown> = {}
+    renderCapabilityForm(host, capById('syscalls')!, {}, v => { latest = v })
+    const buf = host.querySelector<HTMLInputElement>('[data-key="bufmb"]')!
+    buf.value = '8'
+    buf.dispatchEvent(new Event('input'))
+    expect(latest).toMatchObject({ bufmb: '8' })
+  })
 })
 
 describe('applyFieldErrors', () => {
