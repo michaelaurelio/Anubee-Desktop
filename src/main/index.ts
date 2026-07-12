@@ -14,10 +14,13 @@ import type { DiffRow } from '@shared/diff'
 // --- feature 9: tracer control -------------------------------------------
 import { mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { readFile, open } from 'node:fs/promises'
 import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
 import { loadConfig, saveConfig } from './tracer-config'
 import { capById, composeRunArg, outJsonlPath, outDumpDir, resolveSavePath } from '@shared/tracer-caps'
+import { isElf, type PathCheck, type PathStatus } from './path-check'
+import { readdir } from 'node:fs/promises'
+import { basename } from 'node:path'
 
 // DuckDB lives here in the main process; read_json runs on its own native
 // threads, off the V8 heap, so there is no event array to ship over IPC. The
@@ -95,7 +98,52 @@ ipcMain.handle('tracer:config:set', (_e, cfg: { aresBinary: string; specsDir: st
   saveConfig(app.getPath('userData'), cfg)
 })
 ipcMain.handle('tracer:preflight', (_e, pkg: string) =>
-  preflight(adb, loadConfig(app.getPath('userData')), pkg, fileMd5))
+  preflight(adb, loadConfig(app.getPath('userData')), pkg, fileMd5,
+    c => win.webContents.send('tracer:preflight-check', c)))
+
+// Validate the host paths the form currently holds so the Capture view can show
+// green/red dots BEFORE a run. Pure decisions live in path-check; this does the
+// IO. A binary is a readable ELF file; a specs dir exists and holds a .spec file.
+async function checkHostPaths(binaryPath: string, specsDir: string): Promise<PathCheck> {
+  let binary: PathStatus
+  if (!binaryPath) {
+    binary = { ok: false, detail: 'not set' }
+  } else {
+    try {
+      const fh = await open(binaryPath, 'r')
+      try {
+        const buf = Buffer.alloc(4)
+        await fh.read(buf, 0, 4, 0)
+        binary = isElf(buf)
+          ? { ok: true, detail: basename(binaryPath) }
+          : { ok: false, detail: 'not an ELF binary' }
+      } finally {
+        await fh.close()
+      }
+    } catch {
+      binary = { ok: false, detail: 'cannot read file' }
+    }
+  }
+
+  let specs: PathStatus
+  if (!specsDir) {
+    specs = { ok: false, detail: 'not set' }
+  } else {
+    try {
+      const names = await readdir(specsDir)
+      const specFiles = names.filter(n => n.endsWith('.spec'))
+      specs = specFiles.length
+        ? { ok: true, detail: `${specFiles.length} spec(s)` }
+        : { ok: false, detail: 'no .spec files here' }
+    } catch {
+      specs = { ok: false, detail: 'not a directory' }
+    }
+  }
+  return { binary, specs }
+}
+
+ipcMain.handle('tracer:checkPaths', (_e, binaryPath: string, specsDir: string) =>
+  checkHostPaths(binaryPath, specsDir))
 
 ipcMain.handle('tracer:pickSavePath', async () => {
   const r = await dialog.showSaveDialog(win, {
@@ -103,6 +151,20 @@ ipcMain.handle('tracer:pickSavePath', async () => {
     filters: [{ name: 'JSONL', extensions: ['jsonl'] }],
   })
   return r.canceled ? undefined : r.filePath
+})
+
+ipcMain.handle('tracer:pickBinary', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    title: 'Select the host ares binary', properties: ['openFile'],
+  })
+  return r.canceled ? undefined : r.filePaths[0]
+})
+
+ipcMain.handle('tracer:pickSpecsDir', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    title: 'Select the host specs directory', properties: ['openDirectory'],
+  })
+  return r.canceled ? undefined : r.filePaths[0]
 })
 
 ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) => {

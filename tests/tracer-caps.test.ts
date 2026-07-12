@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CAPABILITIES, capById, validateInputs } from '../src/shared/tracer-caps'
+import { CAPABILITIES, capById, validateInputs, fieldErrors } from '../src/shared/tracer-caps'
 
 describe('tracer-caps registry', () => {
   it('exposes the seven engines with correct output kinds', () => {
@@ -118,5 +118,22 @@ describe('composeRunArg', () => {
       "su -c 'timeout -s INT -k 3 20 /data/local/tmp/ares dump com.android.deskclock " +
       "lib<example>.so -d /data/local/tmp/ares-dump-20260707T101500'")
     expect(outDumpDir('X')).toBe('/data/local/tmp/ares-dump-X')
+  })
+})
+
+describe('fieldErrors', () => {
+  const syscalls = capById('syscalls')!
+  it('reports a required-empty field by key', () => {
+    const { fields } = fieldErrors(syscalls, { all: true })
+    expect(fields.pkg).toBe('is required')
+  })
+  it('reports an unsupported-character field by key', () => {
+    const { fields } = fieldErrors(syscalls, { pkg: 'com bad', all: true })
+    expect(fields.pkg).toMatch(/unsupported characters/)
+  })
+  it('reports the cross-field error in form, not fields', () => {
+    const { fields, form } = fieldErrors(syscalls, { pkg: 'com.x' })
+    expect(fields.pkg).toBeUndefined()
+    expect(form).toEqual(['provide a library filter or check "capture all libraries"'])
   })
 })

@@ -22,8 +22,8 @@ import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from
 import { renderFlame } from './flame-view'
 import { buildFlame } from '@shared/flame-shape'
 import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
-import { renderCapabilityForm, appendConsoleLine } from './capture-view'
-import { CAPABILITIES, capById, validateInputs, isSafeToken, type CapValues } from '@shared/tracer-caps'
+import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot } from './capture-view'
+import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, type CapValues } from '@shared/tracer-caps'
 import { showModal, isModalOpen } from './modal'
 import { makeEpoch } from './selection-epoch'
 
@@ -486,25 +486,59 @@ function wireCapture(): void {
     if (p && saveIn) saveIn.value = p
   })
 
+  const binDot = document.getElementById('cfg-binary-dot')
+  const specDot = document.getElementById('cfg-specs-dot')
+  const binErr = document.getElementById('cfg-binary-err')
+  const specErr = document.getElementById('cfg-specs-err')
+
+  const refreshPaths = async (): Promise<void> => {
+    const r = await window.ares.tracerCheckPaths(binIn.value, specIn.value)
+    if (binDot) renderDot(binDot, r.binary)
+    if (specDot) renderDot(specDot, r.specs)
+    if (binErr) binErr.textContent = r.binary.ok ? '' : `Required - ${r.binary.detail}`
+    if (specErr) specErr.textContent = r.specs.ok ? '' : `Required - ${r.specs.detail}`
+  }
+
+  document.getElementById('cfg-binary-browse')?.addEventListener('click', async () => {
+    const p = await window.ares.tracerPickBinary()
+    if (p) { binIn.value = p; saveCfg(); void refreshPaths() }
+  })
+  document.getElementById('cfg-specs-browse')?.addEventListener('click', async () => {
+    const p = await window.ares.tracerPickSpecsDir()
+    if (p) { specIn.value = p; saveCfg(); void refreshPaths() }
+  })
+  binIn.addEventListener('input', () => void refreshPaths())
+  specIn.addEventListener('input', () => void refreshPaths())
+
   let vals: CapValues = {}
   let preflightOk = false
+  const preflightEpoch = makeEpoch() // guards a stale preflight run from re-enabling Start for edited/invalidated inputs
 
   for (const c of CAPABILITIES) {
     const opt = document.createElement('option')
-    opt.value = c.id; opt.textContent = c.label
+    opt.value = c.id; opt.textContent = c.engine
     sel.appendChild(opt)
   }
 
   // A prior preflight validated a specific package; any capability switch or
   // input edit invalidates it, so re-gate Start until preflight is re-run.
   const invalidatePreflight = (): void => {
+    preflightEpoch.bump()
     preflightOk = false
     startBtn.disabled = true
     statusHost.innerHTML = ''
   }
   const drawForm = (): void => {
     vals = {}
-    renderCapabilityForm(formHost, capById(sel.value)!, vals, v => { vals = v; invalidatePreflight() })
+    const cap = capById(sel.value)!
+    renderCapabilityForm(formHost, cap, vals, v => {
+      vals = v
+      invalidatePreflight()
+      const { fields, form } = fieldErrors(cap, vals)
+      applyFieldErrors(formHost, fields)
+      const formErr = document.getElementById('cap-form-err')
+      if (formErr) formErr.textContent = form.join('; ')
+    })
   }
   sel.addEventListener('change', () => {
     drawForm()
@@ -513,7 +547,10 @@ function wireCapture(): void {
   drawForm()
 
   let configLoaded = false
-  void window.ares.getTracerConfig().then(cfg => { binIn.value = cfg.aresBinary; specIn.value = cfg.specsDir; configLoaded = true })
+  void window.ares.getTracerConfig().then(cfg => {
+    binIn.value = cfg.aresBinary; specIn.value = cfg.specsDir; configLoaded = true
+    void refreshPaths()
+  })
   const saveCfg = (): void => {
     if (!configLoaded) return
     void window.ares.setTracerConfig({ aresBinary: binIn.value, specsDir: specIn.value })
@@ -521,22 +558,32 @@ function wireCapture(): void {
   binIn.addEventListener('change', saveCfg)
   specIn.addEventListener('change', saveCfg)
 
-  document.getElementById('cap-preflight')?.addEventListener('click', async () => {
+  const preflightBtn = document.getElementById('cap-preflight') as HTMLButtonElement | null
+  preflightBtn?.addEventListener('click', async () => {
+    const token = preflightEpoch.bump()
     saveCfg()
     const pkg = String(vals.pkg ?? '')
     if (!pkg) { statusHost.textContent = 'enter a package first'; return }
     if (!isSafeToken(pkg)) { statusHost.textContent = 'package has unsupported characters'; return }
-    statusHost.textContent = 'running preflight...'
-    const checks = await window.ares.tracerPreflight(pkg)
     statusHost.innerHTML = ''
-    for (const c of checks) {
+    startBtn.disabled = true
+    preflightBtn.disabled = true
+    try {
+      const checks = await window.ares.tracerPreflight(pkg)
+      if (!preflightEpoch.isCurrent(token)) return // superseded by an edit or another run; don't enable Start for stale inputs
+      preflightOk = checks.every(c => c.ok)
+      startBtn.disabled = !preflightOk
+    } catch (err) {
+      if (!preflightEpoch.isCurrent(token)) return // superseded; don't write rows for a run nobody is waiting on
       const row = document.createElement('div')
-      row.className = c.ok ? 'preflight-ok' : 'preflight-bad'
-      row.textContent = `${c.ok ? 'OK' : 'FAIL'}  ${c.label} - ${c.detail}`
+      row.className = 'preflight-bad'
+      row.textContent = `preflight failed: ${err instanceof Error ? err.message : String(err)}`
       statusHost.appendChild(row)
+      preflightOk = false
+      startBtn.disabled = true
+    } finally {
+      preflightBtn.disabled = false
     }
-    preflightOk = checks.every(c => c.ok)
-    startBtn.disabled = !preflightOk
   })
 
   startBtn.addEventListener('click', async () => {
@@ -684,6 +731,16 @@ document.getElementById('file-capture')?.addEventListener('click', () => openCap
 window.ares.onTracerLine(line => {
   const c = document.getElementById('cap-console')
   if (c) appendConsoleLine(c, line)
+})
+
+// Streamed preflight rows; registered once for the same reason as onTracerLine.
+window.ares.onPreflightCheck(c => {
+  const host = document.getElementById('cap-preflight-status')
+  if (!host) return
+  const row = document.createElement('div')
+  row.className = c.ok ? 'preflight-ok' : 'preflight-bad'
+  row.textContent = `${c.ok ? 'OK' : 'FAIL'}  ${c.label} - ${c.detail}`
+  host.appendChild(row)
 })
 
 // Ctrl/Cmd+O opens a run (replaces the removed native-menu accelerator).

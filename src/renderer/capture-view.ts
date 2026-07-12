@@ -11,13 +11,6 @@ export function renderCapabilityForm(
   host.innerHTML = ''
   const current: CapValues = { ...vals }
 
-  if (cap.loud) {
-    const warn = document.createElement('div')
-    warn.className = 'loud-warn'
-    warn.textContent = 'Loud engine - writes BRK into the target (detectable).'
-    host.appendChild(warn)
-  }
-
   for (const inp of cap.inputs) {
     const row = document.createElement('label')
     row.className = 'cap-input'
@@ -35,9 +28,27 @@ export function renderCapabilityForm(
       ctrl.placeholder = inp.label
       ctrl.addEventListener('input', () => { current[inp.key] = ctrl.value; onChange({ ...current }) })
     }
-    row.append(caption, ctrl)
+    const err = document.createElement('span')
+    err.className = 'cap-input-err'
+    err.dataset.err = inp.key
+    row.append(caption, ctrl, err)
     host.appendChild(row)
   }
+}
+
+// Set each per-field error span from a key->message map; missing keys clear.
+export function applyFieldErrors(host: HTMLElement, fields: Record<string, string>): void {
+  for (const span of host.querySelectorAll<HTMLElement>('[data-err]')) {
+    const key = span.dataset.err ?? ''
+    span.textContent = fields[key] ?? ''
+  }
+}
+
+// Paint a host-path validity dot from a checkPaths status.
+export function renderDot(dot: HTMLElement, status: { ok: boolean; detail: string }): void {
+  dot.className = status.ok ? 'path-dot preflight-ok' : 'path-dot preflight-bad'
+  dot.textContent = '●' // ●
+  dot.title = status.detail
 }
 
 export function appendConsoleLine(host: HTMLElement, line: string): void {

@@ -280,13 +280,27 @@ Design reference: overall spec §13.
   `com.android.deskclock`): syscalls 81,611 events ingested; lib 91 `[lib]` lines;
   dump 5 rebuilt `.so` pulled; both timeout and manual-stop paths flush the sink.
 
+**Shipped: capture-form redesign + push guard** - the Capture modal is now a
+sectioned form (host setup / engine & arguments / run), host binary and specs
+dir fields get live validity dots (`tracer:checkPaths` → `path-check.ts`'s
+`isElf` + `hasSpecFile`) and native Browse pickers (`tracer:pickBinary`,
+`tracer:pickSpecsDir`), preflight checks stream in one at a time
+(`tracer:preflight-check`) instead of arriving as one batch, and the
+renderer's preflight handler no longer gets stuck on "running preflight..."
+on an IPC rejection. `preflight()` also guards the push branch: an
+unreadable/empty host binary or an empty `specsDir` now fails a `binary`
+check up front instead of running `adb push` - closing the previous
+`adb push /.` (whole host filesystem) hazard from an unconfigured host.
+
 ### Known drawbacks / follow-ups from feature 9
 - **Rules editor is a single-stacked form** - the predicate-builder form
   (`id`, `category`, `confidence`, `rationale`, `syscalls`, `field`, `op`,
   `argIndex`, `value`) renders as a vertical column without per-field inline
   validation indicators; consider field-level error UI if validation feedback
   becomes important beyond the current pre-dispatch `draftFromForm`/`validateRule`
-  checks.
+  checks. **Partially addressed** - the Capture form now renders per-field
+  inline errors (`.cap-input-err` spans populated from `fieldErrors`); the
+  Rules editor itself is untouched and still lacks this.
 - **`dump` dumps on app *exit* by default** (post-decryption) - the capability
   does not expose `--on-map` (dump-the-instant-a-lib-maps) or `-p <pid>`
   (attach to a running process). For a short UI window the on-exit default
@@ -302,6 +316,14 @@ Design reference: overall spec §13.
 - **stdout/artifact runs never send a UI "run loaded" signal** - only `jsonl`
   runs auto-switch to the table; `lib`/`dump` leave the result in the console /
   `userData/runs/` with no in-app artifact browser yet.
+- **Cross-modal streamed-row leak on `onPreflightCheck`** - the top-level
+  subscription appends each streamed check to whatever `cap-preflight-status`
+  element currently exists in the DOM. If a preflight is still streaming when
+  the user closes and reopens the Capture modal, late rows from the old run
+  can land in the new modal instance's status host. Fix approach: tag each
+  streamed check with a per-run token from the main process (or gate the
+  subscription on the active preflight epoch) and drop stale ones before
+  appending.
 
 ## Deferred features (post-core, spec §7)
 - **8** Session-only MCP (stdio) exposing the tagged graph. Decision C: headless

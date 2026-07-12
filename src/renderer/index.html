@@ -174,7 +174,19 @@
         border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; height: 200px;
         overflow: auto; white-space: pre-wrap; }
       .preflight-ok { color: var(--k-java); } .preflight-bad { color: var(--k-syscall); }
-      .loud-warn { color: var(--k-syscall); font-size: 12px; font-weight: 600; }
+      .cap-section-hd { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+        color: var(--muted); display: flex; align-items: center; gap: 7px; margin-top: 4px; }
+      .cap-n { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;
+        border-radius: 50%; background: var(--accent, #4b8bf5); color: #fff; font-size: 10px; font-weight: 700; }
+      #capture-run-row { display: flex; gap: 8px; align-items: center; }
+      .path-dot { font-size: 13px; width: 12px; display: inline-block; text-align: center; }
+      .cap-input-err { display: block; font-size: 11px; color: var(--k-syscall); min-height: 14px; }
+      .cap-input .cap-input-err { margin-left: 92px; }
+      /* host-field errors (#cfg-binary-err, #cfg-specs-err) are direct children of
+         #capture-config, not nested in .cap-input, so the rule above misses them;
+         approximate the same 92px indent here (host labels are variable-width text,
+         not a fixed-width span, so this is a close match rather than exact). */
+      #capture-config > .cap-input-err { margin-left: 92px; }
 
       /* offset-popup: floating table for native node offsets */
       .offset-popup { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
@@ -410,20 +422,38 @@
     </div>
     <template id="capture-template">
       <div id="capture">
+        <div class="cap-section-hd"><span class="cap-n">1</span> host setup</div>
         <div id="capture-config">
-          <label>ares binary <input id="cfg-binary" type="text" placeholder="/host/build/ares" /></label>
-          <label>specs dir <input id="cfg-specs" type="text" placeholder="/host/specs" /></label>
-          <label>save to <input id="cap-savepath" type="text" placeholder="(default app data)" /></label>
-          <button id="cap-browse" class="btn">Browse&hellip;</button>
+          <label>ares binary
+            <input id="cfg-binary" type="text" placeholder="/host/build/ares" />
+            <button id="cfg-binary-browse" class="btn">Browse&hellip;</button>
+            <span id="cfg-binary-dot" class="path-dot"></span>
+          </label>
+          <span id="cfg-binary-err" class="cap-input-err"></span>
+          <label>specs dir
+            <input id="cfg-specs" type="text" placeholder="/host/specs" />
+            <button id="cfg-specs-browse" class="btn">Browse&hellip;</button>
+            <span id="cfg-specs-dot" class="path-dot"></span>
+          </label>
+          <span id="cfg-specs-err" class="cap-input-err"></span>
+          <label>save to
+            <input id="cap-savepath" type="text" placeholder="(default app data)" />
+            <button id="cap-browse" class="btn">Browse&hellip;</button>
+          </label>
         </div>
+        <div class="cap-section-hd"><span class="cap-n">2</span> engine &amp; arguments</div>
         <div id="capture-form-row">
           <select id="cap-select"></select>
           <input id="cap-timeout" type="text" size="4" placeholder="secs" title="timeout window (blank = run until Stop)" />
+        </div>
+        <div id="cap-form"></div>
+        <div id="cap-form-err" class="cap-input-err"></div>
+        <div class="cap-section-hd"><span class="cap-n">3</span> run</div>
+        <div id="capture-run-row">
           <button id="cap-preflight" class="btn">Preflight</button>
           <button id="cap-start" class="btn pri" disabled>Start</button>
           <button id="cap-stop" class="btn" disabled>Stop</button>
         </div>
-        <div id="cap-form"></div>
         <div id="cap-preflight-status"></div>
         <div id="cap-console"></div>
       </div>

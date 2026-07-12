@@ -56,6 +56,52 @@ describe('preflight', () => {
     expect(adb.calls.some(c => /pkill -KILL -f \/data\/local\/tmp\/ares/.test(c))).toBe(true)
     expect(checks.find(c => c.id === 'binary')!.ok).toBe(true)
   })
+
+  // Guard the stale-binary push branch against an unconfigured host: an empty or
+  // unreadable aresBinary (md5 '') must NOT fall through to `adb push`, and an
+  // empty specsDir must NOT become `adb push /.` (the whole host filesystem).
+  it('fails the binary check without pushing when the host binary is unreadable (md5 empty)', async () => {
+    const adb = fakeAdb([
+      [/get-state/, { stdout: 'device' }],
+      [/id -u/, { stdout: '0' }],
+      [/btf\/vmlinux/, { stdout: '/sys/kernel/btf/vmlinux' }],
+      [/pm path/, { stdout: 'package:/data/app/base.apk' }],
+    ])
+    const checks = await preflight(adb, cfg, 'com.android.deskclock', async () => '')
+    const binary = checks.find(c => c.id === 'binary')!
+    expect(binary.ok).toBe(false)
+    expect(binary.detail).toMatch(/host ares binary/i)
+    expect(adb.calls.some(c => c.startsWith('push'))).toBe(false)
+  })
+
+  it('fails without pushing /. when specsDir is empty', async () => {
+    const adb = fakeAdb([
+      [/get-state/, { stdout: 'device' }],
+      [/id -u/, { stdout: '0' }],
+      [/btf\/vmlinux/, { stdout: '/sys/kernel/btf/vmlinux' }],
+      [/pm path/, { stdout: 'package:/data/app/base.apk' }],
+      [/md5sum \/data\/local\/tmp\/ares/, { stdout: 'stale  /data/local/tmp/ares' }],
+    ])
+    const checks = await preflight(adb, { aresBinary: '/host/build/ares', specsDir: '' }, 'com.android.deskclock', async () => 'fresh')
+    const binary = checks.find(c => c.id === 'binary')!
+    expect(binary.ok).toBe(false)
+    expect(binary.detail).toMatch(/specs/i)
+    expect(adb.calls.some(c => c.startsWith('push'))).toBe(false)
+  })
+
+  it('streams each check to onCheck in order as it resolves', async () => {
+    const adb = fakeAdb([
+      [/get-state/, { stdout: 'device' }],
+      [/id -u/, { stdout: '0' }],
+      [/btf\/vmlinux/, { stdout: '/sys/kernel/btf/vmlinux' }],
+      [/pm path/, { stdout: 'package:/data/app/base.apk' }],
+      [/md5sum \/data\/local\/tmp\/ares/, { stdout: 'abc123  /data/local/tmp/ares' }],
+    ])
+    const streamed: string[] = []
+    const checks = await preflight(adb, cfg, 'com.android.deskclock', async () => 'abc123', c => streamed.push(c.id))
+    expect(streamed).toEqual(checks.map(c => c.id))
+    expect(streamed).toEqual(['device', 'root', 'btf', 'package', 'binary'])
+  })
 })
 
 function fakeSpawner(): Spawner & { lastArgs: string[]; emitLine: (l: string) => void; exit: (c: number) => void } {
