@@ -52,6 +52,7 @@ declare global {
         binary: { ok: boolean; detail: string }
         specs: { ok: boolean; detail: string }
       }>
+      tracerListSpecs(specsDir: string): Promise<string[]>
       tracerPickBinary(): Promise<string | undefined>
       tracerPickSpecsDir(): Promise<string | undefined>
       onTracerLine(cb: (line: string) => void): void
