@@ -1,39 +1,101 @@
 // Feature 9 capture panel: renders a capability's input form and a live console.
-// Pure DOM (jsdom-testable); the main.ts wiring (Task 8) owns IPC + preflight.
+// Pure DOM (jsdom-testable); the main.ts wiring owns IPC + preflight.
 import type { Capability, CapValues } from '@shared/tracer-caps'
+
+export interface FormOpts {
+  specNames?: string[]
+  specsDir?: string
+}
 
 export function renderCapabilityForm(
   host: HTMLElement,
   cap: Capability,
   vals: CapValues,
   onChange: (vals: CapValues) => void,
+  opts: FormOpts = {},
 ): void {
   host.innerHTML = ''
   const current: CapValues = { ...vals }
 
   for (const inp of cap.inputs) {
+    // A spec input renders as a dropdown, preceded by the host specs-dir config
+    // row (persisted config, wired by main.ts via the data-* markers).
+    if (inp.kind === 'spec') host.appendChild(specsDirRow(opts.specsDir ?? ''))
+
     const row = document.createElement('label')
     row.className = 'cap-input'
     const caption = document.createElement('span')
     caption.textContent = inp.required ? `${inp.label} *` : inp.label
-    const ctrl = document.createElement('input')
-    ctrl.dataset.key = inp.key
-    if (inp.kind === 'bool') {
-      ctrl.type = 'checkbox'
-      ctrl.checked = Boolean(current[inp.key])
-      ctrl.addEventListener('change', () => { current[inp.key] = ctrl.checked; onChange({ ...current }) })
+
+    let ctrl: HTMLElement
+    if (inp.kind === 'spec') {
+      const sel = document.createElement('select')
+      sel.dataset.key = inp.key
+      fillSpecOptions(sel, opts.specNames ?? [], String(current[inp.key] ?? ''))
+      sel.addEventListener('change', () => { current[inp.key] = sel.value; onChange({ ...current }) })
+      ctrl = sel
+    } else if (inp.kind === 'bool') {
+      const cb = document.createElement('input')
+      cb.type = 'checkbox'; cb.dataset.key = inp.key
+      cb.checked = Boolean(current[inp.key])
+      cb.addEventListener('change', () => { current[inp.key] = cb.checked; onChange({ ...current }) })
+      ctrl = cb
     } else {
-      ctrl.type = 'text'
-      ctrl.value = String(current[inp.key] ?? '')
-      ctrl.placeholder = inp.label
-      ctrl.addEventListener('input', () => { current[inp.key] = ctrl.value; onChange({ ...current }) })
+      const tx = document.createElement('input')
+      tx.type = 'text'; tx.dataset.key = inp.key
+      tx.value = String(current[inp.key] ?? ''); tx.placeholder = inp.label
+      tx.addEventListener('input', () => { current[inp.key] = tx.value; onChange({ ...current }) })
+      ctrl = tx
     }
+
     const err = document.createElement('span')
-    err.className = 'cap-input-err'
-    err.dataset.err = inp.key
+    err.className = 'cap-input-err'; err.dataset.err = inp.key
     row.append(caption, ctrl, err)
     host.appendChild(row)
   }
+}
+
+// The host specs-dir config row shown for spec engines. Structure + markers only;
+// main.ts binds the value, Browse, dot, and error.
+function specsDirRow(value: string): HTMLElement {
+  const row = document.createElement('label')
+  row.className = 'cap-input'
+  const caption = document.createElement('span')
+  caption.textContent = 'specs dir *'
+  const input = document.createElement('input')
+  input.type = 'text'; input.dataset.config = 'specsDir'
+  input.value = value; input.placeholder = '/host/specs'
+  const browse = document.createElement('button')
+  browse.className = 'btn'; browse.dataset.role = 'specsBrowse'; browse.textContent = 'Browse…'
+  const dot = document.createElement('span')
+  dot.className = 'path-dot'; dot.dataset.role = 'specsDot'
+  const err = document.createElement('span')
+  err.className = 'cap-input-err'; err.dataset.err = 'specsDir'
+  row.append(caption, input, browse, dot, err)
+  return row
+}
+
+// (Re)fill a spec <select>'s options, disabling it when the list is empty.
+function fillSpecOptions(sel: HTMLSelectElement, names: string[], current: string): void {
+  sel.innerHTML = ''
+  const ph = document.createElement('option')
+  ph.value = ''
+  ph.textContent = names.length ? '- select spec -' : '- no specs - set a specs dir -'
+  sel.appendChild(ph)
+  for (const n of names) {
+    const o = document.createElement('option')
+    o.value = n; o.textContent = n
+    if (n === current) o.selected = true
+    sel.appendChild(o)
+  }
+  sel.disabled = names.length === 0
+}
+
+// Repopulate the spec select in place (no form rebuild) after the specs dir
+// changes, so editing the specs-dir field never rebuilds/refocuses the form.
+export function applySpecChoices(host: HTMLElement, names: string[], current: string): void {
+  const sel = host.querySelector<HTMLSelectElement>('select[data-key="spec"]')
+  if (sel) fillSpecOptions(sel, names, current)
 }
 
 // Set each per-field error span from a key->message map; missing keys clear.
