@@ -74,7 +74,7 @@ export const COMMON_TUNING_INPUTS: CapInput[] = [
 // the desktop does not consume (not pulled).
 export const SNAPSHOT_INPUT: CapInput = {
   key: 'snapshot',
-  label: 'stack snapshots (--snapshot; enables Java frames)',
+  label: 'stack snapshots',
   kind: 'bool',
   advanced: true,
 }
