@@ -56,9 +56,9 @@ export async function preflight(
   if (!installed) return checks
 
   // Binary freshness: md5-compare, push if stale (kill_ares first -> no ETXTBSY).
-  // Guard the push branch against an unconfigured host BEFORE any adb push: an
-  // empty/unreadable aresBinary (hostSum '') would push a bad source, and an
-  // empty specsDir would expand to `adb push /.` - the whole host filesystem.
+  // The binary is always required; guard against pushing an unreadable source.
+  // The specs dir is OPTIONAL (only spec engines use it): push it only when set,
+  // which also closes the `adb push /.` hazard from an empty-string expansion.
   const hostSum = await md5(cfg.aresBinary)
   if (!hostSum) {
     add({
@@ -66,13 +66,6 @@ export async function preflight(
       detail: cfg.aresBinary
         ? `cannot read host ares binary at ${cfg.aresBinary} - set a valid host path`
         : 'configure the host ares binary path in the config row',
-    })
-    return checks
-  }
-  if (!cfg.specsDir) {
-    add({
-      id: 'binary', label: 'host specs dir', ok: false,
-      detail: 'configure the host specs directory in the config row',
     })
     return checks
   }
@@ -84,8 +77,10 @@ export async function preflight(
     await adb.run(['shell', "su -c 'pkill -INT -f /data/local/tmp/ares; sleep 1; pkill -KILL -f /data/local/tmp/ares'"])
     const push = await adb.run(['push', cfg.aresBinary, DEVICE_BIN])
     await adb.run(['shell', `chmod 755 ${DEVICE_BIN}`])
-    await adb.run(['shell', `mkdir -p ${DEVICE_SPECS}`])
-    await adb.run(['push', `${cfg.specsDir}/.`, DEVICE_SPECS])
+    if (cfg.specsDir) {
+      await adb.run(['shell', `mkdir -p ${DEVICE_SPECS}`])
+      await adb.run(['push', `${cfg.specsDir}/.`, DEVICE_SPECS])
+    }
     add({ id: 'binary', label: 'binary pushed', ok: push.code === 0, detail: push.code === 0 ? 'pushed + chmod 755' : push.stderr.trim() })
   }
   return checks
