@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chainOf, foldEvents, labelForId, capSlice, mergeGraphs } from '@shared/graph-shape'
+import { chainOf, foldEvents, labelForId, capSlice, mergeGraphs, nativeNodeId } from '@shared/graph-shape'
 import type { SyscallEvent } from '@shared/events'
 
 function syscall(over: Partial<SyscallEvent> = {}): SyscallEvent {
@@ -170,5 +170,18 @@ describe('labelForId', () => {
   })
   it('labels a check id', () => {
     expect(labelForId('check:hook-scan')).toEqual({ kind: 'check', label: 'hook-scan', module: null })
+  })
+})
+
+describe('nativeNodeId', () => {
+  it('drops the offset and prefixes nat:', () => {
+    expect(nativeNodeId('libexample.so!check_su+0x10')).toBe('nat:libexample.so!check_su')
+    expect(nativeNodeId('libexample.so!check_su')).toBe('nat:libexample.so!check_su')
+  })
+  it('module-only frame keeps just the module', () => {
+    expect(nativeNodeId('libc.so+0x8')).toBe('nat:libc.so')
+  })
+  it('bare address is null', () => {
+    expect(nativeNodeId('0x7fabc')).toBeNull()
   })
 })

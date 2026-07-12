@@ -9,4 +9,5 @@ export interface TableRow {
   hasJava: boolean
   topJava: string | null
   topNative: string | null
+  arg: string
 }

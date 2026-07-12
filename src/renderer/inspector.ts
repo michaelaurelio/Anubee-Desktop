@@ -146,3 +146,18 @@ export function showNodeInspector(nodeId: string, events: SyscallEvent[]): void 
     selected = tbody.firstChild as HTMLTableRowElement
   }
 }
+
+// Render one record's full detail into `host` (single-record mode, used by a
+// master-table row click). Clears host, writes a short header, then the same
+// detail cards renderEventDetail produces. DOM side-effect.
+export function showRecordDetail(host: HTMLElement, e: SyscallEvent): void {
+  host.innerHTML = ''
+  const head = document.createElement('div')
+  head.className = 'insp-head'
+  head.textContent = `#${e.id} · ${e.syscall} · tid ${e.tid}`
+  host.appendChild(head)
+  const detail = document.createElement('div')
+  detail.className = 'insp-detail'
+  renderEventDetail(detail, e)
+  host.appendChild(detail)
+}

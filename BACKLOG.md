@@ -3,6 +3,32 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Known drawbacks from body-panel & master-table redesign
+- **Tags column keys on innermost native frame only** - the tag lookup on a
+  syscall row resolves only the row's `topNative` (innermost native frame in the
+  backtrace). A tag on a non-innermost native frame in that same row will not
+  badge that row, even if the frame is part of the chain. Revisit when a use case
+  needs tagging at arbitrary depths or you want to highlight any tagged frame in
+  a call chain, not just the innermost.
+- **Paging is offset-based, no jump-to-page** - the table pager steps prev/next
+  in fixed 500-row windows over the sorted result. There is no "jump to page"
+  input or bookmarking by event id; to reach a target deep in a large result,
+  narrow the filter first. Consider adding a page-jump input if analysts
+  regularly need to navigate large filtered sets.
+- **Rapid row-click race on eventById fetches - RESOLVED 2026-07-11** - `selectRow`
+  now captures a monotonic selection epoch (`src/renderer/selection-epoch.ts`) and
+  bails both the `eventById` detail paint and the `slice` graph paint when a newer
+  row selection has superseded it, so the last-to-resolve fetch can no longer paint
+  a stale record/graph under the current highlight. The same epoch also guards the
+  diff-mode row's merged-subgraph paint (`diffSlice`), so switching diff rows mid
+  fetch can't repaint a superseded graph either.
+- **Column truncation at default table width** - at the default ~420px table
+  width, text-heavy columns (`top native`, `args`) truncate. Mitigated by: (a)
+  resizing the table panel wider (persistent in `localStorage`), (b) `title`
+  tooltip on hover, (c) full detail in the right-panel single-record view. This
+  is the intended trade-off; revisit only if the truncation becomes frustrating
+  in daily use.
+
 ## Known drawbacks from node-interaction rework (offset/tag popup placement)
 - **Offset popup size estimates** - `placePopup` uses a fixed 400×300 estimate to
   compute right/left anchor placement; if the actual rendered popup size drifts
@@ -12,11 +38,12 @@ and open verification items. Newest concerns first.
   viewport, the offset popup can overlap the right inspector panel transiently;
   z-order keeps the popup readable. Revisit if the overlap becomes distracting
   in daily use.
-- **Stale async re-open of the offset popup** - a native tap fires `nodeOffsets`
-  + `nodeEvents` and, on resolve, unconditionally fills the inspector and opens
-  the popup. If the user dismisses (empty-canvas tap) or selects another node
-  during a slow IPC round-trip, the resolved promise can repaint the inspector /
-  re-open the popup at the old node. Guard with a selection token before showing.
+- **Stale async re-open of the offset popup - RESOLVED 2026-07-11** - the native
+  node-tap handler captures the selection epoch and guards inside its `.then`
+  before filling the inspector / opening the popup; the empty-canvas tap and any
+  other node selection bump the epoch, so dismissing or switching during a slow
+  IPC round-trip discards the resolved continuation instead of re-opening the
+  popup at the old node.
 - **Harness coverage niceties** - the shots harness does not yet assert that a
   syscall/java tap leaves no inline tag editor, nor that the tag popup's computed
   background is themed (both are visually covered by the captures); add explicit
@@ -90,9 +117,11 @@ Design reference: overall spec §13.
   / filter-bar split; empty/loading/error states) are done. See
   `DOCUMENTATION.md`'s "UI shell" section.
 - **Still deferred: UI/UX production overhaul (conference-presentable bar).**
-  - **Confirm-to-tag produces no visible output** - investigate confirm→tag→
-    badge/table path; make the result observable (invisible confirmation = broken
-    loop).
+  - **Confirm-to-tag produces no visible output - RESOLVED** - the Suggestions
+    `onConfirm` handler (`src/renderer/main.ts`) now upserts the tag, persists the
+    sidecar, then repaints all three surfaces the tag can appear on: `refreshTable`
+    (master-table tag column), `redrawBadges` (graph node badge), and `recolorRasp`
+    (native-node RASP category border). Confirm is observable on every view.
   - **Filter into a popover/panel** - move off the non-scalable top toolbar.
 - **Final-review residual minors (not urgent, tracked for follow-up):**
   - Dedup: `CATEGORIES` array duplicated in `rasp-heuristics.ts` +

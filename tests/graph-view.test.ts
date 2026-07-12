@@ -15,7 +15,7 @@ const slice: GraphSlice = {
 
 const row = (over: Partial<TableRow> = {}): TableRow => ({
   id: 1, tid: 101, syscall: 'openat', retval: 7, hasJava: true,
-  topJava: 'com.example.Sec.check', topNative: 'libexample.so!check+0x10', ...over,
+  topJava: 'com.example.Sec.check', topNative: 'libexample.so!check+0x10', arg: '', ...over,
 })
 
 describe('sliceToElements', () => {

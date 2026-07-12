@@ -7,11 +7,13 @@ import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 // this bridge except the single record fetched by id for the inspector.
 contextBridge.exposeInMainWorld('ares', {
   openFile: () => ipcRenderer.invoke('trace:open'),
+  openFileForCompare: () => ipcRenderer.invoke('trace:openCompare'),
   quit: () => ipcRenderer.invoke('app:quit'),
   copyToClipboard: (text: string) => ipcRenderer.invoke('clipboard:write', text),
   runs: () => ipcRenderer.invoke('graph:runs'),
   table: (filter: Filter, page: { limit: number; offset: number }, runId?: number) =>
     ipcRenderer.invoke('graph:table', filter, page, runId),
+  count: (filter: Filter, runId?: number) => ipcRenderer.invoke('graph:count', filter, runId),
   slice: (filter: Filter, cap?: number, runId?: number) =>
     ipcRenderer.invoke('graph:slice', filter, cap, runId),
   stackRollup: (filter: Filter, maxChains?: number, runId?: number) =>
@@ -53,8 +55,6 @@ contextBridge.exposeInMainWorld('ares', {
   pickSavePath: () => ipcRenderer.invoke('tracer:pickSavePath'),
   onTracerLine: (cb: (line: string) => void) =>
     ipcRenderer.on('tracer:line', (_e, line) => cb(line as string)),
-  onTracerDone: (cb: (r: { code: number; kind: string; runId?: number }) => void) =>
-    ipcRenderer.on('tracer:done', (_e, r) => cb(r as { code: number; kind: string; runId?: number })),
   // EPIC E2: live `adb logcat -s SENTINEL` reader. sentinelStop() resolves the
   // same { runId, eventCount, errors } shape as openFile()/tracerStart() (it
   // funnels through the same loadPath), which also fires the existing

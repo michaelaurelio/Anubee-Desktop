@@ -229,7 +229,13 @@ export class GraphStore {
       `SELECT id, tid, syscall, retval,
          (java_stack IS NOT NULL AND len(java_stack) > 0) AS hasJava,
          java_stack[1] AS topJava,
-         backtrace[1].symbol AS topNative
+         backtrace[1].symbol AS topNative,
+         coalesce(
+           nullif(array_to_string(map_values(string_args), ' '), ''),
+           nullif(array_to_string(map_values(fd_args), ' '), ''),
+           nullif(array_to_string(map_values(decoded_args), ' '), ''),
+           nullif(array_to_string(args, ' '), '')
+         ) AS arg
        FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})
        ORDER BY id
        LIMIT ${limit} OFFSET ${offset}`,
@@ -243,7 +249,19 @@ export class GraphStore {
       hasJava: Boolean(r.hasJava),
       topJava: (r.topJava as string | null) ?? null,
       topNative: (r.topNative as string | null) ?? null,
+      arg: (r.arg as string | null) ?? '',
     }))
+  }
+
+  // Total events matching the filter. The table page is a capped window over
+  // this, so the renderer shows "first N of <count>" when the two diverge.
+  async count(filter: Filter = {}, runId?: number): Promise<number> {
+    const rid = this.resolveRun(runId)
+    const { where, params } = filterToSql(filter)
+    return this.scalar(
+      `SELECT count(*) n FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`,
+      params,
+    )
   }
 
   // Aggregated syscall->native->java graph over the filtered events, capped.

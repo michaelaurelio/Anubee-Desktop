@@ -14,11 +14,11 @@ import { sentinelAdapter } from '@shared/adapters/sentinel'
 import type { SyscallEvent, FuncEvent, CorrelateEvent, DetectorEvent } from '@shared/events'
 
 // oracle.jsonl is the tiny deterministic fixture these exact-value assertions pin
-// to. sample.jsonl is a real dev.ares.detector capture (see REAL_FIXTURE) used by
-// the screenshot harness and the real-data smoke below; it is too large/nondeterministic
-// to assert exact ids/counts against.
+// to. detector_snap.jsonl is a real dev.ares.detector capture (see REAL_FIXTURE)
+// used by the screenshot harness and the real-data smoke below; it is too
+// large/nondeterministic to assert exact ids/counts against.
 const FIXTURE = resolve(__dirname, 'fixtures/oracle.jsonl')
-const REAL_FIXTURE = resolve(__dirname, 'fixtures/sample.jsonl')
+const REAL_FIXTURE = resolve(__dirname, 'fixtures/detector_snap.jsonl')
 // mixed.jsonl carries the same 3 syscall + 1 lib lines as oracle.jsonl verbatim,
 // plus one record each from funcs/correlate/coverage/SENTINEL. EPIC A retains
 // those foreign rows instead of deleting them at ingest - this fixture is the

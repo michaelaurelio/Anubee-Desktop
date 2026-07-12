@@ -4,8 +4,9 @@ import { wirePanels } from './panels'
 import { sliceToElements, filterForRow, shouldHideEdge, type EngineToggleState } from './graph-view'
 import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
+import { ALL_COLUMNS, parseColumns, serializeColumns, type ColumnKey } from './columns'
 import { currentFilter, wireFilterControls } from './filter-controls'
-import { showNodeInspector } from './inspector'
+import { showNodeInspector, showRecordDetail } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
 import { highlightNeighborhood, clearHighlight } from './graph-highlight'
 import { showOffsetPopup, closeOffsetPopup, eventForOffset, type NodeBox } from './offset-popup'
@@ -16,14 +17,16 @@ import { renderRules } from './rules-view'
 import { raspNodeStates } from './rasp-node-state'
 import { upsertTag, removeTag, tagsByTarget, orphanedTags, isDismissed, addDismissed, type Tag, type Dismissed } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
+import { nativeNodeId } from '@shared/graph-shape'
 import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
 import { renderFlame } from './flame-view'
 import { buildFlame } from '@shared/flame-shape'
 import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
 import type { GraphSlice } from '@shared/graph-shape'
 import { renderCapabilityForm, appendConsoleLine } from './capture-view'
-import { CAPABILITIES, capById, validateInputs, type CapValues } from '@shared/tracer-caps'
+import { CAPABILITIES, capById, validateInputs, isSafeToken, type CapValues } from '@shared/tracer-caps'
 import { showModal, isModalOpen } from './modal'
+import { makeEpoch } from './selection-epoch'
 
 let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
 document.documentElement.setAttribute('data-theme', theme)
@@ -170,6 +173,17 @@ function status(text: string): void {
   if (el) el.textContent = text
 }
 
+function showTablePanel(visible: boolean): void {
+  document.getElementById('table')?.classList.toggle('hidden', !visible)
+  document.getElementById('table-resize')?.classList.toggle('hidden', !visible)
+  document.getElementById('tab-left')?.classList.toggle('hidden', !visible)
+}
+
+function showSide(visible: boolean): void {
+  document.getElementById('side')?.classList.toggle('hidden', !visible)
+  document.getElementById('side-resize')?.classList.toggle('hidden', !visible)
+}
+
 // #banner is shared by the graph-truncation warning and the EPIC A coverage
 // health summary - whichever call comes last wins (both are simple one-off
 // informational states, not stacked notifications), so callers that render a
@@ -182,15 +196,47 @@ function showBanner(show: boolean, message?: string): void {
   if (show) b.textContent = message ?? 'Graph truncated - narrow the filter to see the full slice.'
 }
 
+// The master table renders at most one page; a filter matching more than this
+// shows "first <PAGE> of <total>" so the hidden remainder is never silent.
+const TABLE_PAGE = 500
+
+let tableOffset = 0
+let selectedRowId: number | undefined // the row whose detail is open, so re-renders can re-highlight it
+const selEpoch = makeEpoch() // guards stale-async paints across row-select / node-tap / canvas-clear
+let currentColumns: ColumnKey[] = parseColumns(localStorage.getItem('ares.columns'))
+
+function renderPager(offset: number, pageLen: number, total: number): void {
+  const rng = document.getElementById('pager-range')
+  const prev = document.getElementById('pager-prev') as HTMLButtonElement | null
+  const next = document.getElementById('pager-next') as HTMLButtonElement | null
+  if (rng) rng.textContent = total === 0 ? '0 / 0' : `${offset + 1}–${offset + pageLen} / ${total}`
+  if (prev) prev.disabled = offset <= 0
+  if (next) next.disabled = offset + TABLE_PAGE >= total
+}
+
+function highlightTableRow(id: number): void {
+  for (const tr of document.querySelectorAll('#table tr.sel')) tr.classList.remove('sel')
+  document.querySelector(`#table tr[data-row-id="${id}"]`)?.classList.add('sel')
+}
+
+// The tags cell for a master-table row: the RASP tags on the row's innermost
+// native frame (native nodes are where tags live, not the syscall aggregate).
+function tableBadgeFor(row: TableRow): string {
+  if (!row.topNative) return ''
+  const id = nativeNodeId(row.topNative)
+  return id ? badgeText(tagsByTarget(tags, id)) : ''
+}
+
 async function refreshTable(): Promise<void> {
-  const rows = await window.ares.table(currentFilter(), { limit: 500, offset: 0 }, activeRunId)
-  renderTable(rows, selectRow, row => {
-    const ids = [`sys:${row.syscall}`]
-    if (row.topJava) ids.push(`java:${row.topJava}`)
-    const rowTags = ids.flatMap(id => tagsByTarget(tags, id))
-    return badgeText(rowTags)
-  })
-  status(`${rows.length} rows`)
+  const filter = currentFilter()
+  const [rows, total] = await Promise.all([
+    window.ares.table(filter, { limit: TABLE_PAGE, offset: tableOffset }, activeRunId),
+    window.ares.count(filter, activeRunId),
+  ])
+  renderTable(rows, currentColumns, selectRow, tableBadgeFor)
+  if (selectedRowId !== undefined) highlightTableRow(selectedRowId) // survive paging/filter/column re-render
+  renderPager(tableOffset, rows.length, total)
+  status(total > rows.length ? `showing ${rows.length} of ${total} rows` : `${total} rows`)
 }
 
 // Populate the suggestions list into a given host. A suggestion drops off the
@@ -243,6 +289,9 @@ async function refreshOrphans(): Promise<void> {
   if (!host || activeRunId === undefined) return
   const targets = [...new Set(tags.map(t => t.target))]
   const orphanSet = new Set(targets.length ? await window.ares.orphans(activeRunId, targets) : [])
+  // Orphan warnings live in the (now selection-gated) side panel; reveal it when
+  // there are any, so they aren't silently hidden until a row/node is clicked.
+  if (orphanedTags(tags, orphanSet).length) showSide(true)
   const drop = async (target: string, off?: string) => {
     tags = removeTag(tags, target, off)
     await persistTags()
@@ -318,8 +367,18 @@ for (const id of ['e-syscall', 'e-funcs', 'e-correlate', 'e-sentinel']) {
 }
 
 async function selectRow(row: TableRow): Promise<void> {
+  const e = selEpoch.bump()
+  selectedRowId = row.id
+  highlightTableRow(row.id)
+  showSide(true)
+  const host = document.getElementById('inspector')
+  const ev = await window.ares.eventById(row.id, activeRunId)
+  if (!selEpoch.isCurrent(e)) return // a newer selection superseded this row; drop the stale detail
+  if (host && ev) showRecordDetail(host, ev)
+
   showView('graph')
   const slice = await window.ares.slice(filterForRow(row, currentFilter()), GRAPH_SLICE_CAP, activeRunId)
+  if (!selEpoch.isCurrent(e)) return // stale slice; do not repaint the graph for a row the user left
   await renderSlice(slice)
 }
 
@@ -336,21 +395,25 @@ function nodeBox(node: cytoscape.NodeSingular): NodeBox {
 }
 
 cy.on('tap', 'node', evt => {
+  const e = selEpoch.bump()
   const node = evt.target
   const nodeId = node.id()
   highlightNeighborhood(cy, node)
+  showSide(true)
   if (node.data('kind') === 'native') {
     const box = nodeBox(node)
     void Promise.all([
       window.ares.nodeOffsets(nodeId, currentFilter(), activeRunId),
       window.ares.nodeEvents(nodeId, currentFilter(), activeRunId),
     ]).then(([rows, events]) => {
+      if (!selEpoch.isCurrent(e)) return // node deselected / another selected during the round-trip
       showNodeInspector(nodeId, events)
       showOffsetPopup({ nodeId, rows, anchor: box, eventForOffset: (row) => eventForOffset(events, row) })
     })
   } else {
     closeOffsetPopup()
     void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(events => {
+      if (!selEpoch.isCurrent(e)) return // stale inspector repaint
       showNodeInspector(nodeId, events)
     })
   }
@@ -374,7 +437,7 @@ cy.on('cxttap', 'node', evt => {
   })
 })
 
-cy.on('tap', evt => { if (evt.target === cy) { clearHighlight(cy); closeOffsetPopup(); closeNodeMenu(); closeTagPopup() } })
+cy.on('tap', evt => { if (evt.target === cy) { selEpoch.bump(); clearHighlight(cy); closeOffsetPopup(); closeNodeMenu(); closeTagPopup() } })
 
 function applyGraphTheme(next: Theme): void {
   const c = themeColors(next)
@@ -419,10 +482,16 @@ async function refreshDiff(): Promise<void> {
   if (!host || activeRunId === undefined || runB === undefined) return
   const rows = await window.ares.diffTable(activeRunId, runB, currentFilter(), 1000)
   const taggedIds = new Set(tags.map(t => t.target))
-  renderDiffTable(host, filterDiffRows(rows, diffMode, taggedIds),
+  const shown = filterDiffRows(rows, diffMode, taggedIds)
+  // The diff table renders into the selection-gated side panel; reveal it so a
+  // Load-run-B comparison is visible without first clicking a row/node.
+  if (shown.length) showSide(true)
+  renderDiffTable(host, shown,
     id => badgeText(tagsByTarget(tags, id)),
     async id => {
+      const e = selEpoch.bump()
       const merged = await window.ares.diffSlice(activeRunId!, runB!, id, currentFilter())
+      if (!selEpoch.isCurrent(e)) return // superseded by a newer selection; don't repaint the graph
       const els = mergedToElements(merged)
       cy.elements().remove()
       cy.add(els.nodes)
@@ -434,11 +503,11 @@ async function refreshDiff(): Promise<void> {
 
 function wireDiff(): void {
   document.getElementById('load-run-b')?.addEventListener('click', async () => {
-    const runA = activeRunId
-    const summary = await window.ares.openFile()
+    // Compare-load: ingests run B without the trace:loaded broadcast, so it never
+    // steals activeRunId or repaints the primary panels with B's data.
+    const summary = await window.ares.openFileForCompare()
     if (summary) {
       runB = summary.runId
-      activeRunId = runA
       await refreshTags()
       void refreshDiff()
     }
@@ -505,6 +574,7 @@ function wireCapture(): void {
     saveCfg()
     const pkg = String(vals.pkg ?? '')
     if (!pkg) { statusHost.textContent = 'enter a package first'; return }
+    if (!isSafeToken(pkg)) { statusHost.textContent = 'package has unsupported characters'; return }
     statusHost.textContent = 'running preflight...'
     const checks = await window.ares.tracerPreflight(pkg)
     statusHost.innerHTML = ''
@@ -616,7 +686,11 @@ function wireExport(): void {
 window.ares.onProgress(pct => status(`Loading... ${pct}%`))
 window.ares.onLoaded(s => {
   activeRunId = s.runId
+  tableOffset = 0 // a fresh run starts at page 1; a stale offset could land past its row count
+  selectedRowId = undefined
   document.getElementById('empty-state')?.classList.add('hidden')
+  showTablePanel(true)
+  showSide(false) // clear a prior run's open detail; refreshOrphans re-opens it if this run has orphans
   status(`Loaded ${s.eventCount} events (${s.errors} parse errors)`)
   void refreshTags().then(() => {
     void refreshTable()
@@ -650,9 +724,47 @@ document.getElementById('rules-btn')?.addEventListener('click', () => {
     render: host => { void renderRules(host, activeRunId, () => { void recolorRasp(); void refreshSuggestions() }) },
   })
 })
-wireFilterControls(() => { void refreshTable(); refreshMiddle() })
+document.getElementById('pager-prev')?.addEventListener('click', () => {
+  tableOffset = Math.max(0, tableOffset - TABLE_PAGE)
+  void refreshTable()
+})
+document.getElementById('pager-next')?.addEventListener('click', () => {
+  tableOffset += TABLE_PAGE
+  void refreshTable()
+})
+wireFilterControls(() => { tableOffset = 0; void refreshTable(); refreshMiddle() })
 wireExport()
 wireDiff()
+
+function openColumnsModal(): void {
+  showModal({
+    title: 'Table columns',
+    width: 300,
+    render: host => {
+      for (const def of ALL_COLUMNS) {
+        const row = document.createElement('label')
+        row.className = 'col-row' + (def.fixed ? ' fixed' : '')
+        const cb = document.createElement('input')
+        cb.type = 'checkbox'
+        cb.checked = currentColumns.includes(def.key)
+        cb.disabled = !!def.fixed
+        cb.addEventListener('change', () => {
+          const set = new Set(currentColumns)
+          if (cb.checked) set.add(def.key); else set.delete(def.key)
+          set.add('id')
+          currentColumns = ALL_COLUMNS.map(d => d.key).filter(k => set.has(k))
+          localStorage.setItem('ares.columns', serializeColumns(currentColumns))
+          void refreshTable()
+        })
+        const span = document.createElement('span')
+        span.textContent = def.label + (def.fixed ? ' (always)' : '')
+        row.append(cb, span)
+        host.appendChild(row)
+      }
+    },
+  })
+}
+document.getElementById('cols-btn')?.addEventListener('click', openColumnsModal)
 
 function zoomBy(factor: number): void {
   const c = cy.container()
@@ -663,6 +775,7 @@ function zoomBy(factor: number): void {
 document.getElementById('zoom-in')?.addEventListener('click', () => zoomBy(1.2))
 document.getElementById('zoom-out')?.addEventListener('click', () => zoomBy(1 / 1.2))
 document.getElementById('zoom-fit')?.addEventListener('click', () => cy.fit(undefined, 48))
+document.getElementById('side-close')?.addEventListener('click', () => showSide(false))
 
 // Ctrl/Cmd +/- zoom the graph (only in graph view), overriding the browser's
 // page zoom. Accepts '=' (unshifted '+'), '+', numpad, and '-'.
