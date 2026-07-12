@@ -177,6 +177,13 @@ export function isSafeToken(s: string): boolean {
 function inputError(inp: CapInput, vals: CapValues): string | undefined {
   const v = vals[inp.key]
   if (inp.required && !v) return 'is required'
+  if (inp.kind === 'int') {
+    if (typeof v !== 'string' || v.trim() === '') return undefined // blank = use default
+    const min = inp.min ?? 1
+    const n = Number(v)
+    if (!Number.isInteger(n) || n < min) return `must be a whole number >= ${min}`
+    return undefined
+  }
   if (inp.kind !== 'bool' && typeof v === 'string' && v && !isSafeToken(v)) {
     return 'has unsupported characters (allowed: letters, digits, and . _ - / : , +)'
   }

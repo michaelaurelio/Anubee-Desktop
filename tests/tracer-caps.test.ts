@@ -192,6 +192,16 @@ describe('fieldErrors', () => {
     expect(fields.pkg).toBeUndefined()
     expect(form).toEqual(['provide a library filter or check "capture all libraries"'])
   })
+  it('validates int inputs as whole numbers >= min', () => {
+    const sys = capById('syscalls')!
+    const base = { pkg: 'com.android.deskclock', all: true }
+    expect(fieldErrors(sys, { ...base }).fields.bufmb).toBeUndefined()        // blank ok
+    expect(fieldErrors(sys, { ...base, bufmb: '4' }).fields.bufmb).toBeUndefined()
+    expect(fieldErrors(sys, { ...base, bufmb: '0' }).fields.bufmb).toBe('must be a whole number >= 1')
+    expect(fieldErrors(sys, { ...base, bufmb: '-1' }).fields.bufmb).toBe('must be a whole number >= 1')
+    expect(fieldErrors(sys, { ...base, bufmb: '3.5' }).fields.bufmb).toBe('must be a whole number >= 1')
+    expect(fieldErrors(sys, { ...base, bufmb: 'abc' }).fields.bufmb).toBe('must be a whole number >= 1')
+  })
 })
 
 describe('capNeedsSpec', () => {
