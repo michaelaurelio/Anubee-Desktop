@@ -29,7 +29,7 @@ export function correlateAdapter(
     const id = `${source}=>${target}`
     const e = edges.get(id)
     if (e) e.count++
-    else edges.set(id, { id, source, target, count: 1 })
+    else edges.set(id, { id, source, target, count: 1, engine: 'correlate' })
   }
 
   // Pass 1: reserve every span's func-node id at count 0 - the span's own

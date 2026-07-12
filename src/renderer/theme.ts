@@ -1,4 +1,5 @@
 import type { RaspCategory } from '@shared/project-store'
+import type { EdgeEngine } from '@shared/graph-shape'
 
 // Single source of truth for the graph + flame kind colors per theme. index.html
 // carries the CSS-token equivalents; cytoscape and the flame SVG can't read CSS
@@ -54,4 +55,13 @@ const CAT_LIGHT: Record<RaspCategory, string> = {
 
 export function categoryColors(theme: Theme): Record<RaspCategory, string> {
   return theme === 'light' ? CAT_LIGHT : CAT_DARK
+}
+
+// Per-engine edge colors (EPIC B4). Only the three non-default engines need an
+// entry - syscall/untagged edges keep KindColors.edge, unchanged from today.
+const EDGE_DARK: Record<EdgeEngine, string> = { funcs: '#d9a441', correlate: '#8a7dd6', sentinel: '#e5484d' }
+const EDGE_LIGHT: Record<EdgeEngine, string> = { funcs: '#b8860b', correlate: '#6c5ce7', sentinel: '#a8324a' }
+
+export function edgeEngineColors(theme: Theme): Record<EdgeEngine, string> {
+  return theme === 'light' ? EDGE_LIGHT : EDGE_DARK
 }

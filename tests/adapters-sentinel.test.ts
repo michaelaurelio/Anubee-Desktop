@@ -20,7 +20,7 @@ describe('sentinelAdapter', () => {
     ])
     expect(edges).toEqual([
       { id: 'nat:libexample.so!check_su=>check:hook-scan',
-        source: 'nat:libexample.so!check_su', target: 'check:hook-scan', count: 1 },
+        source: 'nat:libexample.so!check_su', target: 'check:hook-scan', count: 1, engine: 'sentinel' },
     ])
   })
 

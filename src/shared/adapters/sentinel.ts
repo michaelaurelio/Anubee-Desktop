@@ -35,7 +35,7 @@ export function sentinelAdapter(
     const edgeId = `${match}=>${id}`
     const e = edges.get(edgeId)
     if (e) e.count++
-    else edges.set(edgeId, { id: edgeId, source: match, target: id, count: 1 })
+    else edges.set(edgeId, { id: edgeId, source: match, target: id, count: 1, engine: 'sentinel' })
   }
 
   return { nodes: [...nodes.values()], edges: [...edges.values()] }

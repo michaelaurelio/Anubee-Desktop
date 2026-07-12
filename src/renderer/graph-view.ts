@@ -12,14 +12,14 @@ export function truncateLabel(s: string, max = 22): string {
 // carries just what the stylesheet and inspector need.
 export function sliceToElements(slice: GraphSlice): {
   nodes: { data: { id: string; label: string; kind: string; count: number }; classes: string }[]
-  edges: { data: { id: string; source: string; target: string; count: number } }[]
+  edges: { data: { id: string; source: string; target: string; count: number; engine?: string } }[]
 } {
   return {
     // classes mirrors data.kind as a cytoscape class (`.java`/`.native`/`.syscall`)
     // so RASP category selectors can combine `.native.suggested.rasp-<cat>`
     // without a second data-attribute lookup per style rule.
     nodes: slice.nodes.map(n => ({ data: { id: n.id, label: truncateLabel(n.label), kind: n.kind, count: n.count }, classes: n.kind })),
-    edges: slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, count: e.count } })),
+    edges: slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, count: e.count, engine: e.engine } })),
   }
 }
 

@@ -11,11 +11,19 @@ export interface GraphNode {
   count: number
 }
 
+export type EdgeEngine = 'funcs' | 'correlate' | 'sentinel'
+
 export interface GraphEdge {
   id: string
   source: string
   target: string
   count: number
+  // Originating engine (EPIC B4). Undefined means the syscall SQL path / the
+  // foldEvents oracle - the renderer treats missing engine as 'syscall'.
+  // Deliberately not set on syscall edges so slice()'s sql edges stay
+  // byte-identical to the foldEvents oracle (integration.test.ts compares
+  // them with toEqual).
+  engine?: EdgeEngine
 }
 
 export interface GraphSlice {
@@ -116,6 +124,8 @@ export function mergeGraphs(
     }
     for (const e of s.edges) {
       const existing = edges.get(e.id)
+      // engine is first-writer-wins on an id collision (cross-engine edge-id
+      // collisions are rare - each engine's edges use disjoint endpoint kinds).
       if (existing) existing.count += e.count
       else edges.set(e.id, { ...e })
     }

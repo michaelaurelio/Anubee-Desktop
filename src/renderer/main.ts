@@ -1,5 +1,5 @@
 import cytoscape from 'cytoscape'
-import { themeColors, categoryColors, parseTheme, serializeTheme, type Theme } from './theme'
+import { themeColors, categoryColors, edgeEngineColors, parseTheme, serializeTheme, type Theme } from './theme'
 import { wirePanels } from './panels'
 import { sliceToElements, filterForRow } from './graph-view'
 import { runElkLayout } from './elk-layout'
@@ -28,6 +28,7 @@ import { showModal, isModalOpen } from './modal'
 let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
 document.documentElement.setAttribute('data-theme', theme)
 const tc = themeColors(theme)
+const ec = edgeEngineColors(theme)
 
 const cy = cytoscape({
   container: document.getElementById('cy'),
@@ -71,6 +72,12 @@ const cy = cytoscape({
         'target-arrow-color': tc.edge,
       },
     },
+    // Per-engine edge colors (EPIC B4). Untagged/syscall edges keep the base
+    // tc.edge above, unchanged. Must sit before the presence/highlighted rules
+    // below so diff mode and node-selection highlighting still win.
+    { selector: 'edge[engine = "funcs"]', style: { 'line-color': ec.funcs, 'target-arrow-color': ec.funcs } },
+    { selector: 'edge[engine = "correlate"]', style: { 'line-color': ec.correlate, 'target-arrow-color': ec.correlate } },
+    { selector: 'edge[engine = "sentinel"]', style: { 'line-color': ec.sentinel, 'target-arrow-color': ec.sentinel } },
     { selector: 'node[presence = "A-only"]', style: { 'background-color': '#c0392b' } },
     { selector: 'node[presence = "B-only"]', style: { 'background-color': '#27ae60' } },
     { selector: 'node[presence = "both"]', style: { 'background-color': '#95a5a6' } },
@@ -350,6 +357,7 @@ cy.on('tap', evt => { if (evt.target === cy) { clearHighlight(cy); closeOffsetPo
 
 function applyGraphTheme(next: Theme): void {
   const c = themeColors(next)
+  const nec = edgeEngineColors(next)
   cy.style()
     .selector('node').style({ color: c.labelText, 'background-color': c.labelBacking, 'border-color': c.native })
     .selector('node[kind = "java"]').style({ 'border-color': c.java })
@@ -358,6 +366,9 @@ function applyGraphTheme(next: Theme): void {
     .selector('node[kind = "func"]').style({ 'border-color': c.func })
     .selector('node[kind = "check"]').style({ 'border-color': c.check })
     .selector('edge').style({ 'line-color': c.edge, 'target-arrow-color': c.edge })
+    .selector('edge[engine = "funcs"]').style({ 'line-color': nec.funcs, 'target-arrow-color': nec.funcs })
+    .selector('edge[engine = "correlate"]').style({ 'line-color': nec.correlate, 'target-arrow-color': nec.correlate })
+    .selector('edge[engine = "sentinel"]').style({ 'line-color': nec.sentinel, 'target-arrow-color': nec.sentinel })
     .selector('edge.highlighted').style({ 'line-color': c.labelText, 'target-arrow-color': c.labelText, 'width': 3.5, 'arrow-scale': 1.3 })
     .update()
 }

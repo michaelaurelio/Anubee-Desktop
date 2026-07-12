@@ -41,7 +41,7 @@ describe('correlateAdapter', () => {
     const root = nodes.find(n => n.id === 'fn:0x1000')!
     expect(root.count).toBe(1)
     expect(edges).toEqual([
-      { id: 'fn:0x1000=>fn:0x2000', source: 'fn:0x1000', target: 'fn:0x2000', count: 1 },
+      { id: 'fn:0x1000=>fn:0x2000', source: 'fn:0x1000', target: 'fn:0x2000', count: 1, engine: 'correlate' },
     ])
   })
 
