@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CAPABILITIES, capById, validateInputs, fieldErrors } from '../src/shared/tracer-caps'
+import { CAPABILITIES, capById, validateInputs, fieldErrors, capNeedsSpec } from '../src/shared/tracer-caps'
 
 describe('tracer-caps registry', () => {
   it('exposes the seven engines with correct output kinds', () => {
@@ -135,5 +135,18 @@ describe('fieldErrors', () => {
     const { fields, form } = fieldErrors(syscalls, { pkg: 'com.x' })
     expect(fields.pkg).toBeUndefined()
     expect(form).toEqual(['provide a library filter or check "capture all libraries"'])
+  })
+})
+
+describe('capNeedsSpec', () => {
+  it('is true for the spec engines', () => {
+    for (const id of ['funcs', 'correlate', 'trace']) {
+      expect(capNeedsSpec(capById(id)!)).toBe(true)
+    }
+  })
+  it('is false for the non-spec engines', () => {
+    for (const id of ['syscalls', 'lib', 'dump', 'mod']) {
+      expect(capNeedsSpec(capById(id)!)).toBe(false)
+    }
   })
 })
