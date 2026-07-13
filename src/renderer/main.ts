@@ -916,7 +916,15 @@ window.addEventListener('keydown', e => {
 })
 
 document.getElementById('file-open')?.addEventListener('click', () => {
-  void runLogged('open', () => window.ares.openFile(), () => null)
+  showModal({ title: 'Open', width: 260, render: host => {
+    const runBtn = document.createElement('button'); runBtn.className = 'btn'; runBtn.id = 'open-run'
+    runBtn.textContent = 'Open run (JSONL)…'
+    runBtn.onclick = () => void runLogged('open', () => window.ares.openFile(), () => null)
+    const projBtn = document.createElement('button'); projBtn.className = 'btn'; projBtn.id = 'open-project'
+    projBtn.textContent = 'Open project…'
+    projBtn.onclick = () => void runLogged('open-project', () => window.ares.openProject(), () => null)
+    host.append(runBtn, projBtn)
+  }})
 })
 document.getElementById('file-capture')?.addEventListener('click', () => openCaptureModal())
 document.getElementById('export-btn')?.addEventListener('click', () => {
@@ -927,6 +935,12 @@ document.getElementById('export-btn')?.addEventListener('click', () => {
       host.appendChild(b)
     }
     wireExport() // re-bind against the freshly created buttons
+    const saveProj = document.createElement('button'); saveProj.className = 'btn'; saveProj.id = 'save-project'
+    saveProj.textContent = 'Save project…'
+    saveProj.onclick = () => {
+      if (activeRunId !== undefined) void runLogged('save-project', () => window.ares.saveProject(activeRunId!, currentLayout), () => null)
+    }
+    host.appendChild(saveProj)
   }})
 })
 document.getElementById('diff-btn')?.addEventListener('click', () => {

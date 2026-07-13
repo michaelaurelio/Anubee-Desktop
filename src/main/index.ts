@@ -1,10 +1,12 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, clipboard } from 'electron'
 import { resolve } from 'path'
-import { writeFileSync } from 'node:fs'
+import { writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { GraphStore } from './graph-store'
 import type { Filter } from '@shared/filter'
-import { loadTags, saveTags, loadSidecarRules, saveSidecarRules, loadDismissed, saveDismissed } from './sidecar'
+import { loadTags, saveTags, loadSidecarRules, saveSidecarRules, loadDismissed, saveDismissed, sidecarPath } from './sidecar'
 import type { Tag, Dismissed } from '@shared/project-store'
+import { serializeSidecar } from '@shared/project-store'
+import { serializeProject, parseProject, type ProjectBundle } from '@shared/project-file'
 import { loadRules, saveRules } from './rasp-rules-store'
 import { resolveRules, BUILTIN_RULES, validateRule, type Rule, type RuleScope } from '@shared/rasp-heuristics'
 import { buildFindings, renderMarkdown, renderJSON } from '@shared/findings'
@@ -219,6 +221,42 @@ ipcMain.handle('tracer:stop', async () => {
 
 ipcMain.handle('trace:open', () => openViaDialog(true))
 ipcMain.handle('trace:openCompare', () => openViaDialog(false))
+ipcMain.handle('project:save', async (_e, runId: number, layout?: unknown) => {
+  const info = store.runs().find(r => r.runId === runId)
+  if (!info) return { error: 'no run loaded' }
+  const engine: 'syscall' | 'func' = info.kinds.includes('funcs') && !info.kinds.includes('syscall') ? 'func' : 'syscall'
+  const bundle: ProjectBundle = {
+    formatVersion: 1, savedAt: new Date().toISOString(),
+    run: { path: info.file, engine, eventCount: info.eventCount },
+    tags: loadTags(info.file).tags,
+    dismissed: loadDismissed(info.file),
+    ruleOverrides: loadSidecarRules(info.file).rules,
+    layout,
+  }
+  const def = basename(info.file).replace(/\.jsonl?$/i, '') + '.aresproj.json'
+  const r = await dialog.showSaveDialog(win, { defaultPath: def, filters: [{ name: 'ARES project', extensions: ['aresproj.json', 'json'] }] })
+  if (r.canceled || !r.filePath) return { canceled: true }
+  writeFileSync(r.filePath, serializeProject(bundle))
+  return { path: r.filePath }
+})
+
+ipcMain.handle('project:open', async () => {
+  const r = await dialog.showOpenDialog(win, { filters: [{ name: 'ARES project', extensions: ['aresproj.json', 'json'] }], properties: ['openFile'] })
+  if (r.canceled || !r.filePaths[0]) return { canceled: true }
+  const parsed = parseProject(readFileSync(r.filePaths[0], 'utf-8'))
+  if (!parsed.bundle) return { error: parsed.error ?? 'invalid project file' }
+  const b = parsed.bundle
+  let runPath = b.run.path
+  if (!existsSync(runPath)) {
+    const rel = await dialog.showOpenDialog(win, { title: `Locate the run for this project (${basename(runPath)})`, filters: [{ name: 'ARES JSONL', extensions: ['jsonl', 'json'] }], properties: ['openFile'] })
+    if (rel.canceled || !rel.filePaths[0]) return { error: 'run file not found' }
+    runPath = rel.filePaths[0]
+  }
+  // seed the run's sidecar from the bundle, then ingest (broadcasts trace:loaded -> renderer applies tags)
+  writeFileSync(sidecarPath(runPath), serializeSidecar({ file: runPath, ingestedAt: b.savedAt }, b.tags, b.ruleOverrides, {}, b.dismissed))
+  const summary = await loadPath(runPath)
+  return { summary, layout: b.layout }
+})
 ipcMain.handle('app:quit', () => app.quit())
 ipcMain.handle('graph:runs', () => store.runs())
 ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }, runId?: number) => store.table(filter, page, runId))

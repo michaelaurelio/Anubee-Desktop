@@ -8,6 +8,8 @@ import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 contextBridge.exposeInMainWorld('ares', {
   openFile: () => ipcRenderer.invoke('trace:open'),
   openFileForCompare: () => ipcRenderer.invoke('trace:openCompare'),
+  saveProject: (runId: number, layout?: unknown) => ipcRenderer.invoke('project:save', runId, layout),
+  openProject: () => ipcRenderer.invoke('project:open'),
   quit: () => ipcRenderer.invoke('app:quit'),
   copyToClipboard: (text: string) => ipcRenderer.invoke('clipboard:write', text),
   runs: () => ipcRenderer.invoke('graph:runs'),
