@@ -519,6 +519,36 @@ describe('GraphStore.nodeEvents', () => {
     expect((await store.nodeEvents('sys:openat', { tid: 101 })).map(e => e.id)).toEqual([1, 2])
     expect((await store.nodeEvents('sys:openat', { tid: 999 }))).toEqual([])
   })
+
+  it('finds a cfi-only node (the outer-native caller absent from the syscall\'s own backtrace)', async () => {
+    // Without the fix, nodeEvents' syscall branch used CHAIN_SQL only, which
+    // never sees cfi_backtrace - the outer-native node from the sidecar
+    // wouldn't exist in `chain` at all, so this would return [].
+    const sys = JSON.stringify({
+      type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 29, syscall: 'ioctl',
+      args: [], retval: 0, string_args: {}, fd_args: {}, decoded_args: {}, stack_id: 11,
+      java_stack: ['com.android.internal.os.Zygote.callPostForkChildHooks'],
+      backtrace: [{ frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8' }],
+    })
+    const cfi = JSON.stringify({
+      type: 'cfi_stack', pid: 100, tid: 101, stack_id: 11,
+      cfi_backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8', kind: 'native' },
+        { frame: 1, addr: '0x5', symbol: 'boot.oat!com.android.internal.os.Zygote.callPostForkChildHooks+0x28', kind: 'managed' },
+        { frame: 2, addr: '0x7', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' },
+      ],
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-nodeevents-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, sys + '\n')
+    writeFileSync(p + '.stacks', cfi + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const events = await store.nodeEvents('nat:libandroid_runtime.so!SpecializeCommon')
+    expect(events).toHaveLength(1)
+    expect(events[0].id).toBe(1)
+  })
 })
 
 const FUNCS_DETAIL_LINES = [

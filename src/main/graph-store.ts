@@ -111,6 +111,14 @@ const CFI_FUNCS_CHAIN_SQL = `list_filter(
     END),
   x -> x IS NOT NULL)`
 
+// Chain selection, shared by every site that builds a syscall/funcs chain: pick
+// the cfi-recovered chain when the row's stack_id joined a cfi_stack sidecar
+// row (aliased `c` by the caller's cfi CTE join), else fall back to the
+// two-list chain. A single definition so the cfi-wiring cannot drift between
+// call sites (see GraphStore.cfiCte).
+const SYS_CHAIN_SEL = `CASE WHEN c.stack_id IS NOT NULL THEN ${CFI_CHAIN_SQL} ELSE ${CHAIN_SQL} END`
+const FUNCS_CHAIN_SEL = `CASE WHEN c.stack_id IS NOT NULL THEN ${CFI_FUNCS_CHAIN_SQL} ELSE ${FUNCS_CHAIN_SQL} END`
+
 // Rebuild a node's kind/label/module from its id via the shared labelForId.
 // The SQL owns identity + counts; labelling stays in shared TS so it can
 // never drift.
@@ -277,6 +285,15 @@ export class GraphStore {
     return id
   }
 
+  // Deduped cfi_stack CTE for run `rid`: one row per stack_id (any_value picks
+  // an arbitrary one when ARES's dedup LRU re-emits a duplicate for the same
+  // stack_id). Every chain-building query LEFT JOINs this by stack_id and
+  // selects with SYS_CHAIN_SEL / FUNCS_CHAIN_SEL - the single source of truth
+  // so the cfi wiring cannot drift between call sites.
+  private cfiCte(rid: number): string {
+    return `cfi AS (SELECT stack_id, any_value(cfi_backtrace) AS cfi_backtrace FROM ev WHERE run_id = ${rid} AND type = 'cfi_stack' GROUP BY stack_id)`
+  }
+
   // The engine a run's list/count should present: 'funcs' when it has call rows
   // and no syscalls, else 'syscall'. (A mixed `trace` run lists syscalls in
   // Phase 1; a unified trace list is backlog.)
@@ -379,12 +396,11 @@ export class GraphStore {
     // syscall chains: LEFT JOIN each syscall row to its cfi_stack sidecar (by
     // stack_id) and pick CFI_CHAIN_SQL when one exists, else CHAIN_SQL.
     const sysScoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
-    const cfiCte = `cfi AS (SELECT stack_id, any_value(cfi_backtrace) AS cfi_backtrace FROM ev WHERE run_id = ${rid} AND type = 'cfi_stack' GROUP BY stack_id)`
     const sysCte =
-      `WITH ${cfiCte},
+      `WITH ${this.cfiCte(rid)},
             chains AS (
               SELECT e.id AS eid,
-                CASE WHEN c.stack_id IS NOT NULL THEN ${CFI_CHAIN_SQL} ELSE ${CHAIN_SQL} END AS chain
+                ${SYS_CHAIN_SEL} AS chain
               FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id
               WHERE ${sysScoped})`
     const sysNodeRows = await this.rows(
@@ -399,9 +415,9 @@ export class GraphStore {
     const fnScoped = `run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where})`
     const fnCte =
       `WITH h AS (SELECT list(DISTINCT module || '!' || symbol) AS fns FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL),
-            cfi AS (SELECT stack_id, any_value(cfi_backtrace) AS cfi_backtrace FROM ev WHERE run_id = ${rid} AND type = 'cfi_stack' GROUP BY stack_id),
+            ${this.cfiCte(rid)},
             chains AS (
-              SELECT CASE WHEN c.stack_id IS NOT NULL THEN ${CFI_FUNCS_CHAIN_SQL} ELSE ${FUNCS_CHAIN_SQL} END AS chain
+              SELECT ${FUNCS_CHAIN_SEL} AS chain
               FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id, h
               WHERE ${fnScoped})`
     const fnNodeRows = await this.rows(
@@ -434,9 +450,9 @@ export class GraphStore {
     const { where, params } = filterToSql(filter)
     const scoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
     const cte =
-      `WITH cfi AS (SELECT stack_id, any_value(cfi_backtrace) AS cfi_backtrace FROM ev WHERE run_id = ${rid} AND type = 'cfi_stack' GROUP BY stack_id),
+      `WITH ${this.cfiCte(rid)},
             chains AS (
-              SELECT CASE WHEN c.stack_id IS NOT NULL THEN ${CFI_CHAIN_SQL} ELSE ${CHAIN_SQL} END AS chain
+              SELECT ${SYS_CHAIN_SEL} AS chain
               FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id
               WHERE ${scoped})`
 
@@ -512,7 +528,8 @@ export class GraphStore {
       const fnScoped = `run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where})`
       const cte =
         `WITH h AS (SELECT list(DISTINCT module || '!' || symbol) AS fns FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL),
-              chains AS (SELECT id AS eid, ${FUNCS_CHAIN_SQL} AS chain FROM ev, h WHERE ${fnScoped})`
+              ${this.cfiCte(rid)},
+              chains AS (SELECT e.id AS eid, ${FUNCS_CHAIN_SEL} AS chain FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id, h WHERE ${fnScoped})`
       const rows = await this.rows(
         `${cte}
          SELECT to_json(c) AS js, r.retval AS retval, r.elapsed_ns AS elapsed, to_json(r.out_args) AS out_args
@@ -528,7 +545,7 @@ export class GraphStore {
       })
     }
     const scoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
-    const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})`
+    const cte = `WITH ${this.cfiCte(rid)}, chains AS (SELECT e.id AS eid, ${SYS_CHAIN_SEL} AS chain FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id WHERE ${scoped})`
     const rows = await this.rows(
       `${cte} SELECT to_json(ev) AS js FROM ev JOIN chains ON ev.id = chains.eid AND ev.run_id = ${rid}
        WHERE list_contains(chain, ?) ORDER BY ev.id LIMIT ${lim}`,
@@ -658,7 +675,7 @@ export class GraphStore {
     const { where, params } = filterToSql(filter)
     const scoped = `run_id = ${runId} AND type = 'syscall' AND span IS NULL AND (${where})`
     const rows = await this.rows(
-      `WITH chains AS (SELECT ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})
+      `WITH ${this.cfiCte(runId)}, chains AS (SELECT ${SYS_CHAIN_SEL} AS chain FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id WHERE ${scoped})
        SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`,
       params,
     )
@@ -725,7 +742,8 @@ export class GraphStore {
     const rid = this.resolveRun(runId)
     const nodeIds = new Set((await this.nodeCounts(rid)).keys())
     const edgeRows = await this.rows(
-      `WITH chains AS (SELECT ${CHAIN_SQL} AS chain FROM ev
+      `WITH ${this.cfiCte(rid)},
+            chains AS (SELECT ${SYS_CHAIN_SEL} AS chain FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id
         WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL)
        SELECT DISTINCT chain[i] AS src, chain[i + 1] AS tgt
        FROM chains, range(1, len(chain)) AS t(i)`,
