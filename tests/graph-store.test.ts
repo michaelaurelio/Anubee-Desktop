@@ -374,6 +374,56 @@ describe('GraphStore.slice funcs', () => {
     })
     expect(norm(slice)).toEqual(norm(oracle))
   })
+
+  it('uses cfi_stack to place the outer-native caller above a hooked funcs frame', async () => {
+    const call = JSON.stringify({
+      type: 'call', id: 1, pid: 1, tid: 1, module: 'libexample.so', symbol: 'checkRoot', entry_addr: '0x0', stack_id: 11,
+      backtrace: [{ frame: 0, addr: '0x0', symbol: 'libexample.so!checkRoot' }],
+    })
+    const cfi = JSON.stringify({
+      type: 'cfi_stack', pid: 1, tid: 1, stack_id: 11,
+      cfi_backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libexample.so!checkRoot+0x4', kind: 'native' },
+        { frame: 1, addr: '0x2', symbol: 'boot.oat!com.example.Sec.check+0x10', kind: 'managed' },
+        { frame: 2, addr: '0x3', symbol: 'libandroid.so!Specialize+0x20', kind: 'native' },
+      ],
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-fn-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, call + '\n')
+    writeFileSync(p + '.stacks', cfi + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const slice = await store.slice({})
+
+    const oracle = chainOfCfi(
+      JSON.parse(cfi).cfi_backtrace, null, new Set(['libexample.so!checkRoot']),
+    ).map(n => n.id)
+    // chain: nat:libandroid.so!Specialize -> java:com.example.Sec.check -> fn:libexample.so!checkRoot
+    expect(oracle).toEqual([
+      'nat:libandroid.so!Specialize',
+      'java:com.example.Sec.check',
+      'fn:libexample.so!checkRoot',
+    ])
+    for (let i = 1; i < oracle.length; i++) {
+      const id = `${oracle[i - 1]}=>${oracle[i]}`
+      expect(slice.edges.find(e => e.id === id), `missing edge ${id}`).toBeTruthy()
+    }
+  })
+
+  it('falls back to FUNCS_CHAIN_SQL for a call row whose stack_id has no cfi_stack', async () => {
+    store = new GraphStore()
+    await store.ingest(funcsFixture()) // FUNCS_LINES, no sidecar
+    const slice = await store.slice({})
+    const calls = parseJsonl(FUNCS_LINES.join('\n')).events.filter(isCall)
+    const oracle = foldFuncEvents(calls)
+    const norm = (s: { nodes: { id: string; count: number }[]; edges: { id: string; count: number }[] }) => ({
+      nodes: [...s.nodes].map(n => ({ id: n.id, count: n.count })).sort((a, b) => a.id.localeCompare(b.id)),
+      edges: [...s.edges].map(e => ({ id: e.id, count: e.count })).sort((a, b) => a.id.localeCompare(b.id)),
+    })
+    expect(norm(slice)).toEqual(norm(oracle))
+  })
 })
 
 const FUNCS_PAIR_LINES = [

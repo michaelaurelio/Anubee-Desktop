@@ -93,6 +93,24 @@ const CFI_CHAIN_SQL = `list_append(
     x -> x IS NOT NULL),
   'sys:' || e.syscall)`
 
+// The funcs analogue of CFI_CHAIN_SQL: a `call` row `e` joined to its cfi_stack
+// row `c`, with the hooked-set `h.fns` cross-joined in so a native frame that is
+// itself a hooked function collapses into its fn: node (unify). No syscall leaf.
+const CFI_FUNCS_CHAIN_SQL = `list_filter(
+  list_transform(array_reverse(c.cfi_backtrace), b ->
+    CASE
+      WHEN b.kind = 'managed'
+        THEN 'java:' || regexp_replace(regexp_replace(b.symbol, '^.*!', ''), '\\+0x[0-9a-fA-F]+$', '')
+      WHEN b.kind = 'interp' AND b.addr = '0x0'
+        THEN 'java:' || regexp_replace(b.symbol, '\\+0x[0-9a-fA-F]+$', '')
+      WHEN b.kind = 'interp' THEN NULL
+      WHEN starts_with(b.symbol, '0x') AND NOT contains(b.symbol, '!') THEN NULL
+      WHEN list_contains(h.fns, regexp_replace(b.symbol, '\\+0x[0-9a-fA-F]+$', ''))
+        THEN 'fn:' || regexp_replace(b.symbol, '\\+0x[0-9a-fA-F]+$', '')
+      ELSE 'nat:' || regexp_replace(b.symbol, '\\+0x[0-9a-fA-F]+$', '')
+    END),
+  x -> x IS NOT NULL)`
+
 // Rebuild a node's kind/label/module from its id via the shared labelForId.
 // The SQL owns identity + counts; labelling stays in shared TS so it can
 // never drift.
@@ -381,7 +399,11 @@ export class GraphStore {
     const fnScoped = `run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where})`
     const fnCte =
       `WITH h AS (SELECT list(DISTINCT module || '!' || symbol) AS fns FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL),
-            chains AS (SELECT ${FUNCS_CHAIN_SQL} AS chain FROM ev, h WHERE ${fnScoped})`
+            cfi AS (SELECT stack_id, any_value(cfi_backtrace) AS cfi_backtrace FROM ev WHERE run_id = ${rid} AND type = 'cfi_stack' GROUP BY stack_id),
+            chains AS (
+              SELECT CASE WHEN c.stack_id IS NOT NULL THEN ${CFI_FUNCS_CHAIN_SQL} ELSE ${FUNCS_CHAIN_SQL} END AS chain
+              FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id, h
+              WHERE ${fnScoped})`
     const fnNodeRows = await this.rows(
       `${fnCte} SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`, params)
     const fnEdgeRows = await this.rows(
