@@ -184,7 +184,7 @@ describe('nativeNodeId', () => {
 })
 
 const fcall = (bt: [number, string][]): FuncEvent => ({
-  type: 'call', pid: 1, tid: 1, module: 'libexample.so', symbol: 'checkRoot',
+  type: 'call', id: 1, pid: 1, tid: 1, module: 'libexample.so', symbol: 'checkRoot',
   entry_addr: '0x0',
   backtrace: bt.map(([frame, symbol]) => ({ frame, addr: '0x0', symbol })),
 })

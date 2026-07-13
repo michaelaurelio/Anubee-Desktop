@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { SYSCALL_KEYS, BACKTRACE_KEYS } from '@shared/schema-contract'
+import { SYSCALL_KEYS, BACKTRACE_KEYS, FUNCS_KEYS } from '@shared/schema-contract'
 
 // The syscall emitter in the sibling ARES checkout. Not a build dependency -
 // only read here to guard the vendored contract. Absent → skip (CI without the
@@ -44,3 +44,23 @@ if (!present) {
   // Surfaced in the runner output so a skipped guard is visible, not silent.
   console.warn(`[schema-drift] ../ARES not found at ${EMITTER} - drift checks skipped.`)
 }
+
+// The funcs emitter in the sibling ARES checkout. Not a build dependency -
+// only read here to guard the vendored contract. Absent → skip (CI without
+// the sibling still passes).
+const FUNCS_EMITTER = resolve(__dirname, '../../ARES/src/funcs/funcs_emit.c')
+const funcsPresent = existsSync(FUNCS_EMITTER)
+
+function funcsEmittedKeys(): Set<string> {
+  const src = readFileSync(FUNCS_EMITTER, 'utf-8')
+  const keys = new Set<string>()
+  for (const m of src.matchAll(/\\"([a-z_]+)\\":/g)) keys.add(m[1])
+  return keys
+}
+
+describe('schema drift: funcs emitter', () => {
+  it.skipIf(!funcsPresent)('emits every funcs key the app consumes', () => {
+    const keys = funcsEmittedKeys()
+    for (const k of FUNCS_KEYS) expect(keys, `funcs emitter missing "${k}"`).toContain(k)
+  })
+})

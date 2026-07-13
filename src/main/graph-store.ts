@@ -33,6 +33,8 @@ const COLS =
   // coverage() round-trips it, so it stays in the schema.
   "'engine':'VARCHAR'," +
   "'span':'BIGINT','entry_addr':'VARCHAR','elapsed_ns':'BIGINT','symbol':'VARCHAR','module':'VARCHAR'," +
+  "'sock_args':'MAP(VARCHAR,VARCHAR)','out_args':'MAP(VARCHAR,VARCHAR)'," +
+  "'ppid':'INTEGER','offset':'BIGINT'," +
   "'snaps':'STRUCT(total INTEGER, truncated INTEGER)'," +
   "'cfi':'STRUCT(walks INTEGER, stops MAP(VARCHAR,INTEGER))'}"
 
