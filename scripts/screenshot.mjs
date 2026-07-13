@@ -38,18 +38,33 @@ await win.waitForSelector('#table table tr', { timeout: 30000 })
 await win.waitForTimeout(300)
 await shot('01-loaded-table.png')
 
-// Single-toolbar shape (task 5): no native-menu leftovers, one File▾ menu, no
-// Capture tab in the view segment.
+// Rail + command-bar shape (redesign): icon rail with #tab-graph, a separate
+// #cmdbar filter row, no leftover legacy toolbar #chrome wrapper.
 const barOk = await win.evaluate(() =>
-  !document.getElementById('open-run') &&
-  !!document.getElementById('file-menu') &&
-  !document.getElementById('tab-capture'))
-if (!barOk) throw new Error('toolbar not in Variant B shape (File menu / no open-run / no capture tab)')
+  !!document.getElementById('rail') &&
+  !!document.getElementById('cmdbar') &&
+  !!document.getElementById('tab-graph') &&
+  !document.getElementById('chrome'))
+if (!barOk) throw new Error('shell not in rail + command-bar shape')
+
+// Call-site column merges java-over-native (or native-only) into one cell.
+const csOk = await win.evaluate(() => !!document.querySelector('#table td.col-callSite .cs-native'))
+if (!csOk) throw new Error('call-site cell did not render a native line')
+
+// The graph pane shows its empty-state prompt until a row is selected.
+const emptyShown = await win.evaluate(() =>
+  !document.getElementById('graph-empty')?.classList.contains('hidden'))
+if (!emptyShown) throw new Error('graph empty-state prompt not shown before a selection')
 
 // 2. A bridge selected: the focused java -> native -> syscall subgraph.
 await win.click('#table table tr:nth-child(2)') // first data row (row 1 is header)
 await win.waitForSelector('#cy canvas', { timeout: 15000 })
-await win.waitForTimeout(1200) // let ELK layout settle
+// renderSlice hides the empty-state prompt only once the ELK layout for the
+// slice finishes; a large slice can take longer than a short fixed pause, so
+// poll for it instead of guessing a sleep duration.
+await win.waitForFunction(() =>
+  document.getElementById('graph-empty')?.classList.contains('hidden'), { timeout: 10000 })
+await win.waitForTimeout(1200) // let ELK layout settle further before reading node styles
 
 // Nodes render as non-draggable round-rectangle boxes (task 6: node-box redesign).
 const boxOk = await win.evaluate(() => {
@@ -227,17 +242,8 @@ await win.waitForTimeout(200)
 await shot('06b-suggestions.png')
 await win.keyboard.press('Escape')
 
-// 6c. Capture as a centered modal (task 5), opened from File▾.
-await win.click('#file-menu [data-menu-toggle]')
-// File is the left-most menu: its dropdown must open rightward (left-anchored),
-// not off the left screen edge. Assert + capture the open menu.
-await win.waitForSelector('#file-menu.open .menu-body', { timeout: 5000 })
-const fileMenuOk = await win.evaluate(() => {
-  const b = document.querySelector('#file-menu .menu-body')
-  return !!b && b.getBoundingClientRect().left >= 0
-})
-if (!fileMenuOk) throw new Error('File dropdown is clipped off the left screen edge')
-await shot('06a-file-menu.png')
+// 6c. Capture as a centered modal, opened directly from its rail button (the
+// rail shell has no File menu to open first).
 await win.click('#file-capture')
 await win.waitForSelector('.modal-backdrop .modal', { timeout: 5000 })
 const capOk = await win.evaluate(() => {
