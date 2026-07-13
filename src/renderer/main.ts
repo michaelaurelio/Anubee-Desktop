@@ -1,7 +1,7 @@
 import cytoscape from 'cytoscape'
-import { themeColors, categoryColors, edgeEngineColors, parseTheme, serializeTheme, type Theme } from './theme'
+import { themeColors, categoryColors, parseTheme, serializeTheme, type Theme } from './theme'
 import { wirePanels } from './panels'
-import { sliceToElements, filterForRow, shouldHideEdge, type EngineToggleState } from './graph-view'
+import { sliceToElements, filterForRow } from './graph-view'
 import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
 import { ALL_COLUMNS, parseColumns, serializeColumns, type ColumnKey } from './columns'
@@ -31,7 +31,6 @@ import { makeEpoch } from './selection-epoch'
 let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
 document.documentElement.setAttribute('data-theme', theme)
 const tc = themeColors(theme)
-const ec = edgeEngineColors(theme)
 
 const cy = cytoscape({
   container: document.getElementById('cy'),
@@ -60,7 +59,6 @@ const cy = cytoscape({
     { selector: 'node[kind = "native"]', style: { 'border-color': tc.native } },
     { selector: 'node[kind = "syscall"]', style: { 'border-color': tc.syscall } },
     { selector: 'node[kind = "func"]', style: { 'border-color': tc.func } },
-    { selector: 'node[kind = "check"]', style: { 'border-color': tc.check } },
     // Badge border marks a tagged node; scoped to non-native so it doesn't
     // double-mark native nodes, which use the RASP category accent instead.
     { selector: 'node[badge][kind != "native"]', style: { 'border-width': 3, 'border-color': '#8e44ad' } },
@@ -75,23 +73,12 @@ const cy = cytoscape({
         'target-arrow-color': tc.edge,
       },
     },
-    // Per-engine edge colors (EPIC B4). Untagged/syscall edges keep the base
-    // tc.edge above, unchanged. Must sit before the presence/highlighted rules
-    // below so diff mode and node-selection highlighting still win.
-    { selector: 'edge[engine = "funcs"]', style: { 'line-color': ec.funcs, 'target-arrow-color': ec.funcs } },
-    { selector: 'edge[engine = "correlate"]', style: { 'line-color': ec.correlate, 'target-arrow-color': ec.correlate } },
-    { selector: 'edge[engine = "sentinel"]', style: { 'line-color': ec.sentinel, 'target-arrow-color': ec.sentinel } },
     { selector: 'node[presence = "A-only"]', style: { 'background-color': '#c0392b' } },
     { selector: 'node[presence = "B-only"]', style: { 'background-color': '#27ae60' } },
     { selector: 'node[presence = "both"]', style: { 'background-color': '#95a5a6' } },
     { selector: 'edge[presence = "A-only"]', style: { 'line-color': '#c0392b', 'target-arrow-color': '#c0392b' } },
     { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
     { selector: '.dimmed', style: { 'opacity': 0.12 } },
-    // Engine-overlay toggle (EPIC B4): a separate class from .dimmed so
-    // clearing a node-selection (which does removeClass('dimmed')) never
-    // wipes this. Sits before edge.highlighted so an explicit node selection
-    // can still light an engine-off edge in its neighbourhood.
-    { selector: '.engine-off', style: { 'opacity': 0.06 } },
     // Edges read grey by default; the selected node's fan-in/out lights them
     // brightly so a single click clearly connects the chain.
     { selector: 'edge.highlighted', style: {
@@ -348,22 +335,6 @@ async function renderSlice(slice: GraphSlice): Promise<void> {
   showBanner(slice.truncated)
   redrawBadges()
   void recolorRasp()
-  applyEngineOverlay() // renderSlice rebuilds every element, so classes are lost per render
-}
-
-// Engine-overlay toggle (EPIC B4): hide every edge whose engine checkbox is
-// unchecked. Renderer-side (cytoscape .engine-off), no re-query - engine
-// provenance already rides on edge data (Phase 2).
-function currentEngineToggles(): EngineToggleState {
-  const on = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.checked ?? true
-  return { syscall: on('e-syscall'), funcs: on('e-funcs'), correlate: on('e-correlate'), sentinel: on('e-sentinel') }
-}
-function applyEngineOverlay(): void {
-  const state = currentEngineToggles()
-  cy.edges().forEach(e => { e.toggleClass('engine-off', shouldHideEdge(e.data('engine') as string | undefined, state)) })
-}
-for (const id of ['e-syscall', 'e-funcs', 'e-correlate', 'e-sentinel']) {
-  document.getElementById(id)?.addEventListener('change', () => applyEngineOverlay())
 }
 
 async function selectRow(row: TableRow): Promise<void> {
@@ -441,18 +412,13 @@ cy.on('tap', evt => { if (evt.target === cy) { selEpoch.bump(); clearHighlight(c
 
 function applyGraphTheme(next: Theme): void {
   const c = themeColors(next)
-  const nec = edgeEngineColors(next)
   cy.style()
     .selector('node').style({ color: c.labelText, 'background-color': c.labelBacking, 'border-color': c.native })
     .selector('node[kind = "java"]').style({ 'border-color': c.java })
     .selector('node[kind = "native"]').style({ 'border-color': c.native })
     .selector('node[kind = "syscall"]').style({ 'border-color': c.syscall })
     .selector('node[kind = "func"]').style({ 'border-color': c.func })
-    .selector('node[kind = "check"]').style({ 'border-color': c.check })
     .selector('edge').style({ 'line-color': c.edge, 'target-arrow-color': c.edge })
-    .selector('edge[engine = "funcs"]').style({ 'line-color': nec.funcs, 'target-arrow-color': nec.funcs })
-    .selector('edge[engine = "correlate"]').style({ 'line-color': nec.correlate, 'target-arrow-color': nec.correlate })
-    .selector('edge[engine = "sentinel"]').style({ 'line-color': nec.sentinel, 'target-arrow-color': nec.sentinel })
     .selector('edge.highlighted').style({ 'line-color': c.labelText, 'target-arrow-color': c.labelText, 'width': 3.5, 'arrow-scale': 1.3 })
     .update()
 }

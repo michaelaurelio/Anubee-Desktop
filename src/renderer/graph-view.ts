@@ -12,34 +12,15 @@ export function truncateLabel(s: string, max = 22): string {
 // carries just what the stylesheet and inspector need.
 export function sliceToElements(slice: GraphSlice): {
   nodes: { data: { id: string; label: string; kind: string; count: number }; classes: string }[]
-  edges: { data: { id: string; source: string; target: string; count: number; engine?: string } }[]
+  edges: { data: { id: string; source: string; target: string; count: number } }[]
 } {
   return {
     // classes mirrors data.kind as a cytoscape class (`.java`/`.native`/`.syscall`)
     // so RASP category selectors can combine `.native.suggested.rasp-<cat>`
     // without a second data-attribute lookup per style rule.
     nodes: slice.nodes.map(n => ({ data: { id: n.id, label: truncateLabel(n.label), kind: n.kind, count: n.count }, classes: n.kind })),
-    edges: slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, count: e.count, engine: e.engine } })),
+    edges: slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, count: e.count } })),
   }
-}
-
-// Per-engine overlay toggle (EPIC B4). Whether an edge with the given
-// `engine` (undefined = syscall, the SQL path never tags its own edges -
-// see graph-shape.ts's GraphEdge.engine comment) should be hidden given the
-// current toggle checkboxes. Any unrecognized engine string also falls back
-// to the syscall toggle, same as undefined.
-export interface EngineToggleState {
-  syscall: boolean
-  funcs: boolean
-  correlate: boolean
-  sentinel: boolean
-}
-
-export function shouldHideEdge(engine: string | undefined, state: EngineToggleState): boolean {
-  if (engine === 'funcs') return !state.funcs
-  if (engine === 'correlate') return !state.correlate
-  if (engine === 'sentinel') return !state.sentinel
-  return !state.syscall
 }
 
 // ELK layered layout options, flowing DOWN so java -> native -> syscall reads
