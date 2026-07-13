@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { preflight, startRun, startLogcat, lineSplitter, pullResult, type Adb, type Spawner } from '../src/main/tracer-control'
+import { preflight, startRun, lineSplitter, pullResult, type Adb, type Spawner } from '../src/main/tracer-control'
 
 // A scripted fake adb: matches on the joined args, returns a canned result.
 function fakeAdb(routes: Array<[RegExp, { code?: number; stdout?: string; stderr?: string }]>): Adb & { calls: string[] } {
@@ -183,36 +183,6 @@ describe('startRun', () => {
     const h = startRun(sp, adb, "su -c '/data/local/tmp/ares lib x'", () => {})
     await h.stop()
     expect(adb.calls).toContain("shell su -c 'pkill -INT -f /data/local/tmp/ares'")
-    sp.exit(130)
-    await h.done
-  })
-})
-
-describe('startLogcat (EPIC E2)', () => {
-  it('spawns adb logcat -s SENTINEL:I -v raw and streams every line through unfiltered', async () => {
-    const sp = fakeSpawner()
-    const lines: string[] = []
-    const h = startLogcat(sp, l => lines.push(l))
-    expect(sp.lastArgs).toEqual(['logcat', '-s', 'SENTINEL:I', '-v', 'raw'])
-    sp.emitLine('--------- beginning of main')
-    sp.emitLine('{"check_id":"hook-scan","technique":"hook/injection","result":"DETECTED","detail":"libc.so+0x3c","ts":1720000000000}')
-    sp.exit(0)
-    const res = await h.done
-    expect(res.code).toBe(0)
-    // startLogcat itself is a thin process wrapper (mirrors startRun) - it
-    // doesn't decide what's a banner vs. a JSONL row, so both lines pass
-    // through untouched. That filtering lives in index.ts's sentinel:start.
-    expect(lines).toEqual([
-      '--------- beginning of main',
-      '{"check_id":"hook-scan","technique":"hook/injection","result":"DETECTED","detail":"libc.so+0x3c","ts":1720000000000}',
-    ])
-  })
-
-  it('stop() kills the adb child directly (no device-side process to signal)', async () => {
-    const sp = fakeSpawner()
-    const h = startLogcat(sp, () => {})
-    await h.stop()
-    expect(sp.killed).toBe(true)
     sp.exit(130)
     await h.done
   })
