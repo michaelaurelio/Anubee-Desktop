@@ -48,7 +48,8 @@
 
       /* rail */
       #rail { position:absolute; top:0; bottom:0; left:0; width:46px; background:var(--bar);
-        border-right:1px solid var(--border); display:flex; flex-direction:column; padding:8px 0; gap:2px; z-index:10; transition:width .12s; }
+        border-right:1px solid var(--border); display:flex; flex-direction:column; padding:8px 0; gap:2px; z-index:10;
+        overflow:hidden; transition:width .12s; }
       #rail:hover { width:172px; }
       #rail .brand { display:flex; justify-content:center; padding:4px 0 10px; color:var(--accent-fg); }
       #rail .brand svg { width:20px; height:20px; fill:var(--accent-fg); }
