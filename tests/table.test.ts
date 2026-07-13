@@ -107,7 +107,14 @@ describe('funcs numeric cells', () => {
 
 describe('tag chips', () => {
   it('renders each tag as a chip element, not comma text', () => {
-    renderTable([row], ['tags'], () => {}, () => 'root,hook')
-    expect(document.querySelectorAll('#table td.col-tags .chip').length).toBe(2)
+    // Real badgeText() output is bracketed, e.g. "[root,hook]" - feed that shape
+    // so a regression to naive comma-splitting (which would leave "[root" /
+    // "hook]" and produce classes that match no CSS rule) is caught here.
+    renderTable([row], ['tags'], () => {}, () => '[root,hook]')
+    const chips = [...document.querySelectorAll('#table td.col-tags .chip')]
+    expect(chips.length).toBe(2)
+    expect(chips.map(c => c.textContent)).toEqual(['root', 'hook'])
+    expect(chips[0].classList.contains('cat-root')).toBe(true)
+    expect(chips[1].classList.contains('cat-hook')).toBe(true)
   })
 })

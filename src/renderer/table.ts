@@ -36,7 +36,7 @@ function renderCallSite(td: HTMLElement, r: TableRow): void {
 
 function renderTags(td: HTMLElement, badge: string): void {
   if (!badge) return
-  for (const t of badge.split(',').map(s => s.trim()).filter(Boolean)) {
+  for (const t of badge.replace(/[[\]]/g, '').split(',').map(s => s.trim()).filter(Boolean)) {
     const chip = span(`chip cat-${t}`, t)
     td.appendChild(chip)
   }

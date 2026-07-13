@@ -262,13 +262,16 @@ function wireColGrips(scroll: HTMLElement): void {
       e.preventDefault()
       const startW = th.getBoundingClientRect().width
       const startX = e.clientX
+      let moved = false
       const move = (ev: PointerEvent) => {
+        moved = true
         const w = nextWidth(startW, ev.clientX - startX)
         for (const el of scroll.querySelectorAll<HTMLElement>(`.col-${key}`)) (el as HTMLElement).style.width = `${w}px`
       }
       const up = (ev: PointerEvent) => {
         window.removeEventListener('pointermove', move)
         window.removeEventListener('pointerup', up)
+        if (!moved) return               // stray click, no drag - don't pin the width
         currentLayout.widths[key] = nextWidth(startW, ev.clientX - startX)
         localStorage.setItem(columnsKey(activeEngine), serializeLayout(currentLayout))
       }
