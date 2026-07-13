@@ -44,6 +44,14 @@ describe('chainOf', () => {
     expect(ids).toContain('nat:libexample.so!check')
     expect(ids.some(i => i.startsWith('nat:0x'))).toBe(false)
   })
+
+  it('drops the dexpc offset so one managed method is one node', () => {
+    const a = chainOf(syscall({ java_stack: ['com.example.Sec.check'] }))
+    const b = chainOf(syscall({ java_stack: ['com.example.Sec.check+0x1a'] }))
+    expect(a[0].id).toBe('java:com.example.Sec.check')
+    expect(b[0].id).toBe('java:com.example.Sec.check')
+    expect(b[0].label).toBe('com.example.Sec.check')
+  })
 })
 
 describe('foldEvents', () => {
@@ -207,6 +215,13 @@ describe('chainOfFunc', () => {
     const hooked = new Set(['libexample.so!checkRoot'])
     const e = fcall([[0, 'libexample.so!checkRoot'], [1, '0x7fffdead']])
     expect(chainOfFunc(e, hooked).map(c => c.id)).toEqual(['fn:libexample.so!checkRoot'])
+  })
+
+  it('drops the dexpc offset from managed frames', () => {
+    const hooked = new Set(['libexample.so!checkRoot'])
+    const e = fcall([[0, 'libexample.so!checkRoot']])
+    e.java_stack = ['com.example.Sec.check+0x0']
+    expect(chainOfFunc(e, hooked)[0].id).toBe('java:com.example.Sec.check')
   })
 })
 

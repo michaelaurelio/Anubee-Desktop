@@ -3,6 +3,27 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-13) - java_stack graph fidelity (Phase 1)
+
+Managed frames no longer fragment into several `java:` nodes: the ART bytecode
+offset (`+0x<dexpc>`) is now stripped from `java:` node ids in all four identity
+sites - `chainOf` / `chainOfFunc` (`graph-shape.ts`) and `CHAIN_SQL` /
+`FUNCS_CHAIN_SQL` (`graph-store.ts`) - so a method resolved via the AOT `.oat`
+path and via the interpreter (which carries a dexpc) collapse to one node, the
+managed analogue of the existing native call-site collapse. Oracle↔SQL parity
+covered on both a syscall and a funcs chain.
+
+### Known drawbacks / follow-ups
+- **Phase 2 not yet done - JNI interleaving drops the outer-native caller.** When
+  a stack crosses the JNI boundary more than once (native → managed → native), the
+  syscall/funcs frame-pointer `backtrace` stops at the first JNI trampoline, so the
+  outermost native segment that *called* a managed frame is dropped and the managed
+  frame renders as the chain root. Verified real but rare (~1.2%, 14/1197 in
+  `../ares-nterp-oracle/ares.jsonl.stacks`); lossy, not a reorder. Fix = ingest the
+  `<run>.jsonl.stacks` sidecar (`cfi_stack` records: ordered, per-frame `kind`) and
+  build the chain from it. Design in the spec §3; needs its own plan. Open question:
+  interp-frame naming (name is in the record tail, not inline on the frame).
+
 ## Shipped (2026-07-13) - activity log + status-pill removal
 
 Replaced the always-visible bottom-left status pill with an in-memory **activity
