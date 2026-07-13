@@ -300,6 +300,37 @@ describe('GraphStore filtering (filterToSql wired end-to-end)', () => {
     expect((await store.table({ text: 'check_su' }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([1, 2])
     expect((await store.table({ text: 'read' }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([3])
   })
+
+  it('collapses a managed method captured with and without a dexpc offset', async () => {
+    const withOff = JSON.stringify({
+      type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 56, syscall: 'openat',
+      args: [], retval: 0, string_args: {}, fd_args: {}, decoded_args: {}, stack_id: 11,
+      java_stack: ['com.example.app.RootCheck.run+0x0'],
+      backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!check_su+0x10' }],
+    })
+    const noOff = JSON.stringify({
+      type: 'syscall', id: 2, pid: 100, tid: 101, syscall_nr: 56, syscall: 'openat',
+      args: [], retval: 0, string_args: {}, fd_args: {}, decoded_args: {}, stack_id: 11,
+      java_stack: ['com.example.app.RootCheck.run'],
+      backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!check_su+0x10' }],
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-store-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, [withOff, noOff].join('\n') + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const slice = await store.slice()
+
+    const rc = slice.nodes.filter(n => n.id === 'java:com.example.app.RootCheck.run')
+    expect(rc).toHaveLength(1)      // one method, one node
+    expect(rc[0].count).toBe(2)     // both events fold into it
+
+    // And the SQL slice still equals the pure-TS oracle for this input.
+    const oracle = foldEvents(parseJsonl([withOff, noOff].join('\n')).events.filter(isSyscall))
+    expect(normNodes(slice)).toEqual(normNodes(oracle))
+    expect(normEdges(slice)).toEqual(normEdges(oracle))
+  })
 })
 
 describe('GraphStore.nodeEvents', () => {

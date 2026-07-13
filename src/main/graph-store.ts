@@ -47,7 +47,8 @@ function sqlStr(s: string): string {
 // backtrace (bare-address frames dropped, `+0x<off>` stripped so call sites
 // collapse), then the syscall. Interpolated into the slice CTE.
 const CHAIN_SQL = `list_concat(
-  list_transform(array_reverse(coalesce(java_stack, [])), x -> 'java:' || x),
+  list_transform(array_reverse(coalesce(java_stack, [])),
+                 x -> 'java:' || regexp_replace(x, '\\+0x[0-9a-fA-F]+$', '')),
   list_transform(
     list_filter(array_reverse(list_transform(backtrace, b -> b.symbol)),
                 s -> NOT (starts_with(s, '0x') AND NOT contains(s, '!'))),
@@ -61,7 +62,8 @@ const CHAIN_SQL = `list_concat(
 // it is in the run's hooked-set (the `h.fns` list cross-joined in), else nat:.
 // Same cleaning as CHAIN_SQL: bare-address frames dropped, +0x offsets stripped.
 const FUNCS_CHAIN_SQL = `list_concat(
-  list_transform(array_reverse(coalesce(java_stack, [])), x -> 'java:' || x),
+  list_transform(array_reverse(coalesce(java_stack, [])),
+                 x -> 'java:' || regexp_replace(x, '\\+0x[0-9a-fA-F]+$', '')),
   list_transform(
     list_transform(
       list_filter(array_reverse(list_transform(backtrace, b -> b.symbol)),
