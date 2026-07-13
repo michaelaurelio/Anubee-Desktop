@@ -3,26 +3,27 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
-## Shipped (2026-07-13) - java_stack graph fidelity (Phase 1)
+## Shipped (2026-07-13) - java_stack graph fidelity Phase 2 (JNI interleaving)
 
-Managed frames no longer fragment into several `java:` nodes: the ART bytecode
-offset (`+0x<dexpc>`) is now stripped from `java:` node ids in all four identity
-sites - `chainOf` / `chainOfFunc` (`graph-shape.ts`) and `CHAIN_SQL` /
-`FUNCS_CHAIN_SQL` (`graph-store.ts`) - so a method resolved via the AOT `.oat`
-path and via the interpreter (which carries a dexpc) collapse to one node, the
-managed analogue of the existing native call-site collapse. Oracle↔SQL parity
-covered on both a syscall and a funcs chain.
+The desktop now ingests the `<run>.jsonl.stacks` sidecar (`cfi_stack` records -
+the full ordered CFI walk per `stack_id`, each frame `kind`-tagged) and builds an
+event's call-graph chain from it when present, recovering the true
+managed↔native interleaving and the outer-native caller that the frame-pointer
+backtrace drops (it stops at the first JNI trampoline). `chainOfCfi` oracle +
+`CFI_CHAIN_SQL` / `CFI_FUNCS_CHAIN_SQL`, per-row `LEFT JOIN` on a `stack_id`-deduped
+cfi CTE, `CASE`-selected against the Phase-1 fallback. Wired through every
+chain-building query (graph, flame, node inspector, diff, orphan-check) so all
+views agree; cfi- and fallback-derived nodes coalesce on the shared id grammar.
 
 ### Known drawbacks / follow-ups
-- **Phase 2 not yet done - JNI interleaving drops the outer-native caller.** When
-  a stack crosses the JNI boundary more than once (native → managed → native), the
-  syscall/funcs frame-pointer `backtrace` stops at the first JNI trampoline, so the
-  outermost native segment that *called* a managed frame is dropped and the managed
-  frame renders as the chain root. Verified real but rare (~1.2%, 14/1197 in
-  `../ares-nterp-oracle/ares.jsonl.stacks`); lossy, not a reorder. Fix = ingest the
-  `<run>.jsonl.stacks` sidecar (`cfi_stack` records: ordered, per-frame `kind`) and
-  build the chain from it. Design in the spec §3; needs its own plan. Open question:
-  interp-frame naming (name is in the record tail, not inline on the frame).
+- **Diff and orphan-check remain syscall-only.** `nodeCounts` (behind `diffTable`
+  and `orphanTargets`) scopes to `type = 'syscall'`; a funcs-only run's diff/orphan
+  views are empty. Pre-existing before Phase 2 (the cfi wiring just followed the
+  existing syscall scope); widen to funcs when funcs diff is needed.
+- **cfi drift guard is presence-only.** `cfiEmittedKeys()` scans all of
+  `symbolize.c` with an unscoped key regex (same pattern as the funcs drift test):
+  it catches a removed/renamed key but not a second JSON emitter added to that file.
+  Safe today (one emitter); tighten to a function-bounded scan if that changes.
 
 ## Shipped (2026-07-13) - activity log + status-pill removal
 
