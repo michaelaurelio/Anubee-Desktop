@@ -278,7 +278,7 @@ function refreshSuggestions(): void {
   void renderSuggestionsInto(body)
 }
 
-// Open the Suggestions modal from the chrome-bar button; render fresh.
+// Open the Suggestions modal from the rail button; render fresh.
 document.getElementById('suggest-btn')?.addEventListener('click', () => {
   showModal({
     title: 'Suggestions',
@@ -834,8 +834,30 @@ window.addEventListener('keydown', e => {
 document.getElementById('file-open')?.addEventListener('click', () => {
   void runLogged('open', () => window.ares.openFile(), () => null)
 })
-document.getElementById('file-quit')?.addEventListener('click', () => { void window.ares.quit() })
 document.getElementById('file-capture')?.addEventListener('click', () => openCaptureModal())
+document.getElementById('export-btn')?.addEventListener('click', () => {
+  showModal({ title: 'Export', width: 260, render: host => {
+    for (const id of ['export-md', 'export-json'] as const) {
+      const b = document.createElement('button'); b.className = 'btn'; b.id = id
+      b.textContent = id === 'export-md' ? 'Export Markdown' : 'Export JSON'
+      host.appendChild(b)
+    }
+    wireExport() // re-bind against the freshly created buttons
+  }})
+})
+document.getElementById('diff-btn')?.addEventListener('click', () => {
+  showModal({ title: 'Diff', width: 260, render: host => {
+    const loadB = document.createElement('button'); loadB.className = 'btn'; loadB.id = 'load-run-b'
+    loadB.textContent = 'Load run B'
+    const sel = document.createElement('select'); sel.id = 'diff-mode'
+    for (const [value, label] of [['all', 'all'], ['only-in-A', 'only in A'], ['only-in-B', 'only in B'], ['tagged', 'tagged']] as const) {
+      const opt = document.createElement('option'); opt.value = value; opt.textContent = label
+      sel.appendChild(opt)
+    }
+    host.append(loadB, sel)
+    wireDiff() // re-bind against the freshly created controls
+  }})
+})
 document.getElementById('file-log')?.addEventListener('click', () => {
   let cleanup: (() => void) | undefined
   showModal({
@@ -869,15 +891,3 @@ window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); void window.ares.openFile() }
 })
 
-for (const toggle of document.querySelectorAll<HTMLElement>('[data-menu-toggle]')) {
-  toggle.addEventListener('click', e => {
-    e.stopPropagation()
-    const menu = toggle.closest('.menu')
-    const wasOpen = menu?.classList.contains('open')
-    for (const m of document.querySelectorAll('.menu.open')) m.classList.remove('open')
-    if (menu && !wasOpen) menu.classList.add('open')
-  })
-}
-document.addEventListener('click', () => {
-  for (const m of document.querySelectorAll('.menu.open')) m.classList.remove('open')
-})
