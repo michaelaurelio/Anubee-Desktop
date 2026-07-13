@@ -33,7 +33,7 @@ describe('funcsAdapter', () => {
     ])
     expect(edges).toEqual([
       { id: 'nat:libc.so!__libc_init=>fn:libexample.so!JNI_OnLoad',
-        source: 'nat:libc.so!__libc_init', target: 'fn:libexample.so!JNI_OnLoad', count: 1, engine: 'funcs' },
+        source: 'nat:libc.so!__libc_init', target: 'fn:libexample.so!JNI_OnLoad', count: 1 },
     ])
   })
 

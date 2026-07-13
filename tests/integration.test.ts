@@ -9,9 +9,7 @@ import { presenceOf } from '../src/shared/diff'
 import type { StackRollup } from '../src/shared/flame-shape'
 import { compileWhere, scoreWith, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
 import { funcsAdapter } from '@shared/adapters/funcs'
-import { correlateAdapter } from '@shared/adapters/correlate'
-import { sentinelAdapter } from '@shared/adapters/sentinel'
-import type { SyscallEvent, FuncEvent, CorrelateEvent, DetectorEvent } from '@shared/events'
+import type { SyscallEvent, FuncEvent } from '@shared/events'
 
 // oracle.jsonl is the tiny deterministic fixture these exact-value assertions pin
 // to. detector_snap.jsonl is a real dev.ares.detector capture (see REAL_FIXTURE)
@@ -20,16 +18,13 @@ import type { SyscallEvent, FuncEvent, CorrelateEvent, DetectorEvent } from '@sh
 const FIXTURE = resolve(__dirname, 'fixtures/oracle.jsonl')
 const REAL_FIXTURE = resolve(__dirname, 'fixtures/detector_snap.jsonl')
 // mixed.jsonl carries the same 3 syscall + 1 lib lines as oracle.jsonl verbatim,
-// plus one record each from funcs/correlate/coverage/SENTINEL. EPIC A retains
-// those foreign rows instead of deleting them at ingest - this fixture is the
-// regression oracle proving that retention is byte-identical-invisible to every
-// syscall-only view (EPIC 0.2/0.3, folded into Epic A Phase 1).
+// plus one record each from funcs/coverage (and a couple of foreign rows the
+// correlate adapter used to read, now retained-but-unfolded - see the mixed-engine
+// tests below). EPIC A retains those foreign rows instead of deleting them at
+// ingest - this fixture is the regression oracle proving that retention is
+// byte-identical-invisible to every syscall-only view (EPIC 0.2/0.3, folded into
+// Epic A Phase 1).
 const MIXED_FIXTURE = resolve(__dirname, 'fixtures/mixed.jsonl')
-// sentinel.jsonl mirrors the real dev.ares.detector logcat/JSONL shape verbatim
-// (CheckResult.toJson(): check_id/technique/result/detail/ts, no `type` field at
-// all) plus one malformed line. EPIC E1's ingest-time COALESCE must synthesize
-// type:'sentinel' for the two real-shape lines and still drop the malformed one.
-const SENTINEL_FIXTURE = resolve(__dirname, 'fixtures/sentinel.jsonl')
 const store = new GraphStore()
 
 afterAll(() => store.close())
@@ -334,7 +329,7 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
     await store.close()
   })
 
-  it('table/stackRollup stay byte-identical; slice() folds in exactly what the funcs/correlate adapters + mergeGraphs compute', async () => {
+  it('table/stackRollup stay byte-identical; slice() folds in exactly what the funcs adapter + mergeGraphs compute', async () => {
     const store = new GraphStore()
     const oracleRun = await store.ingest(FIXTURE)
     const mixedRun = await store.ingest(MIXED_FIXTURE)
@@ -349,23 +344,16 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
     // test above.
     const byId = <T extends { id: string }>(xs: T[]) => [...xs].sort((a, b) => a.id.localeCompare(b.id))
 
-    // slice() also folds in the funcs/correlate adapters (Phase 2/3), so
-    // mixed.jsonl's foreign rows legitimately add/augment graph content that
-    // oracle.jsonl (no such data) doesn't have - including bumping the count
-    // of sys:openat itself, since mixed.jsonl's correlate syscall record is
-    // also 'openat'. Rather than hand-derive the expected numbers, compute
-    // them the same way slice() does: fold the oracle's own syscalls, then
-    // merge in the same adapters over mixed.jsonl's own funcs/correlate rows.
+    // slice() also folds in the funcs adapter, so mixed.jsonl's foreign rows
+    // legitimately add graph content that oracle.jsonl (no such data) doesn't
+    // have. Rather than hand-derive the expected numbers, compute them the
+    // same way slice() does: fold the oracle's own syscalls, then merge in the
+    // funcs adapter over mixed.jsonl's own funcs rows.
     const mixedRaw = parseJsonl(readFileSync(MIXED_FIXTURE, 'utf-8')).events
     const mainSyscalls = mixedRaw.filter((e): e is SyscallEvent => e.type === 'syscall' && !('span' in e))
     const funcsRows = mixedRaw.filter((e): e is FuncEvent => (e.type === 'call' || e.type === 'return') && !('span' in e))
-    const corrRows = mixedRaw.filter((e): e is CorrelateEvent => 'span' in e)
-    const sentinelRows = mixedRaw.filter((e): e is DetectorEvent => e.type === 'sentinel')
     const oracleFold = foldEvents(mainSyscalls)
-    const natNodeIds = oracleFold.nodes.filter(n => n.kind === 'native').map(n => n.id)
-    const expectedMixed = mergeGraphs(
-      oracleFold, funcsAdapter(funcsRows), correlateAdapter(corrRows), sentinelAdapter(sentinelRows, natNodeIds),
-    )
+    const expectedMixed = mergeGraphs(oracleFold, funcsAdapter(funcsRows))
 
     const sliceOracle = await store.slice({}, undefined, oracleRun.runId)
     const sliceMixed = await store.slice({}, undefined, mixedRun.runId)
@@ -373,11 +361,11 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
     expect(byId(sliceOracle.edges)).toEqual(byId(oracleFold.edges))
     expect(byId(sliceMixed.nodes)).toEqual(byId(expectedMixed.nodes))
     expect(byId(sliceMixed.edges)).toEqual(byId(expectedMixed.edges))
-    expect(sliceMixed.eventCount).toBe(sliceOracle.eventCount) // eventCount is syscall-SQL-only, untouched by adapters
+    expect(sliceMixed.eventCount).toBe(sliceOracle.eventCount) // eventCount is syscall-SQL-only, untouched by the adapter
     expect(sliceMixed.truncated).toBe(sliceOracle.truncated)
 
-    // table/stackRollup never merge adapter data (only slice() does - Task
-    // 2.4/3.3), so they stay fully byte-identical, unlike slice() above.
+    // table/stackRollup never merge adapter data (only slice() does), so they
+    // stay fully byte-identical, unlike slice() above.
     const rollupOracle = await store.stackRollup({}, 5000, oracleRun.runId)
     const rollupMixed = await store.stackRollup({}, 5000, mixedRun.runId)
     const byChain = (rows: { chain: string[] }[]) => [...rows].sort((a, b) => a.chain.join('>').localeCompare(b.chain.join('>')))
@@ -393,12 +381,9 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
       expect(row.presence).toBe('both')
       expect(row.delta).toBe(0)
     }
-    // diffSlice calls slice() for both runs, so it DOES see the adapter
-    // additions: the neighbourhood of sys:openat now includes correlate's
-    // fn: node (mixed.jsonl's correlate span shares its syscall with the main
-    // engine's own openat) - genuinely 'B-only' since oracle.jsonl has no
-    // such node, not a regression. Every node/edge that already existed in
-    // oracle's own slice must still show 'both'.
+    // diffSlice calls slice() for both runs, so it does see the funcs
+    // addition; every node/edge that already existed in oracle's own slice
+    // must still show 'both', anything new is 'B-only'.
     const oracleIds = new Set(sliceOracle.nodes.map(n => n.id))
     const mergedSlice = await store.diffSlice(oracleRun.runId, mixedRun.runId, 'sys:openat')
     for (const n of mergedSlice.nodes) expect(n.presence).toBe(oracleIds.has(n.id) ? 'both' : 'B-only')
@@ -407,67 +392,6 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
       expect(e.presence).toBe(bothEndpointsPreexisting ? 'both' : 'B-only')
     }
 
-    await store.close()
-  })
-
-  it('EPIC B1: mixed.jsonl entry_addrs do not collide (funcs 0x1000 vs correlate 0x2000) - bridge is a no-op here, existing merge stays unchanged', async () => {
-    const store = new GraphStore()
-    const mixedRun = await store.ingest(MIXED_FIXTURE)
-    const sliceMixed = await store.slice({}, undefined, mixedRun.runId)
-    // funcs' JNI_OnLoad call/return -> fn:libexample.so!JNI_OnLoad (symbol-keyed).
-    expect(sliceMixed.nodes.some(n => n.id === 'fn:libexample.so!JNI_OnLoad')).toBe(true)
-    // correlate's span-open record (entry_addr 0x2000) has no funcs counterpart
-    // in this fixture -> stays addr-keyed, unmerged. This is the exact
-    // no-regression case the Phase 1 bridge must not disturb.
-    expect(sliceMixed.nodes.some(n => n.id === 'fn:0x2000')).toBe(true)
-    await store.close()
-  })
-
-  it('EPIC B1: a correlate span sharing an entry_addr with a funcs call merges into one symbol-keyed node', async () => {
-    const store = new GraphStore()
-    const lines = [
-      ...readFileSync(MIXED_FIXTURE, 'utf-8').trim().split('\n'),
-      JSON.stringify({
-        type: 'func', span: 9001, parent_span: 0, pid: 100, tid: 101, entry_addr: '0x1000', args: [],
-      }),
-    ]
-    const dir = mkdtempSync(join(tmpdir(), 'ares-b1-'))
-    const p = join(dir, 'run.jsonl')
-    writeFileSync(p, lines.join('\n') + '\n')
-
-    const run = await store.ingest(p)
-    const slice = await store.slice({}, undefined, run.runId)
-    // funcs' call/return at entry_addr 0x1000 (module libexample.so, symbol
-    // JNI_OnLoad) and the new correlate span at the same entry_addr must merge
-    // into one fn:libexample.so!JNI_OnLoad node, not two separate ids.
-    const merged = slice.nodes.filter(n => n.id === 'fn:libexample.so!JNI_OnLoad')
-    expect(merged).toHaveLength(1)
-    expect(slice.nodes.some(n => n.id === 'fn:0x1000')).toBe(false)
-    await store.close()
-  })
-})
-
-describe('EPIC E1: SENTINEL JSONL importer (type-less records auto-detected at ingest)', () => {
-  it('synthesizes type:sentinel for type-less check_id records and still drops the malformed line', async () => {
-    const store = new GraphStore()
-    const r = await store.ingest(SENTINEL_FIXTURE)
-    expect(r.eventCount).toBe(0) // no syscalls in this fixture
-    expect(r.errors).toBe(1) // the "not valid json at all" line
-    const rows = await store.raw(
-      `SELECT check_id, result FROM ev WHERE run_id = ${r.runId} AND type = 'sentinel' ORDER BY check_id`,
-    )
-    expect(rows).toEqual([
-      { check_id: 'hook-scan', result: 'DETECTED' },
-      { check_id: 'root-su', result: 'CLEAN' },
-    ])
-    await store.close()
-  })
-
-  it('slice() surfaces check: nodes from an auto-detected sentinel-only run', async () => {
-    const store = new GraphStore()
-    await store.ingest(SENTINEL_FIXTURE)
-    const slice = await store.slice()
-    expect(slice.nodes.map(n => n.id).sort()).toEqual(['check:hook-scan', 'check:root-su'])
     await store.close()
   })
 })

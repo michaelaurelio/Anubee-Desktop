@@ -1,7 +1,7 @@
 import type { SyscallEvent } from './events'
 import { parseFrameSymbol, type ParsedFrame } from './frame-symbol'
 
-export type NodeKind = 'java' | 'native' | 'syscall' | 'func' | 'check'
+export type NodeKind = 'java' | 'native' | 'syscall' | 'func'
 
 export interface GraphNode {
   id: string
@@ -11,19 +11,11 @@ export interface GraphNode {
   count: number
 }
 
-export type EdgeEngine = 'funcs' | 'correlate' | 'sentinel'
-
 export interface GraphEdge {
   id: string
   source: string
   target: string
   count: number
-  // Originating engine (EPIC B4). Undefined means the syscall SQL path / the
-  // foldEvents oracle - the renderer treats missing engine as 'syscall'.
-  // Deliberately not set on syscall edges so slice()'s sql edges stay
-  // byte-identical to the foldEvents oracle (integration.test.ts compares
-  // them with toEqual).
-  engine?: EdgeEngine
 }
 
 export interface GraphSlice {
@@ -40,7 +32,6 @@ export function labelForId(id: string): { kind: NodeKind; label: string; module:
   if (id.startsWith('java:')) return { kind: 'java', label: id.slice(5), module: null }
   if (id.startsWith('sys:')) return { kind: 'syscall', label: id.slice(4), module: null }
   if (id.startsWith('fn:')) return { kind: 'func', label: id.slice(3), module: null }
-  if (id.startsWith('check:')) return { kind: 'check', label: id.slice(6), module: null }
   const rest = id.slice(4) // 'nat:'
   const p = parseFrameSymbol(rest)
   const label = p.symbol ? `${p.symbol} (${p.module})` : (p.module ?? rest)
@@ -138,8 +129,6 @@ export function mergeGraphs(
     }
     for (const e of s.edges) {
       const existing = edges.get(e.id)
-      // engine is first-writer-wins on an id collision (cross-engine edge-id
-      // collisions are rare - each engine's edges use disjoint endpoint kinds).
       if (existing) existing.count += e.count
       else edges.set(e.id, { ...e })
     }

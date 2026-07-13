@@ -166,25 +166,6 @@ export function startRun(sp: Spawner, adb: Adb, runArg: string, onLine: (line: s
   }
 }
 
-// EPIC E2: stream `adb logcat -s SENTINEL` verdicts. `-v raw` strips logcat's
-// date/pid/tag prefix so a real verdict line is the bare CheckResult.toJson()
-// JSON blob - but logcat's own banner lines (e.g. "--------- beginning of
-// main") and adb's stderr also flow through onLine unfiltered here, same as
-// startRun; the caller decides what's console noise vs. a JSONL row to keep
-// (see index.ts's sentinel:start handler). Unlike startRun, stop() kills the
-// adb child directly (SIGINT) - logcat has no on-device process to signal.
-export function startLogcat(sp: Spawner, onLine: (line: string) => void): RunHandle {
-  const proc = sp.spawn(['logcat', '-s', 'SENTINEL:I', '-v', 'raw'])
-  proc.onLine(onLine)
-  const done = new Promise<{ code: number }>(resolve => proc.onExit(code => resolve({ code })))
-  return {
-    async stop() {
-      proc.kill()
-    },
-    done,
-  }
-}
-
 export interface PullResult {
   kind: OutputKind
   hostPath?: string

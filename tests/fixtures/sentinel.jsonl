@@ -1,3 +1,0 @@
-{"check_id":"hook-scan","technique":"hook/injection","result":"DETECTED","detail":"libc.so+0x3c(BRK)","ts":1720000000000}
-{"check_id":"root-su","technique":"root/su","result":"CLEAN","detail":"no su binary found","ts":1720000000100}
-not valid json at all

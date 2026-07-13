@@ -92,10 +92,10 @@ The master table's columns are **configurable**. Default set: `id · syscall · 
 - **Column definitions:**
   - `id` - event id (locked on).
   - `syscall` - the syscall name.
-  - `top java` - the innermost Java method in the event's `java_stack` (or `—`
+  - `top java` - the innermost Java method in the event's `java_stack` (or `-`
     if no Java).
   - `top native` - the innermost native symbol in the event's backtrace
-    (or `—` if syscall-only).
+    (or `-` if syscall-only).
   - `args` - the primary argument, computed by precedence in the DuckDB
     `table()` SQL query: resolved string arg > fd path > decoded arg > raw arg.
     Disambiguates which file/path/resource the syscall touched.
@@ -556,7 +556,7 @@ the tracer's library map.
 
 **Node selection and tagging.** Clicking a native node highlights its fan-in/out
 neighbourhood, fills the right inspector panel with the node's filtered syscall
-records (via `nodeEvents`—the syscalls whose backtraces target that node), and
+records (via `nodeEvents` - the syscalls whose backtraces target that node), and
 opens an offset popup positioned to the right of the node; the popup flips to the
 left at the viewport edge via the pure `placePopup` layout helper. Clicking a
 syscall or Java node fills the inspector with the selected node's records only,

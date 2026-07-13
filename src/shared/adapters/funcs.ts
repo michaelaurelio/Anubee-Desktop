@@ -38,7 +38,7 @@ export function funcsAdapter(rows: FuncEvent[]): { nodes: GraphNode[]; edges: Gr
     const edgeId = `${source}=>${id}`
     const e = edges.get(edgeId)
     if (e) e.count++
-    else edges.set(edgeId, { id: edgeId, source, target: id, count: 1, engine: 'funcs' })
+    else edges.set(edgeId, { id: edgeId, source, target: id, count: 1 })
   }
 
   return { nodes: [...nodes.values()], edges: [...edges.values()] }

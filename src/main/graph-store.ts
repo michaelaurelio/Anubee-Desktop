@@ -1,11 +1,9 @@
 import { openSync, readSync, closeSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
-import type { SyscallEvent, FuncEvent, CorrelateEvent, DetectorEvent, CoverageEvent } from '@shared/events'
+import type { SyscallEvent, FuncEvent, CoverageEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
 import { capSlice, labelForId, mergeGraphs, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
 import { funcsAdapter } from '@shared/adapters/funcs'
-import { correlateAdapter } from '@shared/adapters/correlate'
-import { sentinelAdapter } from '@shared/adapters/sentinel'
 import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
 import { compileWhere, scoreWith, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
@@ -21,14 +19,9 @@ export type { TableRow }
 // app is built around. `type` also lets ingest separate a malformed line
 // (all-null row → type NULL) from a valid non-syscall record (type='lib').
 //
-// EPIC A: widened with the funcs/correlate/SENTINEL/coverage fields (all
-// nullable - syscall rows leave them null, and vice versa). `span` is the
-// disambiguator between correlate's own `type='syscall'` records (which set
-// it) and the main syscalls engine's (which never does) - see the
-// `span IS NULL` guard on every syscall-only query below. correlate's `nr`
-// is deliberately left out of this schema for now (the correlate adapter
-// only ever reads `syscall`, the decoded name); read_json silently drops
-// JSON fields that aren't declared here.
+// EPIC A: widened with the funcs/coverage fields (all nullable - syscall rows
+// leave them null, and vice versa). `span` is kept as the disambiguator the
+// `span IS NULL` guard on every syscall/funcs-only query below relies on.
 const COLS =
   "{'type':'VARCHAR','id':'BIGINT','pid':'INTEGER','tid':'INTEGER'," +
   "'syscall_nr':'BIGINT','syscall':'VARCHAR','args':'VARCHAR[]','retval':'BIGINT'," +
@@ -37,9 +30,10 @@ const COLS =
   "'java_stack':'VARCHAR[]'," +
   "'library':'VARCHAR','start':'VARCHAR','end':'VARCHAR','pgoff':'BIGINT'," +
   "'backtrace':'STRUCT(frame INTEGER, addr VARCHAR, symbol VARCHAR)[]'," +
-  "'engine':'VARCHAR','span':'BIGINT','parent_span':'BIGINT','entry_addr':'VARCHAR'," +
-  "'elapsed_ns':'BIGINT','symbol':'VARCHAR','module':'VARCHAR'," +
-  "'check_id':'VARCHAR','technique':'VARCHAR','result':'VARCHAR','detail':'VARCHAR','ts':'BIGINT'," +
+  // 'engine' is CoverageEvent's own field (e.g. "type":"coverage","engine":"funcs");
+  // coverage() round-trips it, so it stays in the schema.
+  "'engine':'VARCHAR'," +
+  "'span':'BIGINT','entry_addr':'VARCHAR','elapsed_ns':'BIGINT','symbol':'VARCHAR','module':'VARCHAR'," +
   "'snaps':'STRUCT(total INTEGER, truncated INTEGER)'," +
   "'cfi':'STRUCT(walks INTEGER, stops MAP(VARCHAR,INTEGER))'}"
 
@@ -146,15 +140,7 @@ export class GraphStore {
     const firstRun = this.runsMap.size === 0
 
     const source =
-      `SELECT ${runId} AS run_id, ` +
-      // EPIC E1: a real SENTINEL record (dev.ares.detector's CheckResult.toJson())
-      // has no `type` field at all - it's the only type-less record kind ARES
-      // emits, and it always carries check_id. So type-less + check_id present =>
-      // synthesize 'sentinel' here; a genuinely malformed line has neither and
-      // stays type NULL (dropped below). ponytail: one COALESCE covers it: upgrade
-      // to an explicit import mode only if a second type-less record kind appears.
-      `COALESCE(type, CASE WHEN check_id IS NOT NULL THEN 'sentinel' END) AS type, ` +
-      `* EXCLUDE (type) FROM read_json(${sqlStr(path)}, ` +
+      `SELECT ${runId} AS run_id, * FROM read_json(${sqlStr(path)}, ` +
       `format='${fmt}', columns=${COLS}, maximum_object_size=20000000, ignore_errors=true)`
 
     if (firstRun) await this.conn().run(`CREATE TABLE ev AS ${source}`)
@@ -187,9 +173,9 @@ export class GraphStore {
     this.modmap.set(runId, rmap)
 
     // EPIC A: only drop malformed lines now - every other engine's records
-    // (func/call/return/coverage/sentinel/...) are retained, partitioned by
-    // `type` for downstream adapters. Queries below scope to `type = 'syscall'`
-    // explicitly instead of relying on `ev` being syscall-only.
+    // (func/call/return/coverage/...) are retained, partitioned by `type` for
+    // downstream adapters. Queries below scope to `type = 'syscall'` explicitly
+    // instead of relying on `ev` being syscall-only.
     await this.conn().run(
       `DELETE FROM ev WHERE run_id = ${runId} AND type IS NULL`,
     )
@@ -291,47 +277,18 @@ export class GraphStore {
       return { id: `${source}=>${target}`, source, target, count: Number(r.c) }
     })
 
-    // EPIC A: fold in the funcs engine's call/return records (retained
-    // alongside syscalls since Phase 1) via the shared adapter, so a funcs run
-    // renders without a separate code path. `span IS NULL` excludes correlate's
-    // own span-tagged 'return' records (a real collision - correlate's
-    // `--returns` flag emits type='return' too; see the CorrelateReturnEvent
-    // comment in shared/events.ts). Unfiltered - funcs/correlate carry no
-    // syscall filter surface yet (tracked as a follow-up in the Epic A plan).
+    // Fold in the funcs engine's call/return records (retained alongside
+    // syscalls at ingest) via the shared adapter, so a funcs run renders
+    // without a separate code path. `span IS NULL` keeps this to funcs' own
+    // records (correlate's span-tagged rows, if any file carries them, are not
+    // rendered - the correlate adapter was removed).
     const funcRows = await this.rows(
       `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type IN ('call', 'return') AND span IS NULL`,
     )
     const funcEvents = funcRows.map(r => JSON.parse(r.js as string) as FuncEvent)
     const fa = funcsAdapter(funcEvents)
 
-    // Fold in correlate's span-tagged func/syscall/return records. `span IS
-    // NOT NULL` is exactly the complement of the syscall/funcs scoping above -
-    // every one of correlate's own record types sets it, and neither of the
-    // other two engines ever does.
-    const corrRows = await this.rows(
-      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND span IS NOT NULL`,
-    )
-    // EPIC B1: let correlate's addr-keyed func nodes adopt funcs' shared
-    // symbol id when both engines saw the same entry_addr, so they merge.
-    const symbolByAddr = new Map<string, string>()
-    for (const e of funcEvents) symbolByAddr.set(e.entry_addr, `${e.module}!${e.symbol}`)
-    const ca = correlateAdapter(corrRows.map(r => JSON.parse(r.js as string) as CorrelateEvent), symbolByAddr)
-
-    // Fold in SENTINEL check verdicts, linked to the native block that
-    // implements them by symbol-name match. Only the SQL-built `nat:` ids are
-    // passed as match candidates (not funcs'/correlate's fn:/sys: nodes) -
-    // a RASP check verdict names a native block, never a func/syscall span.
-    const sentinelRows = await this.rows(
-      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type = 'sentinel'`,
-    )
-    const natNodeIds = sqlNodes.filter(n => n.kind === 'native').map(n => n.id)
-    const sa = sentinelAdapter(sentinelRows.map(r => JSON.parse(r.js as string) as DetectorEvent), natNodeIds)
-
-    // Merge every source into one id-deduplicated set (mergeGraphs sums counts
-    // when two sources agree on the same id - e.g. a correlate 'openat' and the
-    // main engine's own 'openat' both landing on sys:openat), shared with
-    // graph-shape.test.ts so a test oracle can compute the exact same result.
-    const { nodes, edges } = mergeGraphs({ nodes: sqlNodes, edges: sqlEdges }, fa, ca, sa)
+    const { nodes, edges } = mergeGraphs({ nodes: sqlNodes, edges: sqlEdges }, fa)
     return capSlice(nodes, edges, eventCount, cap)
   }
 
