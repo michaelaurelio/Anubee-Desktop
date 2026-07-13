@@ -4,11 +4,18 @@
     <meta charset="utf-8" />
     <title>ARES-Desktop</title>
     <style>
+      @font-face { font-family:'Inter'; font-weight:400; src:url('./assets/fonts/Inter-Regular.woff2') format('woff2'); font-display:swap; }
+      @font-face { font-family:'Inter'; font-weight:500; src:url('./assets/fonts/Inter-Medium.woff2') format('woff2'); font-display:swap; }
+      @font-face { font-family:'Inter'; font-weight:600; src:url('./assets/fonts/Inter-SemiBold.woff2') format('woff2'); font-display:swap; }
+      @font-face { font-family:'Inter'; font-weight:700; src:url('./assets/fonts/Inter-Bold.woff2') format('woff2'); font-display:swap; }
+      @font-face { font-family:'JetBrains Mono'; font-weight:400; src:url('./assets/fonts/JetBrainsMono-Regular.woff2') format('woff2'); font-display:swap; }
+      @font-face { font-family:'JetBrains Mono'; font-weight:500; src:url('./assets/fonts/JetBrainsMono-Medium.woff2') format('woff2'); font-display:swap; }
+      @font-face { font-family:'JetBrains Mono'; font-weight:700; src:url('./assets/fonts/JetBrainsMono-Bold.woff2') format('woff2'); font-display:swap; }
       :root {
         --sp: 8px;
         --radius: 6px;
-        --font: 13px/1.45 system-ui, sans-serif;
-        --mono: ui-monospace, "SF Mono", Menlo, monospace;
+        --font: 13px/1.45 'Inter', system-ui, sans-serif;
+        --mono: 'JetBrains Mono', ui-monospace, "SF Mono", Menlo, monospace;
       }
       :root[data-theme="dark"] {
         --surface: #0e1219; --panel: #12151c; --panel-2: #151922; --bar: #1a1f2b;
