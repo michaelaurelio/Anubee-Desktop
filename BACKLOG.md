@@ -3,6 +3,34 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-13) - activity log + status-pill removal
+
+Replaced the always-visible bottom-left status pill with an in-memory **activity
+log**: File ▾ Log opens a live, color-coded terminal modal recording every user
+action (load / export / capture + tracer output / rule updates / tag edits /
+preflight) by level; Save writes `ares_<date>_<time>.log`; Clear empties it.
+Load progress moved to a thin bar on the empty-state. `log-store` (pure ring
+buffer), `run-logged` (action wrapper), `log-view` (modal).
+
+### Known drawbacks / follow-ups
+- **Failed rule saves are not logged.** Rule logging hangs off `renderRules`'
+  `onChange` (fires only after a successful save), and `rules-view.ts` was left
+  untouched, so a *failed* rule save produces no `error` entry. Instrument the
+  `rulesSave` call sites directly when rule-save failures need surfacing.
+- **Ingest progress bar can stick on a failed first load.** `onProgress` shows
+  the bar and only `onLoaded` hides it; if a first ingest errors before it
+  completes, the bar stays. Pre-existing behavior inherited from the old status
+  pill; hide the bar on an ingest-error path.
+- **Clear-sentinel value overload.** `logClear` notifies subscribers with a
+  `LogEntry` whose label and message are both empty, and the modal treats that as
+  a redraw signal; a future `logAppend('', '')` would be silently swallowed. No
+  call site does this today (all labels are non-empty). Harden with a distinct
+  clear signal (e.g. a `kind` field or a symbol) if real call sites risk it.
+- **GUI smoke pending.** The log modal, Save dialog, and empty-state progress bar
+  need an interactive Electron pass; the store/wrapper/save-IPC seams are unit +
+  build covered.
+- **No persisted-across-restart log** - in-memory only; Save is on-demand.
+
 ## Shipped (2026-07-13) - funcs inspector + engine-aware column picker
 
 The column picker now shows only the active engine's columns and persists toggles

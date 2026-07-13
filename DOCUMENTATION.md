@@ -94,7 +94,7 @@ than two disconnected islands. Funcs chains, list, and count all carry the
 ## UI shell
 
 The toolbar is a single **chrome bar** housing a **File ▾** dropdown (Open JSONL,
-Capture, Export Markdown, Export JSON, Quit), the active run pill, the segmented
+Capture, Export Markdown, Export JSON, Log, Quit), the active run pill, the segmented
 Graph/Flame view switch, Rules, Suggestions, Export ▾ / Diff ▾ menus, and the
 theme toggle. The native Electron menu is removed; all navigation flows through
 the File dropdown and toolbar actions. A dedicated **filter bar** sits below the
@@ -104,6 +104,25 @@ the table and graph remain visible behind the modal and modals are dismissed by
 an explicit Close button or by clicking outside. An empty state is shown in place
 of the body until a run is loaded.
 
+### Activity log (File ▾ Log)
+
+Every user **action** is recorded to an in-memory activity log - run load, export,
+capture + streamed tracer output, rule updates, tag edits, preflight - each an
+entry with a level (`info` / `success` / `warn` / `error`). Read-queries (table,
+graph slice, node records) are not logged. **File ▾ Log** opens a modal with a
+scrollable, color-coded monospace **terminal box** that live-appends while open
+(auto-scrolling when pinned to the bottom) and renders entry text with
+`textContent` only (tracer output is untrusted). **Save** writes the buffer to a
+chosen `ares_<YYYYMMDD>_<HHMMSS>.log` file via a native save dialog; **Clear**
+empties it. The log is the source of truth for process outcomes: it replaced the
+old always-visible status pill (removed). The pure `src/renderer/log-store.ts`
+(ring-capped at 5000 entries) is the single state owner; `src/renderer/run-logged.ts`
+wraps each action to log success/error; `src/renderer/log-view.ts` renders the modal.
+
+**Ingest progress** (formerly on the status pill) now shows as a thin progress bar
+on the **empty-state** during a run's first load, driven by the tracer/ingest
+`onProgress` events and hidden once the run loads.
+
 ### Master table and detail panels
 
 The body is split into a left **master table** and a right **detail panel**, both
@@ -111,10 +130,9 @@ conditionally visible:
 
 - **Master table** appears only after a run is loaded. It displays all events
   matching the current filter, paginated at 500 rows per page with a header pager
-  (`‹ from–to / total ›`) to step prev/next over the full result. The status line
-  shows "showing `<n>` of `<total>` rows" when the result exceeds a page (else just
-  "`<total>` rows"). Applying a filter or loading/switching a run resets to
-  page 1.
+  (`‹ from–to / total ›`) to step prev/next over the full result - the pager
+  header carries the page window and the filtered total. Applying a filter or
+  loading/switching a run resets to page 1.
 
 - **Detail panel** appears only when a record or graph node is selected. It has
   two modes:
