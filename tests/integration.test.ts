@@ -4,11 +4,10 @@ import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall } from '@shared/ares-parse'
-import { foldEvents, mergeGraphs } from '@shared/graph-shape'
+import { foldEvents, foldFuncEvents, mergeGraphs } from '@shared/graph-shape'
 import { presenceOf } from '../src/shared/diff'
 import type { StackRollup } from '../src/shared/flame-shape'
 import { compileWhere, scoreWith, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
-import { funcsAdapter } from '@shared/adapters/funcs'
 import type { SyscallEvent, FuncEvent } from '@shared/events'
 
 // oracle.jsonl is the tiny deterministic fixture these exact-value assertions pin
@@ -308,14 +307,12 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
   it('retains funcs/correlate/coverage/sentinel rows without changing syscall eventCount/errors', async () => {
     const store = new GraphStore()
     const r = await store.ingest(MIXED_FIXTURE)
-    // eventCount is `count(*) WHERE type='syscall'`, unchanged by Epic A (out of
-    // scope for A1/A3) - it does not distinguish the main engine's syscalls from
-    // correlate's own span-tagged 'syscall' record, so it's 4 here (3 main + 1
-    // correlate), not 3. A known, documented counter quirk, not a regression:
+    // eventCount counts `type IN ('syscall', 'call')`: 4 syscalls (3 main + 1
+    // correlate) plus 1 call = 5. A known, documented counter quirk, not a regression:
     // the query methods that matter (table/slice/stackRollup/...) all scope to
     // `span IS NULL` and are asserted byte-identical to the syscall-only fixture
     // in the next test. errors stays 0 - mixed.jsonl has no malformed line.
-    expect(r.eventCount).toBe(4)
+    expect(r.eventCount).toBe(5)
     expect(r.errors).toBe(0)
     const retained = await store.raw(`SELECT type, count(*) AS n FROM ev WHERE run_id = ${r.runId} GROUP BY type`)
     const byType = new Map(retained.map(row => [row.type as string, Number(row.n)]))
@@ -329,7 +326,7 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
     await store.close()
   })
 
-  it('table/stackRollup stay byte-identical; slice() folds in exactly what the funcs adapter + mergeGraphs compute', async () => {
+  it('table/stackRollup stay byte-identical; slice() folds in exactly what the foldFuncEvents oracle + mergeGraphs compute', async () => {
     const store = new GraphStore()
     const oracleRun = await store.ingest(FIXTURE)
     const mixedRun = await store.ingest(MIXED_FIXTURE)
@@ -344,16 +341,16 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
     // test above.
     const byId = <T extends { id: string }>(xs: T[]) => [...xs].sort((a, b) => a.id.localeCompare(b.id))
 
-    // slice() also folds in the funcs adapter, so mixed.jsonl's foreign rows
-    // legitimately add graph content that oracle.jsonl (no such data) doesn't
-    // have. Rather than hand-derive the expected numbers, compute them the
-    // same way slice() does: fold the oracle's own syscalls, then merge in the
-    // funcs adapter over mixed.jsonl's own funcs rows.
+    // slice() also folds in the funcs engine's own SQL chain, so mixed.jsonl's
+    // foreign rows legitimately add graph content that oracle.jsonl (no such
+    // data) doesn't have. Rather than hand-derive the expected numbers, compute
+    // them the same way slice() does: fold the oracle's own syscalls, then
+    // merge in the foldFuncEvents oracle over mixed.jsonl's own `call` rows.
     const mixedRaw = parseJsonl(readFileSync(MIXED_FIXTURE, 'utf-8')).events
     const mainSyscalls = mixedRaw.filter((e): e is SyscallEvent => e.type === 'syscall' && !('span' in e))
-    const funcsRows = mixedRaw.filter((e): e is FuncEvent => (e.type === 'call' || e.type === 'return') && !('span' in e))
+    const callRows = mixedRaw.filter((e): e is FuncEvent => e.type === 'call' && !('span' in e))
     const oracleFold = foldEvents(mainSyscalls)
-    const expectedMixed = mergeGraphs(oracleFold, funcsAdapter(funcsRows))
+    const expectedMixed = mergeGraphs(oracleFold, foldFuncEvents(callRows))
 
     const sliceOracle = await store.slice({}, undefined, oracleRun.runId)
     const sliceMixed = await store.slice({}, undefined, mixedRun.runId)
@@ -361,11 +358,13 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
     expect(byId(sliceOracle.edges)).toEqual(byId(oracleFold.edges))
     expect(byId(sliceMixed.nodes)).toEqual(byId(expectedMixed.nodes))
     expect(byId(sliceMixed.edges)).toEqual(byId(expectedMixed.edges))
-    expect(sliceMixed.eventCount).toBe(sliceOracle.eventCount) // eventCount is syscall-SQL-only, untouched by the adapter
+    // eventCount now unions the syscall and funcs scopes (slice()'s whole
+    // point), so mixed.jsonl's one extra `call` row adds one to the oracle's.
+    expect(sliceMixed.eventCount).toBe(sliceOracle.eventCount + callRows.length)
     expect(sliceMixed.truncated).toBe(sliceOracle.truncated)
 
-    // table/stackRollup never merge adapter data (only slice() does), so they
-    // stay fully byte-identical, unlike slice() above.
+    // table/stackRollup never fold in funcs chains (only slice() does), so
+    // they stay fully byte-identical, unlike slice() above.
     const rollupOracle = await store.stackRollup({}, 5000, oracleRun.runId)
     const rollupMixed = await store.stackRollup({}, 5000, mixedRun.runId)
     const byChain = (rows: { chain: string[] }[]) => [...rows].sort((a, b) => a.chain.join('>').localeCompare(b.chain.join('>')))
@@ -375,7 +374,7 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
     expect(rollupMixed.truncated).toBe(rollupOracle.truncated)
 
     // diffTable is built on nodeCounts, which (like table/stackRollup) never
-    // merges adapter data - still fully byte-identical/zero-delta.
+    // folds in funcs chains - still fully byte-identical/zero-delta.
     const diff = await store.diffTable(oracleRun.runId, mixedRun.runId)
     for (const row of diff) {
       expect(row.presence).toBe('both')

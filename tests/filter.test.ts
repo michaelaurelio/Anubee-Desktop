@@ -49,4 +49,11 @@ describe('filterToSql', () => {
   it('ignores empty strings', () => {
     expect(filterToSql({ syscall: '', library: '', text: '' })).toEqual({ where: 'TRUE', params: [] })
   })
+
+  it('filters by module and symbol (funcs)', () => {
+    const { where, params } = filterToSql({ module: 'libc', symbol: 'getProp' })
+    expect(where).toContain('module ILIKE ?')
+    expect(where).toContain('symbol ILIKE ?')
+    expect(params).toEqual(['%libc%', '%getProp%'])
+  })
 })

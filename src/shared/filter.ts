@@ -5,6 +5,8 @@ export interface Filter {
   hasJavaStack?: boolean
   library?: string
   text?: string
+  module?: string
+  symbol?: string
 }
 
 // Translate a Filter into a parameterised SQL WHERE fragment over the `ev`
@@ -18,6 +20,14 @@ export function filterToSql(f: Filter): { where: string; params: unknown[] } {
   if (f.syscall) {
     clauses.push('syscall ILIKE ?')
     params.push(`%${f.syscall}%`)
+  }
+  if (f.module) {
+    clauses.push('module ILIKE ?')
+    params.push(`%${f.module}%`)
+  }
+  if (f.symbol) {
+    clauses.push('symbol ILIKE ?')
+    params.push(`%${f.symbol}%`)
   }
   if (f.tid !== undefined) {
     clauses.push('tid = ?')

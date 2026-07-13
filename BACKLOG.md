@@ -3,6 +3,59 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-13) - funcs inspector + engine-aware column picker
+
+The column picker now shows only the active engine's columns and persists toggles
+per engine (`ares.columns.<engine>`, legacy `ares.columns` = syscall fallback).
+Clicking a funcs graph node or table row renders the funcs records in the detail
+panel: a records-behind-node list (id / caller / retval / elapsed / args) with
+click-for-detail (args / string_args / fd_args / sock_args / out_args / backtrace),
+fed by engine-routed `eventById`/`nodeEvents` that merge a `call` with its
+shared-`id` `return`. `COLS` + `FuncEvent` widened for the detail fields
+(`caller_addr` intentionally omitted - funcs_emit.c never serializes it).
+
+### Known drawbacks / follow-ups
+- **Funcs offset popup not wired.** A funcs native node has no ghidra
+  image-base offset popup (`nodeOffsets` stays syscall-only); node-tap skips it on
+  funcs runs. Wire it when funcs offset mapping is needed.
+- **No aggregate/summary node header.** The funcs node panel is a raw record
+  list; a hot node (thousands of calls) gets no call-count / elapsed p50-max / top
+  callers summary. Add an aggregate header later.
+- **`nodeEvents` funcs capped at `limit`** (default 500) like the syscall path; a
+  very hot node under-lists past the cap.
+- **Inspector renderer duplication.** `renderFuncDetail`/`showFuncsNodeInspector`
+  near-duplicate the syscall `renderEventDetail`/`showNodeInspector`; both consume
+  the shared `DetailSection` union, so a single `renderDetailSections` + shared
+  node-table builder could collapse them. Refactor candidate, not urgent.
+- **`retval_str` unused.** ARES emits a decoded `retval_str` for funcs; the
+  inspector shows only the numeric `retval`. Consider surfacing it for
+  pointer/handle-returning funcs.
+
+## Shipped (2026-07-13) - funcs engine support, Phase 1
+
+Loads `ares funcs` runs: engine detection at ingest (`RunInfo.kinds`), a funcs
+master-table list (function / caller / retval / elapsed / args) with retval/elapsed
+folded from the matching `return` by shared `id`, and a deep unified
+function-to-function call graph built in SQL (`FUNCS_CHAIN_SQL`, replaces the old
+JS `funcsAdapter`) verified against the `foldFuncEvents` oracle. Off-heap and
+`span IS NULL`-guarded throughout.
+
+### Known drawbacks / deferrals from funcs Phase 1 (to resolve later)
+- **GUI smoke test pending on a fresh capture.** Core logic is covered by unit +
+  integration + lockstep tests, but the interactive Electron smoke (funcs columns
+  render, row-click draws the gold `fn:` graph) was not run: the committed
+  `../ares-detector-funcs-sample.jsonl` predates the tracer's `id` field, so it
+  lists calls with null ids and no folded retval/elapsed. Recapture a funcs run
+  (with `id`) and run the smoke before calling the feature user-ready.
+- **Funcs `stack_id` dropped.** funcs emits `stack_id` as a large raw number;
+  it is unused (no stack sidecar in funcs output) and left unmapped. Revisit if a
+  stack sidecar lands.
+- **funcs-vs-syscall run diff is not meaningful** (node-id namespaces differ);
+  diffing two funcs runs is the intended use.
+- **Deferred to Phase 2/3:** module/symbol filter-control UI, flame view for
+  funcs, run diff + RASP heuristics for funcs. (Engine-aware column picker and the
+  funcs record inspector shipped - see the section above.)
+
 ## Known drawbacks from body-panel & master-table redesign
 - **Tags column keys on innermost native frame only** - the tag lookup on a
   syscall row resolves only the row's `topNative` (innermost native frame in the

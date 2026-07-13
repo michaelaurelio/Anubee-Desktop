@@ -4,7 +4,7 @@ import { renderTable } from '../src/renderer/table'
 import type { TableRow } from '@shared/table'
 
 const row: TableRow = {
-  id: 9, tid: 237, syscall: 'faccessat', retval: -2, hasJava: true,
+  id: 9, tid: 237, engine: 'syscall', syscall: 'faccessat', retval: -2, hasJava: true,
   topJava: 'FileCheck.exists', topNative: 'libsentinel.so!chk+0x40', arg: '/data/app/base.apk',
 }
 

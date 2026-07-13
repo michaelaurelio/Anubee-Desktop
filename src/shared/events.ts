@@ -47,14 +47,24 @@ export interface CoverageEvent {
 // is the called function itself (module/symbol/entry_addr name it directly).
 export interface FuncEvent {
   type: 'call' | 'return'
+  id: number
   pid: number
   tid: number
+  ppid?: number
   module: string
   symbol: string
-  entry_addr: string
+  entry_addr?: string // call only
+  offset?: number
+  args?: string[]
+  string_args?: Record<string, string>
+  fd_args?: Record<string, string>
+  sock_args?: Record<string, string>
   backtrace: BacktraceFrame[]
-  retval?: number // return only
-  elapsed_ns?: number // return only
+  java_stack?: string[]
+  // From the paired `return` (shared id), merged onto the call record for display:
+  retval?: number
+  elapsed_ns?: number
+  out_args?: Record<string, string>
 }
 
 // Any other non-syscall record (e.g. "lib", "unlib", "stack") is kept but opaque.

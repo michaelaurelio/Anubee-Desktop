@@ -1,4 +1,4 @@
-import type { SyscallEvent } from './events'
+import type { SyscallEvent, FuncEvent } from './events'
 import { parseFrameSymbol, type ParsedFrame } from './frame-symbol'
 
 export type NodeKind = 'java' | 'native' | 'syscall' | 'func'
@@ -77,6 +77,63 @@ export function chainOf(e: SyscallEvent): ChainNode[] {
 
   chain.push({ id: `sys:${e.syscall}`, kind: 'syscall', label: e.syscall, module: null })
   return chain
+}
+
+// The hooked function key for a funcs record: "module!symbol". This is what a
+// backtrace frame must match to be promoted from a nat: scaffold node to the
+// same fn: node as its own call records (graph unification).
+export function funcKey(e: FuncEvent): string {
+  return `${e.module}!${e.symbol}`
+}
+
+// The ordered outermost->function chain for one funcs `call`: reversed
+// java_stack (when captured), then reversed backtrace. Each native frame whose
+// cleaned "module!symbol" is in `hooked` becomes a fn: node (unify), else nat:.
+// Bare-address frames dropped; offsets stripped so call sites collapse. The
+// function's own leaf frame (backtrace[0]) is in `hooked` by construction.
+export function chainOfFunc(e: FuncEvent, hooked: Set<string>): ChainNode[] {
+  const chain: ChainNode[] = []
+  for (const m of [...(e.java_stack ?? [])].reverse()) {
+    chain.push({ id: `java:${m}`, kind: 'java', label: m, module: null })
+  }
+  for (const f of [...e.backtrace].reverse()) {
+    const p = parseFrameSymbol(f.symbol)
+    if (p.module === null) continue // bare-address frame
+    const key = p.symbol ? `${p.module}!${p.symbol}` : p.module
+    if (p.symbol && hooked.has(key)) {
+      chain.push({ id: `fn:${key}`, kind: 'func', label: key, module: null })
+    } else {
+      chain.push({ id: `nat:${key}`, kind: 'native', label: p.symbol ? `${p.symbol} (${p.module})` : p.module, module: p.module })
+    }
+  }
+  return chain
+}
+
+// Fold funcs `call` events into nodes + edges with occurrence counts - the
+// in-memory oracle the FUNCS_CHAIN_SQL slice must match. The hooked-set is
+// derived from the calls themselves (their own module!symbol). Returns only;
+// never pass `return` records here (their backtrace is the return site).
+export function foldFuncEvents(calls: FuncEvent[], cap?: number): GraphSlice {
+  const hooked = new Set(calls.map(funcKey))
+  const nodes = new Map<string, GraphNode>()
+  const edges = new Map<string, GraphEdge>()
+  for (const e of calls) {
+    const chain = chainOfFunc(e, hooked)
+    for (let i = 0; i < chain.length; i++) {
+      const c = chain[i]
+      const n = nodes.get(c.id)
+      if (n) n.count++
+      else nodes.set(c.id, { ...c, count: 1 })
+      if (i > 0) {
+        const source = chain[i - 1].id
+        const id = `${source}=>${c.id}`
+        const edge = edges.get(id)
+        if (edge) edge.count++
+        else edges.set(id, { id, source, target: c.id, count: 1 })
+      }
+    }
+  }
+  return capSlice([...nodes.values()], [...edges.values()], calls.length, cap)
 }
 
 // Aggregate a set of events into nodes + edges with occurrence counts. This is

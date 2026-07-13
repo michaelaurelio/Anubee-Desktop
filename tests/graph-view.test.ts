@@ -14,7 +14,7 @@ const slice: GraphSlice = {
 }
 
 const row = (over: Partial<TableRow> = {}): TableRow => ({
-  id: 1, tid: 101, syscall: 'openat', retval: 7, hasJava: true,
+  id: 1, tid: 101, engine: 'syscall', syscall: 'openat', retval: 7, hasJava: true,
   topJava: 'com.example.Sec.check', topNative: 'libexample.so!check+0x10', arg: '', ...over,
 })
 
@@ -64,6 +64,11 @@ describe('filterForRow', () => {
   it('ANDs the currently active toolbar filter', () => {
     expect(filterForRow(row(), { library: 'libexample' }))
       .toEqual({ library: 'libexample', text: 'com.example.Sec.check', hasJavaStack: true })
+  })
+
+  it('filterForRow selects a funcs row by module + symbol', () => {
+    const row = { id: 1, tid: 1, engine: 'func', syscall: '', retval: null, hasJava: false, topJava: null, topNative: null, arg: '', fn: 'libc.so!getProp', caller: null, elapsed: null } as never
+    expect(filterForRow(row)).toEqual({ module: 'libc.so', symbol: 'getProp' })
   })
 })
 

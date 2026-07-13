@@ -3,8 +3,8 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
-import { parseJsonl, isSyscall } from '@shared/ares-parse'
-import { foldEvents, type GraphSlice } from '@shared/graph-shape'
+import { parseJsonl, isSyscall, isCall } from '@shared/ares-parse'
+import { foldEvents, foldFuncEvents, type GraphSlice } from '@shared/graph-shape'
 import type { Rule } from '@shared/rasp-heuristics'
 
 // A trace with 2 root-check bridges (java + native), 1 java-less read, a
@@ -28,6 +28,18 @@ function fixture(): string {
   return p
 }
 
+const FUNCS_LINES = [
+  JSON.stringify({ type: 'call', id: 1, pid: 100, tid: 101, module: 'libexample.so', symbol: 'checkRoot', entry_addr: '0x1000', args: ['0x1'], string_args: {}, fd_args: {}, sock_args: {}, backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libexample.so!checkRoot' }, { frame: 1, addr: '0x2000', symbol: 'libc.so!__libc_init+0x40' }] }),
+  JSON.stringify({ type: 'return', id: 1, pid: 100, tid: 101, module: 'libexample.so', symbol: 'checkRoot', offset: 4096, retval: 1, elapsed_ns: 2300, backtrace: [{ frame: 0, addr: '0x2000', symbol: 'libc.so!__libc_init+0x40' }], out_args: {} }),
+]
+
+function funcsFixture(): string {
+  dir = mkdtempSync(join(tmpdir(), 'ares-funcs-'))
+  const p = join(dir, 'run.jsonl')
+  writeFileSync(p, FUNCS_LINES.join('\n') + '\n')
+  return p
+}
+
 afterEach(async () => {
   await store?.close()
   store = undefined
@@ -40,6 +52,17 @@ describe('GraphStore.ingest', () => {
     const r = await store.ingest(fixture())
     expect(r.eventCount).toBe(3) // 3 syscalls
     expect(r.errors).toBe(1) // the malformed line only (lib is neither event nor error)
+  })
+})
+
+describe('GraphStore.ingest funcs', () => {
+  it('reports funcs kind and counts calls; call and return share the tracer id', async () => {
+    store = new GraphStore()
+    const r = await store.ingest(funcsFixture())
+    expect(r.kinds).toEqual(['funcs'])
+    expect(r.eventCount).toBe(1) // 1 call (returns are not listable events)
+    const ids = await store.raw(`SELECT type, id FROM ev WHERE type IN ('call','return') ORDER BY type`)
+    expect(ids.map(row => Number(row.id))).toEqual([1, 1]) // call id 1, return id 1 (shared)
   })
 })
 
@@ -82,7 +105,7 @@ describe('GraphStore.eventById', () => {
   it('returns one raw record as a plain SyscallEvent', async () => {
     store = new GraphStore()
     await store.ingest(fixture())
-    const e = await store.eventById(1)
+    const e = await store.eventById(1) as import('@shared/events').SyscallEvent | undefined
     expect(e).toBeDefined()
     expect(e!.syscall).toBe('openat')
     expect(e!.tid).toBe(101)
@@ -186,6 +209,68 @@ describe('GraphStore.slice', () => {
   })
 })
 
+describe('GraphStore.slice funcs', () => {
+  it('matches the foldFuncEvents oracle for a funcs run', async () => {
+    store = new GraphStore()
+    await store.ingest(funcsFixture())
+    const slice = await store.slice({})
+    const calls = parseJsonl(FUNCS_LINES.join('\n')).events.filter(isCall)
+    const oracle = foldFuncEvents(calls)
+    const norm = (s: { nodes: { id: string; count: number }[]; edges: { id: string; count: number }[] }) => ({
+      nodes: [...s.nodes].map(n => ({ id: n.id, count: n.count })).sort((a, b) => a.id.localeCompare(b.id)),
+      edges: [...s.edges].map(e => ({ id: e.id, count: e.count })).sort((a, b) => a.id.localeCompare(b.id)),
+    })
+    expect(norm(slice)).toEqual(norm(oracle))
+  })
+})
+
+const FUNCS_PAIR_LINES = [
+  // checkRoot: call + return share id 1 -> folds retval/elapsed
+  JSON.stringify({ type: 'call', id: 1, pid: 1, tid: 1, module: 'libexample.so', symbol: 'checkRoot', entry_addr: '0x1000', args: ['0xaa'], string_args: { '0': 'ro.debuggable' }, fd_args: {}, sock_args: {}, backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libexample.so!checkRoot' }, { frame: 1, addr: '0x2000', symbol: 'libc.so!__libc_init+0x40' }] }),
+  JSON.stringify({ type: 'return', id: 1, pid: 1, tid: 1, module: 'libexample.so', symbol: 'checkRoot', offset: 4096, retval: 1, elapsed_ns: 2300, backtrace: [{ frame: 0, addr: '0x2000', symbol: 'libc.so!__libc_init+0x40' }], out_args: {} }),
+  // two getProp invocations (distinct ids 2, 3); returns emitted out of call order
+  // to prove the fold joins on shared id, not stream position
+  JSON.stringify({ type: 'call', id: 2, pid: 1, tid: 2, module: 'libc.so', symbol: 'getProp', entry_addr: '0x3000', args: [], string_args: {}, fd_args: {}, sock_args: {}, backtrace: [{ frame: 0, addr: '0x3000', symbol: 'libc.so!getProp' }, { frame: 1, addr: '0x4000', symbol: 'libexample.so!checkRoot+0x8' }] }),
+  JSON.stringify({ type: 'call', id: 3, pid: 1, tid: 2, module: 'libc.so', symbol: 'getProp', entry_addr: '0x3000', args: [], string_args: {}, fd_args: {}, sock_args: {}, backtrace: [{ frame: 0, addr: '0x3000', symbol: 'libc.so!getProp' }, { frame: 1, addr: '0x4000', symbol: 'libexample.so!checkRoot+0x8' }] }),
+  JSON.stringify({ type: 'return', id: 3, pid: 1, tid: 2, module: 'libc.so', symbol: 'getProp', offset: 12288, retval: 7, elapsed_ns: 20, backtrace: [{ frame: 0, addr: '0x1', symbol: 'libc.so!x+0x1' }], out_args: {} }),
+  JSON.stringify({ type: 'return', id: 2, pid: 1, tid: 2, module: 'libc.so', symbol: 'getProp', offset: 12288, retval: 0, elapsed_ns: 10, backtrace: [{ frame: 0, addr: '0x1', symbol: 'libc.so!x+0x1' }], out_args: {} }),
+  // lonely call, no matching return -> retval/elapsed blank via LEFT JOIN
+  JSON.stringify({ type: 'call', id: 4, pid: 1, tid: 3, module: 'libfoo.so', symbol: 'openThing', entry_addr: '0x5000', args: [], string_args: {}, fd_args: {}, sock_args: {}, backtrace: [{ frame: 0, addr: '0x5000', symbol: 'libfoo.so!openThing' }] }),
+]
+
+function funcsPairFixture(): string {
+  dir = mkdtempSync(join(tmpdir(), 'ares-funcs-pair-'))
+  const p = join(dir, 'run.jsonl')
+  writeFileSync(p, FUNCS_PAIR_LINES.join('\n') + '\n')
+  return p
+}
+
+describe('GraphStore.table funcs', () => {
+  it('lists calls with engine tag, function, caller, and retval/elapsed folded by shared id', async () => {
+    store = new GraphStore()
+    await store.ingest(funcsPairFixture())
+    const rows = await store.table({}, { limit: 100, offset: 0 })
+    expect(rows).toHaveLength(4) // 4 calls listed, returns not listed
+    const cr = rows.find(r => r.fn === 'libexample.so!checkRoot')!
+    expect(cr.engine).toBe('func')
+    expect(cr.caller).toBe('libc.so!__libc_init') // backtrace[1], offset stripped
+    expect(cr.retval).toBe(1)
+    expect(cr.elapsed).toBe(2300)
+    // returns joined by shared id, not by stream order (returns were reversed)
+    const gp = rows.filter(r => r.fn === 'libc.so!getProp').sort((a, b) => a.id - b.id)
+    expect(gp.map(r => r.retval)).toEqual([0, 7]) // id 2 -> 0, id 3 -> 7
+    const lonely = rows.find(r => r.fn === 'libfoo.so!openThing')!
+    expect(lonely.retval).toBeNull()
+    expect(lonely.elapsed).toBeNull()
+  })
+
+  it('counts calls only', async () => {
+    store = new GraphStore()
+    await store.ingest(funcsPairFixture())
+    expect(await store.count()).toBe(4)
+  })
+})
+
 describe('GraphStore filtering (filterToSql wired end-to-end)', () => {
   it('filters the table by hasJavaStack, tid, syscall, and library', async () => {
     store = new GraphStore()
@@ -231,6 +316,42 @@ describe('GraphStore.nodeEvents', () => {
     await store.ingest(fixture())
     expect((await store.nodeEvents('sys:openat', { tid: 101 })).map(e => e.id)).toEqual([1, 2])
     expect((await store.nodeEvents('sys:openat', { tid: 999 }))).toEqual([])
+  })
+})
+
+const FUNCS_DETAIL_LINES = [
+  JSON.stringify({ type: 'call', id: 1, pid: 9, tid: 9, ppid: 1, module: 'libexample.so', symbol: 'checkRoot', entry_addr: '0x1000', offset: 4096, caller_addr: '0x2000', args: ['0xaa'], string_args: { '0': 'ro.debuggable' }, fd_args: {}, sock_args: {}, backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libexample.so!checkRoot' }, { frame: 1, addr: '0x2000', symbol: 'libc.so!__libc_init+0x40' }] }),
+  JSON.stringify({ type: 'return', id: 1, pid: 9, tid: 9, module: 'libexample.so', symbol: 'checkRoot', offset: 4096, retval: 1, elapsed_ns: 2300, out_args: { '0': 'result' }, backtrace: [{ frame: 0, addr: '0x2000', symbol: 'libc.so!__libc_init+0x40' }] }),
+]
+function funcsDetailFixture(): string {
+  dir = mkdtempSync(join(tmpdir(), 'ares-funcs-detail-'))
+  const p = join(dir, 'run.jsonl')
+  writeFileSync(p, FUNCS_DETAIL_LINES.join('\n') + '\n')
+  return p
+}
+
+describe('GraphStore funcs inspector data', () => {
+  it('eventById merges the return retval/elapsed/out_args onto the call', async () => {
+    store = new GraphStore()
+    await store.ingest(funcsDetailFixture())
+    const ev = await store.eventById(1) as import('@shared/events').FuncEvent
+    expect(ev.type).toBe('call')
+    expect(ev.symbol).toBe('checkRoot')
+    expect(ev.string_args).toEqual({ '0': 'ro.debuggable' })
+    expect(ev.retval).toBe(1)
+    expect(ev.elapsed_ns).toBe(2300)
+    expect(ev.out_args).toEqual({ '0': 'result' })
+  })
+
+  it('nodeEvents returns the enriched funcs calls whose chain touches a node', async () => {
+    store = new GraphStore()
+    await store.ingest(funcsDetailFixture())
+    const fnRows = await store.nodeEvents('fn:libexample.so!checkRoot') as import('@shared/events').FuncEvent[]
+    expect(fnRows).toHaveLength(1)
+    expect(fnRows[0].retval).toBe(1)
+    // the unhooked caller frame is a nat: node the same call passes through
+    const natRows = await store.nodeEvents('nat:libc.so!__libc_init') as import('@shared/events').FuncEvent[]
+    expect(natRows.map(r => r.id)).toEqual([1])
   })
 })
 

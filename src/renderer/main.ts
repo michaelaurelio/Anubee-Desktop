@@ -4,9 +4,9 @@ import { wirePanels } from './panels'
 import { sliceToElements, filterForRow } from './graph-view'
 import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
-import { ALL_COLUMNS, parseColumns, serializeColumns, type ColumnKey } from './columns'
+import { serializeColumns, columnsForEngine, columnCatalogue, type ColumnKey } from './columns'
 import { currentFilter, wireFilterControls } from './filter-controls'
-import { showNodeInspector, showRecordDetail } from './inspector'
+import { showNodeInspector, showRecordDetail, showFuncsNodeInspector, showFuncsRecordDetail } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
 import { highlightNeighborhood, clearHighlight } from './graph-highlight'
 import { showOffsetPopup, closeOffsetPopup, eventForOffset, type NodeBox } from './offset-popup'
@@ -27,6 +27,7 @@ import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, a
 import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
 import { showModal, isModalOpen } from './modal'
 import { makeEpoch } from './selection-epoch'
+import type { SyscallEvent, FuncEvent } from '@shared/events'
 
 let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
 document.documentElement.setAttribute('data-theme', theme)
@@ -129,6 +130,17 @@ async function recolorRasp(): Promise<void> {
 }
 
 let activeRunId: number | undefined
+let activeEngine: 'syscall' | 'func' = 'syscall'
+
+// Per-engine column preference key. The legacy `ares.columns` (syscall-only) is
+// read as the syscall fallback so a returning user keeps their saved columns.
+function columnsKey(engine: 'syscall' | 'func'): string {
+  return `ares.columns.${engine}`
+}
+function savedColumns(engine: 'syscall' | 'func'): string | null {
+  return localStorage.getItem(columnsKey(engine)) ?? (engine === 'syscall' ? localStorage.getItem('ares.columns') : null)
+}
+
 let tags: Tag[] = []
 let dismissed: Dismissed[] = []
 let runB: number | undefined
@@ -190,7 +202,7 @@ const TABLE_PAGE = 500
 let tableOffset = 0
 let selectedRowId: number | undefined // the row whose detail is open, so re-renders can re-highlight it
 const selEpoch = makeEpoch() // guards stale-async paints across row-select / node-tap / canvas-clear
-let currentColumns: ColumnKey[] = parseColumns(localStorage.getItem('ares.columns'))
+let currentColumns: ColumnKey[] = columnsForEngine(activeEngine, savedColumns(activeEngine))
 
 function renderPager(offset: number, pageLen: number, total: number): void {
   const rng = document.getElementById('pager-range')
@@ -220,6 +232,7 @@ async function refreshTable(): Promise<void> {
     window.ares.table(filter, { limit: TABLE_PAGE, offset: tableOffset }, activeRunId),
     window.ares.count(filter, activeRunId),
   ])
+  currentColumns = columnsForEngine(activeEngine, savedColumns(activeEngine))
   renderTable(rows, currentColumns, selectRow, tableBadgeFor)
   if (selectedRowId !== undefined) highlightTableRow(selectedRowId) // survive paging/filter/column re-render
   renderPager(tableOffset, rows.length, total)
@@ -322,9 +335,8 @@ function refreshMiddle(): void {
   // graph view refreshes on row selection, not on filter apply
 }
 
-// Draws a fetched GraphSlice into the cytoscape canvas. Shared by selectRow
-// (a table row's filtered slice) and the syscall-less run auto-trigger below
-// (a funcs-only run has no table rows to select, so nothing else calls this).
+// Draws a fetched GraphSlice into the cytoscape canvas. Called by selectRow
+// with a table row's filtered slice (funcs and syscall runs both list rows).
 async function renderSlice(slice: GraphSlice): Promise<void> {
   const els = sliceToElements(slice)
   cy.elements().remove()
@@ -345,7 +357,10 @@ async function selectRow(row: TableRow): Promise<void> {
   const host = document.getElementById('inspector')
   const ev = await window.ares.eventById(row.id, activeRunId)
   if (!selEpoch.isCurrent(e)) return // a newer selection superseded this row; drop the stale detail
-  if (host && ev) showRecordDetail(host, ev)
+  if (host && ev) {
+    if (activeEngine === 'func') showFuncsRecordDetail(host, ev as FuncEvent)
+    else showRecordDetail(host, ev as SyscallEvent)
+  }
 
   showView('graph')
   const slice = await window.ares.slice(filterForRow(row, currentFilter()), GRAPH_SLICE_CAP, activeRunId)
@@ -371,20 +386,30 @@ cy.on('tap', 'node', evt => {
   const nodeId = node.id()
   highlightNeighborhood(cy, node)
   showSide(true)
+  if (activeEngine === 'func') {
+    closeOffsetPopup()
+    void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(records => {
+      if (!selEpoch.isCurrent(e)) return // stale inspector repaint
+      showFuncsNodeInspector(nodeId, records as FuncEvent[])
+    })
+    return
+  }
   if (node.data('kind') === 'native') {
     const box = nodeBox(node)
     void Promise.all([
       window.ares.nodeOffsets(nodeId, currentFilter(), activeRunId),
       window.ares.nodeEvents(nodeId, currentFilter(), activeRunId),
-    ]).then(([rows, events]) => {
+    ]).then(([rows, rawEvents]) => {
       if (!selEpoch.isCurrent(e)) return // node deselected / another selected during the round-trip
+      const events = rawEvents as SyscallEvent[]
       showNodeInspector(nodeId, events)
       showOffsetPopup({ nodeId, rows, anchor: box, eventForOffset: (row) => eventForOffset(events, row) })
     })
   } else {
     closeOffsetPopup()
-    void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(events => {
+    void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(rawEvents => {
       if (!selEpoch.isCurrent(e)) return // stale inspector repaint
+      const events = rawEvents as SyscallEvent[]
       showNodeInspector(nodeId, events)
     })
   }
@@ -698,6 +723,7 @@ function wireExport(): void {
 window.ares.onProgress(pct => status(`Loading... ${pct}%`))
 window.ares.onLoaded(s => {
   activeRunId = s.runId
+  activeEngine = s.kinds.includes('funcs') && !s.kinds.includes('syscall') ? 'func' : 'syscall'
   tableOffset = 0 // a fresh run starts at page 1; a stale offset could land past its row count
   selectedRowId = undefined
   document.getElementById('empty-state')?.classList.add('hidden')
@@ -711,18 +737,8 @@ window.ares.onLoaded(s => {
     void refreshSuggestions()
     void refreshOrphans()
   })
-  // A funcs-only run has zero syscalls: the table is empty, so selectRow never
-  // fires and the graph would stay blank. Render its slice directly instead -
-  // the funcs adapter (merged into slice() in EPIC A) is the only content.
-  let renderTrigger: Promise<void> = Promise.resolve()
-  if (s.eventCount === 0) {
-    showView('graph')
-    renderTrigger = window.ares.slice({}, GRAPH_SLICE_CAP, s.runId).then(renderSlice)
-  }
-  // EPIC A coverage health banner: not graph data, so it waits for any
-  // auto-triggered render above to settle first (renderSlice's own
-  // showBanner(false) call would otherwise clobber this one).
-  void renderTrigger.then(() => window.ares.coverage(s.runId)).then(cov => {
+  // Coverage health banner (not graph data).
+  void window.ares.coverage(s.runId).then(cov => {
     if (!cov) return
     showBanner(true, `Coverage: ${cov.snaps.total} snapshots (${cov.snaps.truncated} truncated) · CFI walks ${cov.cfi.walks}`)
   })
@@ -753,7 +769,7 @@ function openColumnsModal(): void {
     title: 'Table columns',
     width: 300,
     render: host => {
-      for (const def of ALL_COLUMNS) {
+      for (const def of columnCatalogue(activeEngine)) {
         const row = document.createElement('label')
         row.className = 'col-row' + (def.fixed ? ' fixed' : '')
         const cb = document.createElement('input')
@@ -764,8 +780,8 @@ function openColumnsModal(): void {
           const set = new Set(currentColumns)
           if (cb.checked) set.add(def.key); else set.delete(def.key)
           set.add('id')
-          currentColumns = ALL_COLUMNS.map(d => d.key).filter(k => set.has(k))
-          localStorage.setItem('ares.columns', serializeColumns(currentColumns))
+          currentColumns = columnCatalogue(activeEngine).map(d => d.key).filter(k => set.has(k))
+          localStorage.setItem(columnsKey(activeEngine), serializeColumns(currentColumns))
           void refreshTable()
         })
         const span = document.createElement('span')

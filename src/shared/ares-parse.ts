@@ -1,4 +1,4 @@
-import type { TraceEvent, SyscallEvent } from './events'
+import type { TraceEvent, SyscallEvent, FuncEvent } from './events'
 
 export interface ParseError {
   line: number
@@ -13,6 +13,10 @@ export interface ParseResult {
 
 export function isSyscall(e: TraceEvent): e is SyscallEvent {
   return e.type === 'syscall'
+}
+
+export function isCall(e: TraceEvent): e is FuncEvent {
+  return e.type === 'call'
 }
 
 // Parse one JSONL line. Never throws: a malformed line or an object without a

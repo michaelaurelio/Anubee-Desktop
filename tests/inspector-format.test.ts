@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { formatEvent } from '../src/renderer/inspector'
-import type { SyscallEvent } from '@shared/events'
+import { formatEvent, primaryFuncArg, funcDetailSections } from '../src/renderer/inspector'
+import type { SyscallEvent, FuncEvent } from '@shared/events'
 
 const e: SyscallEvent = {
   type: 'syscall', id: 5, pid: 1, tid: 101, syscall_nr: 56, syscall: 'openat',
@@ -40,5 +40,37 @@ describe('primaryArg', () => {
     expect(primaryArg({ ...e, string_args: {}, fd_args: { '0': '/proc/self/status' } })).toBe('/proc/self/status')
     expect(primaryArg({ ...e, string_args: {}, fd_args: {}, decoded_args: { '0': 'PR_GET_DUMPABLE' } })).toBe('PR_GET_DUMPABLE')
     expect(primaryArg({ ...e, string_args: {}, fd_args: {}, decoded_args: {}, args: ['0x10', '0x0'] })).toBe('0x10 0x0')
+  })
+})
+
+const rec: FuncEvent = {
+  type: 'call', id: 1, pid: 9, tid: 9, module: 'libexample.so', symbol: 'checkRoot',
+  args: ['0xaa'], string_args: { '0': 'ro.debuggable' }, fd_args: {}, sock_args: {},
+  backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libexample.so!checkRoot' }, { frame: 1, addr: '0x2000', symbol: 'libc.so!__libc_init+0x40' }],
+  retval: 1, elapsed_ns: 2300, out_args: { '0': 'result' },
+}
+
+describe('primaryFuncArg', () => {
+  it('prefers string_args, else sock, else fd, else raw args', () => {
+    expect(primaryFuncArg(rec)).toBe('ro.debuggable')
+    // sock tier: no strings, but a decoded sockaddr present
+    expect(primaryFuncArg({ ...rec, string_args: {}, sock_args: { '0': 'AF_INET 10.0.0.1:53' } })).toBe('AF_INET 10.0.0.1:53')
+    // fd tier: no strings/sock, but an fd path present
+    expect(primaryFuncArg({ ...rec, string_args: {}, sock_args: {}, fd_args: { '0': '/proc/self/status' } })).toBe('/proc/self/status')
+    // raw-args fallback when every resolved map is empty
+    expect(primaryFuncArg({ ...rec, string_args: {} })).toBe('0xaa')
+  })
+})
+
+describe('funcDetailSections', () => {
+  it('summarizes function/retval/elapsed and groups args + backtrace', () => {
+    const secs = funcDetailSections(rec)
+    const summary = secs.find(s => s.title === 'Summary')!
+    expect(summary.kind).toBe('kv')
+    expect((summary as { rows: [string, string][] }).rows).toContainEqual(['function', 'libexample.so!checkRoot'])
+    expect((summary as { rows: [string, string][] }).rows).toContainEqual(['retval', '1'])
+    expect((summary as { rows: [string, string][] }).rows).toContainEqual(['elapsed', '2300 ns'])
+    expect(secs.some(s => s.title === 'Args')).toBe(true)
+    expect(secs.some(s => s.title === 'Backtrace')).toBe(true)
   })
 })

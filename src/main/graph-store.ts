@@ -1,9 +1,8 @@
 import { openSync, readSync, closeSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
-import type { SyscallEvent, FuncEvent, CoverageEvent } from '@shared/events'
+import type { SyscallEvent, CoverageEvent, FuncEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
 import { capSlice, labelForId, mergeGraphs, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
-import { funcsAdapter } from '@shared/adapters/funcs'
 import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
 import { compileWhere, scoreWith, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
@@ -34,6 +33,8 @@ const COLS =
   // coverage() round-trips it, so it stays in the schema.
   "'engine':'VARCHAR'," +
   "'span':'BIGINT','entry_addr':'VARCHAR','elapsed_ns':'BIGINT','symbol':'VARCHAR','module':'VARCHAR'," +
+  "'sock_args':'MAP(VARCHAR,VARCHAR)','out_args':'MAP(VARCHAR,VARCHAR)'," +
+  "'ppid':'INTEGER','offset':'BIGINT'," +
   "'snaps':'STRUCT(total INTEGER, truncated INTEGER)'," +
   "'cfi':'STRUCT(walks INTEGER, stops MAP(VARCHAR,INTEGER))'}"
 
@@ -53,6 +54,21 @@ const CHAIN_SQL = `list_concat(
     s -> 'nat:' || regexp_replace(s, '\\+0x[0-9a-fA-F]+$', '')
   ),
   ['sys:' || syscall]
+)`
+
+// The funcs analogue of CHAIN_SQL, over `call` rows. Reversed java_stack, then
+// reversed backtrace; each cleaned "module!symbol" frame is promoted to fn: when
+// it is in the run's hooked-set (the `h.fns` list cross-joined in), else nat:.
+// Same cleaning as CHAIN_SQL: bare-address frames dropped, +0x offsets stripped.
+const FUNCS_CHAIN_SQL = `list_concat(
+  list_transform(array_reverse(coalesce(java_stack, [])), x -> 'java:' || x),
+  list_transform(
+    list_transform(
+      list_filter(array_reverse(list_transform(backtrace, b -> b.symbol)),
+                  s -> NOT (starts_with(s, '0x') AND NOT contains(s, '!'))),
+      s -> regexp_replace(s, '\\+0x[0-9a-fA-F]+$', '')),
+    s -> CASE WHEN list_contains(h.fns, s) THEN 'fn:' || s ELSE 'nat:' || s END
+  )
 )`
 
 // Rebuild a node's kind/label/module from its id via the shared labelForId.
@@ -86,6 +102,7 @@ export interface RunInfo {
   file: string
   ingestedAt: string
   eventCount: number
+  kinds: ('syscall' | 'funcs')[]
 }
 
 export class GraphStore {
@@ -130,7 +147,7 @@ export class GraphStore {
   async ingest(
     path: string,
     onProgress?: (pct: number) => void,
-  ): Promise<{ runId: number; eventCount: number; errors: number }> {
+  ): Promise<{ runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }> {
     if (!this.instance) {
       this.instance = await DuckDBInstance.create(':memory:')
       this.con = await this.instance.connect()
@@ -152,8 +169,15 @@ export class GraphStore {
       `SELECT count(*) n FROM ev WHERE run_id = ${runId} AND type IS NULL`,
     )
     const eventCount = await this.scalar(
-      `SELECT count(*) n FROM ev WHERE run_id = ${runId} AND type = 'syscall'`,
+      `SELECT count(*) n FROM ev WHERE run_id = ${runId} AND type IN ('syscall', 'call')`,
     )
+    const hasSyscall = (await this.scalar(
+      `SELECT count(*) n FROM ev WHERE run_id = ${runId} AND type = 'syscall'`)) > 0
+    const hasFuncs = (await this.scalar(
+      `SELECT count(*) n FROM ev WHERE run_id = ${runId} AND type = 'call'`)) > 0
+    const kinds: ('syscall' | 'funcs')[] = []
+    if (hasSyscall) kinds.push('syscall')
+    if (hasFuncs) kinds.push('funcs')
 
     // Build the per-run module map from `lib` records before they are deleted.
     // Load base = the lowest segment start for a (pid, library basename).
@@ -185,10 +209,11 @@ export class GraphStore {
       file: path,
       ingestedAt: new Date().toISOString(),
       eventCount,
+      kinds,
     })
     this.activeRunId = runId
     onProgress?.(100)
-    return { runId, eventCount, errors }
+    return { runId, eventCount, errors, kinds }
   }
 
   runs(): RunInfo[] {
@@ -201,6 +226,15 @@ export class GraphStore {
     return id
   }
 
+  // The engine a run's list/count should present: 'funcs' when it has call rows
+  // and no syscalls, else 'syscall'. (A mixed `trace` run lists syscalls in
+  // Phase 1; a unified trace list is backlog.)
+  private engineOf(runId: number): 'syscall' | 'funcs' {
+    const info = this.runsMap.get(runId)
+    if (info && info.kinds.includes('funcs') && !info.kinds.includes('syscall')) return 'funcs'
+    return 'syscall'
+  }
+
   // Master-table page, filtered in SQL.
   async table(
     filter: Filter,
@@ -211,6 +245,29 @@ export class GraphStore {
     const limit = Math.max(0, Math.trunc(page.limit))
     const offset = Math.max(0, Math.trunc(page.offset))
     const { where, params } = filterToSql(filter)
+    if (this.engineOf(rid) === 'funcs') {
+      // Calls are filtered in a CTE (single ev scope, so the shared filter's
+      // unqualified columns stay unambiguous), then each call LEFT JOINs the
+      // return sharing its tracer id for retval/elapsed. The per-call span id is
+      // unique per invocation, so the join is 1:1 (recursion/reentrancy included);
+      // a call with no return folds to null.
+      const rows = await this.rows(
+        `WITH calls AS (SELECT * FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where}))
+         SELECT c.id AS id, c.tid AS tid,
+           c.module || '!' || c.symbol AS fn,
+           regexp_replace(c.backtrace[2].symbol, '\\+0x[0-9a-fA-F]+$', '') AS caller,
+           r.retval AS retval, r.elapsed_ns AS elapsed,
+           coalesce(nullif(array_to_string(map_values(c.string_args), ' '), ''),
+                    nullif(array_to_string(c.args, ' '), '')) AS arg
+         FROM calls c LEFT JOIN ev r ON r.run_id = ${rid} AND r.type = 'return' AND r.span IS NULL AND r.id = c.id
+         ORDER BY c.id LIMIT ${limit} OFFSET ${offset}`, params)
+      return rows.map(r => ({
+        id: num(r.id)!, tid: num(r.tid)!, engine: 'func' as const,
+        syscall: '', retval: num(r.retval), hasJava: false, topJava: null, topNative: null,
+        arg: (r.arg as string | null) ?? '',
+        fn: r.fn as string, caller: (r.caller as string | null) ?? null, elapsed: num(r.elapsed),
+      }))
+    }
     const rows = await this.rows(
       `SELECT id, tid, syscall, retval,
          (java_stack IS NOT NULL AND len(java_stack) > 0) AS hasJava,
@@ -230,6 +287,7 @@ export class GraphStore {
     return rows.map(r => ({
       id: num(r.id)!,
       tid: num(r.tid)!,
+      engine: 'syscall' as const,
       syscall: r.syscall as string,
       retval: num(r.retval),
       hasJava: Boolean(r.hasJava),
@@ -244,6 +302,10 @@ export class GraphStore {
   async count(filter: Filter = {}, runId?: number): Promise<number> {
     const rid = this.resolveRun(runId)
     const { where, params } = filterToSql(filter)
+    if (this.engineOf(rid) === 'funcs') {
+      return this.scalar(
+        `SELECT count(*) n FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where})`, params)
+    }
     return this.scalar(
       `SELECT count(*) n FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`,
       params,
@@ -253,42 +315,51 @@ export class GraphStore {
   // Aggregated syscall->native->java graph over the filtered events, capped.
   // Reconstructs identity + counts in SQL, then assembles GraphNodes with the
   // shared labelling - matched node-for-node against the foldEvents oracle.
+  // Unions in the funcs engine's own SQL chain (FUNCS_CHAIN_SQL) over `call`
+  // rows, matched against the foldFuncEvents oracle - a funcs run renders
+  // without a separate JS adapter. Shared `nat:` nodes across the two engines
+  // are intentional (mergeGraphs sums their counts into one node).
+  // GraphSlice.eventCount here counts syscall OR funcs rows (was syscall-only
+  // before the funcs union), so a funcs-only run reports a non-zero count.
   async slice(filter: Filter = {}, cap?: number, runId?: number): Promise<GraphSlice> {
     const rid = this.resolveRun(runId)
     const { where, params } = filterToSql(filter)
-    const scoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
-    const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})`
 
-    const nodeRows = await this.rows(
-      `${cte} SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`,
-      params,
-    )
-    const edgeRows = await this.rows(
-      `${cte} SELECT chain[i] AS src, chain[i + 1] AS tgt, count(*) AS c
-       FROM chains, range(1, len(chain)) AS t(i) GROUP BY src, tgt`,
-      params,
-    )
-    const eventCount = await this.scalar(`SELECT count(*) AS n FROM ev WHERE ${scoped}`, params)
+    // syscall chains (unchanged)
+    const sysScoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
+    const sysCte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${sysScoped})`
+    const sysNodeRows = await this.rows(
+      `${sysCte} SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`, params)
+    const sysEdgeRows = await this.rows(
+      `${sysCte} SELECT chain[i] AS src, chain[i + 1] AS tgt, count(*) AS c
+       FROM chains, range(1, len(chain)) AS t(i) GROUP BY src, tgt`, params)
 
-    const sqlNodes = nodeRows.map(r => nodeFromId(r.nid as string, Number(r.c)))
-    const sqlEdges = edgeRows.map(r => {
-      const source = r.src as string
-      const target = r.tgt as string
+    // funcs chains: hooked-set cross-joined as h.fns; same aggregation shape.
+    // `span IS NULL` keeps this to funcs' own records - a span-tagged correlate
+    // `call` row must not leak into the funcs graph, the hooked-set, or eventCount.
+    const fnScoped = `run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where})`
+    const fnCte =
+      `WITH h AS (SELECT list(DISTINCT module || '!' || symbol) AS fns FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL),
+            chains AS (SELECT ${FUNCS_CHAIN_SQL} AS chain FROM ev, h WHERE ${fnScoped})`
+    const fnNodeRows = await this.rows(
+      `${fnCte} SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`, params)
+    const fnEdgeRows = await this.rows(
+      `${fnCte} SELECT chain[i] AS src, chain[i + 1] AS tgt, count(*) AS c
+       FROM chains, range(1, len(chain)) AS t(i) GROUP BY src, tgt`, params)
+
+    const eventCount = await this.scalar(
+      `SELECT count(*) AS n FROM ev WHERE (${sysScoped}) OR (${fnScoped})`, [...params, ...params])
+
+    const toNodes = (rows: Record<string, unknown>[]) => rows.map(r => nodeFromId(r.nid as string, Number(r.c)))
+    const toEdges = (rows: Record<string, unknown>[]) => rows.map(r => {
+      const source = r.src as string, target = r.tgt as string
       return { id: `${source}=>${target}`, source, target, count: Number(r.c) }
     })
 
-    // Fold in the funcs engine's call/return records (retained alongside
-    // syscalls at ingest) via the shared adapter, so a funcs run renders
-    // without a separate code path. `span IS NULL` keeps this to funcs' own
-    // records (correlate's span-tagged rows, if any file carries them, are not
-    // rendered - the correlate adapter was removed).
-    const funcRows = await this.rows(
-      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type IN ('call', 'return') AND span IS NULL`,
+    const { nodes, edges } = mergeGraphs(
+      { nodes: toNodes(sysNodeRows), edges: toEdges(sysEdgeRows) },
+      { nodes: toNodes(fnNodeRows), edges: toEdges(fnEdgeRows) },
     )
-    const funcEvents = funcRows.map(r => JSON.parse(r.js as string) as FuncEvent)
-    const fa = funcsAdapter(funcEvents)
-
-    const { nodes, edges } = mergeGraphs({ nodes: sqlNodes, edges: sqlEdges }, fa)
     return capSlice(nodes, edges, eventCount, cap)
   }
 
@@ -320,9 +391,22 @@ export class GraphStore {
   }
 
   // One raw record, reconstructed as a plain SyscallEvent via DuckDB's to_json.
-  // `id` is an internal integer, safe to inline.
-  async eventById(id: number, runId?: number): Promise<SyscallEvent | undefined> {
+  // `id` is an internal integer, safe to inline. On a funcs run, the call row
+  // (id) is LEFT JOINed with its paired return (shared id) so the detail panel
+  // gets retval/elapsed_ns/out_args merged onto the call, same as `table`.
+  async eventById(id: number, runId?: number): Promise<SyscallEvent | FuncEvent | undefined> {
     const rid = this.resolveRun(runId)
+    if (this.engineOf(rid) === 'funcs') {
+      const rows = await this.rows(
+        `SELECT to_json(c) AS js, r.retval AS retval, r.elapsed_ns AS elapsed, to_json(r.out_args) AS out_args
+         FROM ev c LEFT JOIN ev r ON r.run_id = ${rid} AND r.type = 'return' AND r.span IS NULL AND r.id = c.id
+         WHERE c.run_id = ${rid} AND c.type = 'call' AND c.span IS NULL AND c.id = ${Math.trunc(id)}`,
+      )
+      if (rows.length === 0) return undefined
+      const { run_id: _drop, ...call } = JSON.parse(rows[0].js as string)
+      return { ...call, retval: num(rows[0].retval) ?? undefined, elapsed_ns: num(rows[0].elapsed) ?? undefined,
+               out_args: JSON.parse((rows[0].out_args as string | null) ?? 'null') ?? undefined } as FuncEvent
+    }
     const rows = await this.rows(
       `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND id = ${Math.trunc(id)}`,
     )
@@ -352,10 +436,29 @@ export class GraphStore {
     filter: Filter = {},
     limit = 500,
     runId?: number,
-  ): Promise<SyscallEvent[]> {
+  ): Promise<(SyscallEvent | FuncEvent)[]> {
     const rid = this.resolveRun(runId)
     const { where, params } = filterToSql(filter)
     const lim = Math.max(0, Math.trunc(limit))
+    if (this.engineOf(rid) === 'funcs') {
+      const fnScoped = `run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where})`
+      const cte =
+        `WITH h AS (SELECT list(DISTINCT module || '!' || symbol) AS fns FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL),
+              chains AS (SELECT id AS eid, ${FUNCS_CHAIN_SQL} AS chain FROM ev, h WHERE ${fnScoped})`
+      const rows = await this.rows(
+        `${cte}
+         SELECT to_json(c) AS js, r.retval AS retval, r.elapsed_ns AS elapsed, to_json(r.out_args) AS out_args
+         FROM ev c JOIN chains ON c.id = chains.eid AND c.run_id = ${rid} AND c.type = 'call' AND c.span IS NULL
+         LEFT JOIN ev r ON r.run_id = ${rid} AND r.type = 'return' AND r.span IS NULL AND r.id = c.id
+         WHERE list_contains(chain, ?) ORDER BY c.id LIMIT ${lim}`,
+        [...params, nodeId],
+      )
+      return rows.map(row => {
+        const { run_id: _drop, ...call } = JSON.parse(row.js as string)
+        return { ...call, retval: num(row.retval) ?? undefined, elapsed_ns: num(row.elapsed) ?? undefined,
+                 out_args: JSON.parse((row.out_args as string | null) ?? 'null') ?? undefined } as FuncEvent
+      })
+    }
     const scoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
     const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})`
     const rows = await this.rows(
@@ -390,6 +493,10 @@ export class GraphStore {
     // vaddr(hex) -> accumulating row.
     const acc = new Map<string, OffsetRow>()
     for (const ev of events) {
+      // nodeOffsets is a syscall-only view (rows key on `syscall`); a funcs run's
+      // nat: nodes are skipped here, matching the pre-widen behaviour where a
+      // funcs run's nodeEvents (scoped to type='syscall') returned none anyway.
+      if (ev.type !== 'syscall') continue
       const base = this.moduleBase(rid, ev.pid, meta.module)
       // Distinct offsets this event contributes (one event counts an offset once).
       const seen = new Set<string>()

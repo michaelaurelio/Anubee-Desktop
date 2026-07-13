@@ -72,19 +72,19 @@ function createWindow(): void {
 async function ingestPath(
   path: string,
   broadcast: boolean,
-): Promise<{ runId: number; eventCount: number; errors: number }> {
+): Promise<{ runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }> {
   const summary = await store.ingest(path, pct => win.webContents.send('trace:progress', pct))
   if (broadcast) win.webContents.send('trace:loaded', summary)
   return summary
 }
 
-function loadPath(path: string): Promise<{ runId: number; eventCount: number; errors: number }> {
+function loadPath(path: string): Promise<{ runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }> {
   return ingestPath(path, true)
 }
 
 async function openViaDialog(
   broadcast: boolean,
-): Promise<{ runId: number; eventCount: number; errors: number } | null> {
+): Promise<{ runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] } | null> {
   const r = await dialog.showOpenDialog(win, {
     filters: [{ name: 'ARES JSONL', extensions: ['jsonl', 'json'] }],
     properties: ['openFile'],
@@ -300,7 +300,10 @@ ipcMain.handle('findings:export', async (_e, runId: number, format: 'md' | 'json
   const reps: Record<string, SyscallEvent[]> = {}
   for (const t of tags) {
     if (reps[t.target]) continue
-    reps[t.target] = await store.nodeEvents(t.target, {}, 50, runId)
+    // findings export is a syscall-only view today; a funcs run's calls are
+    // filtered out here (same shape reps has always had).
+    reps[t.target] = (await store.nodeEvents(t.target, {}, 50, runId))
+      .filter((e): e is SyscallEvent => e.type === 'syscall')
   }
   const findings = buildFindings(tags, reps)
   const text = format === 'md' ? renderMarkdown(findings) : renderJSON(findings)
