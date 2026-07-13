@@ -224,6 +224,15 @@ export class GraphStore {
     return id
   }
 
+  // The engine a run's list/count should present: 'funcs' when it has call rows
+  // and no syscalls, else 'syscall'. (A mixed `trace` run lists syscalls in
+  // Phase 1; a unified trace list is backlog.)
+  private engineOf(runId: number): 'syscall' | 'funcs' {
+    const info = this.runsMap.get(runId)
+    if (info && info.kinds.includes('funcs') && !info.kinds.includes('syscall')) return 'funcs'
+    return 'syscall'
+  }
+
   // Master-table page, filtered in SQL.
   async table(
     filter: Filter,
@@ -234,6 +243,29 @@ export class GraphStore {
     const limit = Math.max(0, Math.trunc(page.limit))
     const offset = Math.max(0, Math.trunc(page.offset))
     const { where, params } = filterToSql(filter)
+    if (this.engineOf(rid) === 'funcs') {
+      // Calls are filtered in a CTE (single ev scope, so the shared filter's
+      // unqualified columns stay unambiguous), then each call LEFT JOINs the
+      // return sharing its tracer id for retval/elapsed. The per-call span id is
+      // unique per invocation, so the join is 1:1 (recursion/reentrancy included);
+      // a call with no return folds to null.
+      const rows = await this.rows(
+        `WITH calls AS (SELECT * FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where}))
+         SELECT c.id AS id, c.tid AS tid,
+           c.module || '!' || c.symbol AS fn,
+           regexp_replace(c.backtrace[2].symbol, '\\+0x[0-9a-fA-F]+$', '') AS caller,
+           r.retval AS retval, r.elapsed_ns AS elapsed,
+           coalesce(nullif(array_to_string(map_values(c.string_args), ' '), ''),
+                    nullif(array_to_string(c.args, ' '), '')) AS arg
+         FROM calls c LEFT JOIN ev r ON r.run_id = ${rid} AND r.type = 'return' AND r.id = c.id
+         ORDER BY c.id LIMIT ${limit} OFFSET ${offset}`, params)
+      return rows.map(r => ({
+        id: num(r.id)!, tid: num(r.tid)!, engine: 'func' as const,
+        syscall: '', retval: num(r.retval), hasJava: false, topJava: null, topNative: null,
+        arg: (r.arg as string | null) ?? '',
+        fn: r.fn as string, caller: (r.caller as string | null) ?? null, elapsed: num(r.elapsed),
+      }))
+    }
     const rows = await this.rows(
       `SELECT id, tid, syscall, retval,
          (java_stack IS NOT NULL AND len(java_stack) > 0) AS hasJava,
@@ -253,6 +285,7 @@ export class GraphStore {
     return rows.map(r => ({
       id: num(r.id)!,
       tid: num(r.tid)!,
+      engine: 'syscall' as const,
       syscall: r.syscall as string,
       retval: num(r.retval),
       hasJava: Boolean(r.hasJava),
@@ -267,6 +300,10 @@ export class GraphStore {
   async count(filter: Filter = {}, runId?: number): Promise<number> {
     const rid = this.resolveRun(runId)
     const { where, params } = filterToSql(filter)
+    if (this.engineOf(rid) === 'funcs') {
+      return this.scalar(
+        `SELECT count(*) n FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where})`, params)
+    }
     return this.scalar(
       `SELECT count(*) n FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`,
       params,

@@ -4,10 +4,16 @@
 export interface TableRow {
   id: number
   tid: number
+  engine: 'syscall' | 'func'
+  // syscall rows:
   syscall: string
   retval: number | null
   hasJava: boolean
   topJava: string | null
   topNative: string | null
   arg: string
+  // funcs rows:
+  fn?: string
+  caller?: string | null
+  elapsed?: number | null
 }
