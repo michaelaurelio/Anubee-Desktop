@@ -603,8 +603,15 @@ populates the on-device `stack_id` field, which gates inline `java_stack` delive
 - a capture reaches Java-level backtrace only when this toggle is on. The toggle
 applies to `syscalls` and `funcs` only (the two engines ARES accepts `--snapshot`
 on). Note: enabling the toggle also writes a native `<out>.jsonl.stacks` sidecar
-(raw CFI stack snapshots for off-device DWARF unwinding) alongside the pulled
-`.jsonl`; the desktop does not pull or consume this sidecar, leaving it on device.
+(the full ordered CFI walk per `stack_id`, each frame `kind`-tagged) alongside the
+pulled `.jsonl`. The desktop **consumes** this sidecar: on ingest it is loaded into
+the store beside the run, and any event whose `stack_id` has a `cfi_stack` record
+has its call-graph chain built from that ordered walk (recovering the true
+managed↔native interleaving and the outer-native caller the frame-pointer
+backtrace stops short of) instead of the `java_stack` + FP-backtrace concatenation.
+Events without a sidecar record fall back to the concatenation unchanged. See the
+graph node identity notes above; the cfi path reuses the same `java:`/`nat:`/`fn:`
+grammar so cfi- and fallback-derived nodes coalesce.
 
 **Storage + privacy.** Pulled captures land in `<userData>/runs/` (outside the
 repo); the target package is user-entered at runtime, never hardcoded.

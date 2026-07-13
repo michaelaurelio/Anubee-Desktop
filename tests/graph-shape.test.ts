@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { chainOf, foldEvents, labelForId, capSlice, mergeGraphs, nativeNodeId, chainOfFunc, foldFuncEvents } from '@shared/graph-shape'
-import type { SyscallEvent, FuncEvent } from '@shared/events'
+import { chainOf, foldEvents, labelForId, capSlice, mergeGraphs, nativeNodeId, chainOfFunc, foldFuncEvents, chainOfCfi } from '@shared/graph-shape'
+import type { SyscallEvent, FuncEvent, CfiFrame } from '@shared/events'
 
 function syscall(over: Partial<SyscallEvent> = {}): SyscallEvent {
   return {
@@ -235,6 +235,55 @@ describe('foldFuncEvents', () => {
     expect(slice.edges).toEqual([
       { id: 'nat:libc.so!__libc_init=>fn:libexample.so!checkRoot',
         source: 'nat:libc.so!__libc_init', target: 'fn:libexample.so!checkRoot', count: 2 },
+    ])
+  })
+})
+
+const cfiFrame = (over: Partial<CfiFrame>): CfiFrame =>
+  ({ frame: 0, addr: '0x1', symbol: 'libc.so!x+0x1', kind: 'native', ...over })
+
+describe('chainOfCfi', () => {
+  it('places the outer-native caller above the managed frames (interleaving)', () => {
+    const frames: CfiFrame[] = [
+      cfiFrame({ frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8', kind: 'native' }),
+      cfiFrame({ frame: 1, addr: '0x3', symbol: 'boot.oat!art_jni_trampoline+0x8c', kind: 'jni-trampoline' }),
+      cfiFrame({ frame: 2, addr: '0x4', symbol: 'boot.oat!dalvik.system.ZygoteHooks.postForkChild+0x64', kind: 'managed' }),
+      cfiFrame({ frame: 3, addr: '0x6', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' }),
+    ]
+    expect(chainOfCfi(frames, 'sys:ioctl').map(n => n.id)).toEqual([
+      'nat:libandroid_runtime.so!SpecializeCommon',
+      'java:dalvik.system.ZygoteHooks.postForkChild',
+      'nat:boot.oat!art_jni_trampoline',
+      'nat:libc.so!__ioctl',
+      'sys:ioctl',
+    ])
+  })
+
+  it('names an interp method (addr 0x0) and drops the interp entry machinery', () => {
+    const frames: CfiFrame[] = [
+      cfiFrame({ frame: 0, addr: '0x6', symbol: 'libart.so!ExecuteSwitchImpl+0x40', kind: 'interp' }),
+      cfiFrame({ frame: 1, addr: '0x0', symbol: 'com.android.internal.os.RuntimeInit.main+0x1a', kind: 'interp' }),
+    ]
+    expect(chainOfCfi(frames, 'sys:read').map(n => n.id)).toEqual([
+      'java:com.android.internal.os.RuntimeInit.main',
+      'sys:read',
+    ])
+  })
+
+  it('drops bare-address frames', () => {
+    const frames: CfiFrame[] = [cfiFrame({ frame: 0, addr: '0x1', symbol: '0x7fabc [unmapped]', kind: 'native' })]
+    expect(chainOfCfi(frames, 'sys:read').map(n => n.id)).toEqual(['sys:read'])
+  })
+
+  it('promotes a hooked native frame to fn: and appends no leaf for funcs', () => {
+    const frames: CfiFrame[] = [
+      cfiFrame({ frame: 0, addr: '0x1', symbol: 'libexample.so!checkRoot+0x4', kind: 'native' }),
+      cfiFrame({ frame: 1, addr: '0x2', symbol: 'libandroid.so!Specialize+0x20', kind: 'native' }),
+    ]
+    const hooked = new Set(['libexample.so!checkRoot'])
+    expect(chainOfCfi(frames, null, hooked).map(n => n.id)).toEqual([
+      'nat:libandroid.so!Specialize',
+      'fn:libexample.so!checkRoot',
     ])
   })
 })

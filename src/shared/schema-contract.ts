@@ -31,14 +31,21 @@ export const SYSCALL_KEYS = [
 export const BACKTRACE_KEYS = ['frame', 'addr', 'symbol', 'java'] as const
 
 // Funcs record keys the app consumes, guarded against ../ARES/src/funcs/funcs_emit.c.
-// `stack_id` is emitted (conditionally) but not consumed here - the app has no
-// stack-sidecar join for funcs like the syscall path does - so it is left out.
+// `stack_id` is consumed: Phase 2 joins funcs `call` rows to the cfi_stack sidecar by it.
 // `caller_addr` is excluded for a different reason: it exists on the internal
 // `struct event` (funcs.h) and is printed to the human console (funcs.c
 // human_detail), but funcs_emit.c never serializes it into the JSON record - it
 // is not part of the JSONL schema this app consumes.
 export const FUNCS_KEYS = [
   'type', 'id', 'pid', 'tid', 'ppid', 'module', 'symbol', 'entry_addr', 'offset',
-  'args', 'string_args', 'fd_args', 'sock_args', 'java_stack', 'backtrace',
+  'args', 'string_args', 'fd_args', 'sock_args', 'java_stack', 'backtrace', 'stack_id',
   'retval', 'elapsed_ns', 'out_args',
 ] as const
+
+// Top-level keys on a `cfi_stack` record, read from ../ARES/src/common/symbolize.c
+// (ares_emit_cfi_stack_json). Emitted to the `<run>.jsonl.stacks` sidecar.
+export const CFI_STACK_KEYS = ['type', 'pid', 'tid', 'stack_id', 'cfi_backtrace'] as const
+
+// Keys on each object in the `cfi_backtrace` array. `kind` is the interleaving
+// discriminator (native / managed / interp / jni-trampoline).
+export const CFI_BACKTRACE_KEYS = ['frame', 'addr', 'symbol', 'kind'] as const

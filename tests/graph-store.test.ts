@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall, isCall } from '@shared/ares-parse'
-import { foldEvents, foldFuncEvents, type GraphSlice } from '@shared/graph-shape'
+import { foldEvents, foldFuncEvents, chainOfCfi, type GraphSlice } from '@shared/graph-shape'
 import type { Rule } from '@shared/rasp-heuristics'
 
 // A trace with 2 root-check bridges (java + native), 1 java-less read, a
@@ -238,6 +238,95 @@ describe('GraphStore.slice', () => {
     expect(normNodes(slice)).toEqual(normNodes(oracle))
     expect(normEdges(slice)).toEqual(normEdges(oracle))
   })
+
+  it('uses the cfi_stack sidecar to place the outer-native caller above java', async () => {
+    const sys = JSON.stringify({
+      type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 29, syscall: 'ioctl',
+      args: [], retval: 0, string_args: {}, fd_args: {}, decoded_args: {}, stack_id: 11,
+      java_stack: ['com.android.internal.os.Zygote.callPostForkChildHooks'],
+      backtrace: [{ frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8' }],
+    })
+    const cfi = JSON.stringify({
+      type: 'cfi_stack', pid: 100, tid: 101, stack_id: 11,
+      cfi_backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8', kind: 'native' },
+        { frame: 1, addr: '0x5', symbol: 'boot.oat!com.android.internal.os.Zygote.callPostForkChildHooks+0x28', kind: 'managed' },
+        { frame: 2, addr: '0x7', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' },
+      ],
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, sys + '\n')
+    writeFileSync(p + '.stacks', cfi + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const slice = await store.slice()
+
+    // The outer-native caller is present and sits ABOVE the java frame.
+    expect(slice.nodes.map(n => n.id)).toContain('nat:libandroid_runtime.so!SpecializeCommon')
+    expect(slice.edges.find(e =>
+      e.id === 'nat:libandroid_runtime.so!SpecializeCommon=>java:com.android.internal.os.Zygote.callPostForkChildHooks',
+    )).toBeTruthy()
+    // The java frame is NOT a root: nothing points *from* it back up to native above it,
+    // and the outer-native node is a source, proving the fallback (java-as-root) was not used.
+    const oracle = chainOfCfi(
+      JSON.parse(cfi).cfi_backtrace, 'sys:ioctl',
+    ).map(n => n.id)
+    // walk the oracle chain's edges and assert each exists in the slice
+    for (let i = 1; i < oracle.length; i++) {
+      const id = `${oracle[i - 1]}=>${oracle[i]}`
+      expect(slice.edges.find(e => e.id === id), `missing edge ${id}`).toBeTruthy()
+    }
+  })
+
+  it('does not inflate counts when a stack_id has a duplicate cfi_stack sidecar row', async () => {
+    // ARES's cfi_stack dedup set is an LRU capped at 16384 entries; on long
+    // runs it can legitimately re-emit a cfi_stack record for a stack_id
+    // already seen. The cfi CTE must collapse these before the LEFT JOIN,
+    // else one syscall row fans out into N chain rows (N = duplicate count).
+    const sys = JSON.stringify({
+      type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 29, syscall: 'ioctl',
+      args: [], retval: 0, string_args: {}, fd_args: {}, decoded_args: {}, stack_id: 11,
+      java_stack: ['com.android.internal.os.Zygote.callPostForkChildHooks'],
+      backtrace: [{ frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8' }],
+    })
+    const cfi = JSON.stringify({
+      type: 'cfi_stack', pid: 100, tid: 101, stack_id: 11,
+      cfi_backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8', kind: 'native' },
+        { frame: 1, addr: '0x5', symbol: 'boot.oat!com.android.internal.os.Zygote.callPostForkChildHooks+0x28', kind: 'managed' },
+        { frame: 2, addr: '0x7', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' },
+      ],
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-dup-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, sys + '\n')
+    // Two identical cfi_stack rows for the same stack_id - the re-emit case.
+    writeFileSync(p + '.stacks', cfi + '\n' + cfi + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const slice = await store.slice()
+
+    // One syscall event in, one occurrence out - the duplicate sidecar row
+    // must not fan the join into two chain rows.
+    const outerNative = slice.nodes.find(n => n.id === 'nat:libandroid_runtime.so!SpecializeCommon')
+    expect(outerNative?.count).toBe(1)
+    const edge = slice.edges.find(e =>
+      e.id === 'nat:libandroid_runtime.so!SpecializeCommon=>java:com.android.internal.os.Zygote.callPostForkChildHooks',
+    )
+    expect(edge?.count).toBe(1)
+  })
+
+  it('falls back to CHAIN_SQL for a syscall row whose stack_id has no cfi_stack', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture()) // LINES: syscalls with java_stack, no .stacks sidecar
+    const oracle = foldEvents(oracleEvents)
+    const slice = await store.slice()
+    expect(normNodes(slice)).toEqual(normNodes(oracle))
+    expect(normEdges(slice)).toEqual(normEdges(oracle))
+  })
 })
 
 describe('GraphStore.slice funcs', () => {
@@ -278,6 +367,56 @@ describe('GraphStore.slice funcs', () => {
     expect(rc[0].count).toBe(2)
 
     const calls = parseJsonl([withOff, noOff].join('\n')).events.filter(isCall)
+    const oracle = foldFuncEvents(calls)
+    const norm = (s: { nodes: { id: string; count: number }[]; edges: { id: string; count: number }[] }) => ({
+      nodes: [...s.nodes].map(n => ({ id: n.id, count: n.count })).sort((a, b) => a.id.localeCompare(b.id)),
+      edges: [...s.edges].map(e => ({ id: e.id, count: e.count })).sort((a, b) => a.id.localeCompare(b.id)),
+    })
+    expect(norm(slice)).toEqual(norm(oracle))
+  })
+
+  it('uses cfi_stack to place the outer-native caller above a hooked funcs frame', async () => {
+    const call = JSON.stringify({
+      type: 'call', id: 1, pid: 1, tid: 1, module: 'libexample.so', symbol: 'checkRoot', entry_addr: '0x0', stack_id: 11,
+      backtrace: [{ frame: 0, addr: '0x0', symbol: 'libexample.so!checkRoot' }],
+    })
+    const cfi = JSON.stringify({
+      type: 'cfi_stack', pid: 1, tid: 1, stack_id: 11,
+      cfi_backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libexample.so!checkRoot+0x4', kind: 'native' },
+        { frame: 1, addr: '0x2', symbol: 'boot.oat!com.example.Sec.check+0x10', kind: 'managed' },
+        { frame: 2, addr: '0x3', symbol: 'libandroid.so!Specialize+0x20', kind: 'native' },
+      ],
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-fn-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, call + '\n')
+    writeFileSync(p + '.stacks', cfi + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const slice = await store.slice({})
+
+    const oracle = chainOfCfi(
+      JSON.parse(cfi).cfi_backtrace, null, new Set(['libexample.so!checkRoot']),
+    ).map(n => n.id)
+    // chain: nat:libandroid.so!Specialize -> java:com.example.Sec.check -> fn:libexample.so!checkRoot
+    expect(oracle).toEqual([
+      'nat:libandroid.so!Specialize',
+      'java:com.example.Sec.check',
+      'fn:libexample.so!checkRoot',
+    ])
+    for (let i = 1; i < oracle.length; i++) {
+      const id = `${oracle[i - 1]}=>${oracle[i]}`
+      expect(slice.edges.find(e => e.id === id), `missing edge ${id}`).toBeTruthy()
+    }
+  })
+
+  it('falls back to FUNCS_CHAIN_SQL for a call row whose stack_id has no cfi_stack', async () => {
+    store = new GraphStore()
+    await store.ingest(funcsFixture()) // FUNCS_LINES, no sidecar
+    const slice = await store.slice({})
+    const calls = parseJsonl(FUNCS_LINES.join('\n')).events.filter(isCall)
     const oracle = foldFuncEvents(calls)
     const norm = (s: { nodes: { id: string; count: number }[]; edges: { id: string; count: number }[] }) => ({
       nodes: [...s.nodes].map(n => ({ id: n.id, count: n.count })).sort((a, b) => a.id.localeCompare(b.id)),
@@ -380,6 +519,36 @@ describe('GraphStore.nodeEvents', () => {
     expect((await store.nodeEvents('sys:openat', { tid: 101 })).map(e => e.id)).toEqual([1, 2])
     expect((await store.nodeEvents('sys:openat', { tid: 999 }))).toEqual([])
   })
+
+  it('finds a cfi-only node (the outer-native caller absent from the syscall\'s own backtrace)', async () => {
+    // Without the fix, nodeEvents' syscall branch used CHAIN_SQL only, which
+    // never sees cfi_backtrace - the outer-native node from the sidecar
+    // wouldn't exist in `chain` at all, so this would return [].
+    const sys = JSON.stringify({
+      type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 29, syscall: 'ioctl',
+      args: [], retval: 0, string_args: {}, fd_args: {}, decoded_args: {}, stack_id: 11,
+      java_stack: ['com.android.internal.os.Zygote.callPostForkChildHooks'],
+      backtrace: [{ frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8' }],
+    })
+    const cfi = JSON.stringify({
+      type: 'cfi_stack', pid: 100, tid: 101, stack_id: 11,
+      cfi_backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8', kind: 'native' },
+        { frame: 1, addr: '0x5', symbol: 'boot.oat!com.android.internal.os.Zygote.callPostForkChildHooks+0x28', kind: 'managed' },
+        { frame: 2, addr: '0x7', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' },
+      ],
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-nodeevents-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, sys + '\n')
+    writeFileSync(p + '.stacks', cfi + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const events = await store.nodeEvents('nat:libandroid_runtime.so!SpecializeCommon')
+    expect(events).toHaveLength(1)
+    expect(events[0].id).toBe(1)
+  })
 })
 
 const FUNCS_DETAIL_LINES = [
@@ -441,5 +610,44 @@ describe('GraphStore.previewRule', () => {
       match: { syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x10' },
     }
     expect(await store.previewRule(r.runId, rule)).toEqual({ events: 0, targets: 0 })
+  })
+})
+
+describe('GraphStore.ingest cfi sidecar', () => {
+  it('loads a companion <run>.stacks sidecar into cfi_stack rows', async () => {
+    const sys = JSON.stringify({
+      type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 29, syscall: 'ioctl',
+      args: [], retval: 0, string_args: {}, fd_args: {}, decoded_args: {}, stack_id: 11,
+      backtrace: [{ frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8' }],
+    })
+    const cfi = JSON.stringify({
+      type: 'cfi_stack', pid: 100, tid: 101, stack_id: 11,
+      cfi_backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8', kind: 'native' },
+        { frame: 1, addr: '0x5', symbol: 'boot.oat!com.android.internal.os.Zygote.callPostForkChildHooks+0x28', kind: 'managed' },
+        { frame: 2, addr: '0x7', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' },
+      ],
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, sys + '\n')
+    writeFileSync(p + '.stacks', cfi + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+
+    const n = Number((await store.raw(`SELECT count(*) n FROM ev WHERE type = 'cfi_stack'`))[0].n)
+    expect(n).toBe(1)
+    const len = Number((await store.raw(
+      `SELECT len(cfi_backtrace) n FROM ev WHERE type = 'cfi_stack'`))[0].n)
+    expect(len).toBe(3)
+  })
+
+  it('ingests normally when no .stacks sidecar is present', async () => {
+    store = new GraphStore()
+    const r = await store.ingest(fixture()) // existing LINES fixture, no sidecar
+    expect(r.errors).toBe(1) // the one malformed line, unchanged
+    const n = Number((await store.raw(`SELECT count(*) n FROM ev WHERE type = 'cfi_stack'`))[0].n)
+    expect(n).toBe(0)
   })
 })
