@@ -72,19 +72,19 @@ function createWindow(): void {
 async function ingestPath(
   path: string,
   broadcast: boolean,
-): Promise<{ runId: number; eventCount: number; errors: number }> {
+): Promise<{ runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }> {
   const summary = await store.ingest(path, pct => win.webContents.send('trace:progress', pct))
   if (broadcast) win.webContents.send('trace:loaded', summary)
   return summary
 }
 
-function loadPath(path: string): Promise<{ runId: number; eventCount: number; errors: number }> {
+function loadPath(path: string): Promise<{ runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }> {
   return ingestPath(path, true)
 }
 
 async function openViaDialog(
   broadcast: boolean,
-): Promise<{ runId: number; eventCount: number; errors: number } | null> {
+): Promise<{ runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] } | null> {
   const r = await dialog.showOpenDialog(win, {
     filters: [{ name: 'ARES JSONL', extensions: ['jsonl', 'json'] }],
     properties: ['openFile'],

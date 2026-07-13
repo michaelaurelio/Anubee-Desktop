@@ -308,14 +308,12 @@ describe('mixed-engine retention: no regression on the syscall-only views', () =
   it('retains funcs/correlate/coverage/sentinel rows without changing syscall eventCount/errors', async () => {
     const store = new GraphStore()
     const r = await store.ingest(MIXED_FIXTURE)
-    // eventCount is `count(*) WHERE type='syscall'`, unchanged by Epic A (out of
-    // scope for A1/A3) - it does not distinguish the main engine's syscalls from
-    // correlate's own span-tagged 'syscall' record, so it's 4 here (3 main + 1
-    // correlate), not 3. A known, documented counter quirk, not a regression:
+    // eventCount counts `type IN ('syscall', 'call')`: 4 syscalls (3 main + 1
+    // correlate) plus 1 call = 5. A known, documented counter quirk, not a regression:
     // the query methods that matter (table/slice/stackRollup/...) all scope to
     // `span IS NULL` and are asserted byte-identical to the syscall-only fixture
     // in the next test. errors stays 0 - mixed.jsonl has no malformed line.
-    expect(r.eventCount).toBe(4)
+    expect(r.eventCount).toBe(5)
     expect(r.errors).toBe(0)
     const retained = await store.raw(`SELECT type, count(*) AS n FROM ev WHERE run_id = ${r.runId} GROUP BY type`)
     const byType = new Map(retained.map(row => [row.type as string, Number(row.n)]))

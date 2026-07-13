@@ -28,6 +28,18 @@ function fixture(): string {
   return p
 }
 
+const FUNCS_LINES = [
+  JSON.stringify({ type: 'call', id: 1, pid: 100, tid: 101, module: 'libexample.so', symbol: 'checkRoot', entry_addr: '0x1000', args: ['0x1'], string_args: {}, fd_args: {}, sock_args: {}, backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libexample.so!checkRoot' }, { frame: 1, addr: '0x2000', symbol: 'libc.so!__libc_init+0x40' }] }),
+  JSON.stringify({ type: 'return', id: 1, pid: 100, tid: 101, module: 'libexample.so', symbol: 'checkRoot', offset: 4096, retval: 1, elapsed_ns: 2300, backtrace: [{ frame: 0, addr: '0x2000', symbol: 'libc.so!__libc_init+0x40' }], out_args: {} }),
+]
+
+function funcsFixture(): string {
+  dir = mkdtempSync(join(tmpdir(), 'ares-funcs-'))
+  const p = join(dir, 'run.jsonl')
+  writeFileSync(p, FUNCS_LINES.join('\n') + '\n')
+  return p
+}
+
 afterEach(async () => {
   await store?.close()
   store = undefined
@@ -40,6 +52,17 @@ describe('GraphStore.ingest', () => {
     const r = await store.ingest(fixture())
     expect(r.eventCount).toBe(3) // 3 syscalls
     expect(r.errors).toBe(1) // the malformed line only (lib is neither event nor error)
+  })
+})
+
+describe('GraphStore.ingest funcs', () => {
+  it('reports funcs kind and counts calls; call and return share the tracer id', async () => {
+    store = new GraphStore()
+    const r = await store.ingest(funcsFixture())
+    expect(r.kinds).toEqual(['funcs'])
+    expect(r.eventCount).toBe(1) // 1 call (returns are not listable events)
+    const ids = await store.raw(`SELECT type, id FROM ev WHERE type IN ('call','return') ORDER BY type`)
+    expect(ids.map(row => Number(row.id))).toEqual([1, 1]) // call id 1, return id 1 (shared)
   })
 })
 

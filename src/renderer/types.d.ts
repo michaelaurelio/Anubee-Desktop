@@ -41,7 +41,7 @@ declare global {
       orphans(runId: number, targets: string[]): Promise<string[]>
       exportFindings: (runId: number, format: 'md' | 'json') => Promise<string | null>
       onProgress(cb: (pct: number) => void): void
-      onLoaded(cb: (s: { runId: number; eventCount: number; errors: number }) => void): void
+      onLoaded(cb: (s: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }) => void): void
       getTracerConfig(): Promise<{ aresBinary: string; specsDir: string }>
       setTracerConfig(cfg: { aresBinary: string; specsDir: string }): Promise<void>
       tracerPreflight(pkg: string): Promise<{ id: string; label: string; ok: boolean; detail: string }[]>

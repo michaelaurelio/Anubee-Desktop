@@ -86,6 +86,7 @@ export interface RunInfo {
   file: string
   ingestedAt: string
   eventCount: number
+  kinds: ('syscall' | 'funcs')[]
 }
 
 export class GraphStore {
@@ -130,7 +131,7 @@ export class GraphStore {
   async ingest(
     path: string,
     onProgress?: (pct: number) => void,
-  ): Promise<{ runId: number; eventCount: number; errors: number }> {
+  ): Promise<{ runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }> {
     if (!this.instance) {
       this.instance = await DuckDBInstance.create(':memory:')
       this.con = await this.instance.connect()
@@ -152,8 +153,15 @@ export class GraphStore {
       `SELECT count(*) n FROM ev WHERE run_id = ${runId} AND type IS NULL`,
     )
     const eventCount = await this.scalar(
-      `SELECT count(*) n FROM ev WHERE run_id = ${runId} AND type = 'syscall'`,
+      `SELECT count(*) n FROM ev WHERE run_id = ${runId} AND type IN ('syscall', 'call')`,
     )
+    const hasSyscall = (await this.scalar(
+      `SELECT count(*) n FROM ev WHERE run_id = ${runId} AND type = 'syscall'`)) > 0
+    const hasFuncs = (await this.scalar(
+      `SELECT count(*) n FROM ev WHERE run_id = ${runId} AND type = 'call'`)) > 0
+    const kinds: ('syscall' | 'funcs')[] = []
+    if (hasSyscall) kinds.push('syscall')
+    if (hasFuncs) kinds.push('funcs')
 
     // Build the per-run module map from `lib` records before they are deleted.
     // Load base = the lowest segment start for a (pid, library basename).
@@ -185,10 +193,11 @@ export class GraphStore {
       file: path,
       ingestedAt: new Date().toISOString(),
       eventCount,
+      kinds,
     })
     this.activeRunId = runId
     onProgress?.(100)
-    return { runId, eventCount, errors }
+    return { runId, eventCount, errors, kinds }
   }
 
   runs(): RunInfo[] {

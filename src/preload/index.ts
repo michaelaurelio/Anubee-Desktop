@@ -43,8 +43,8 @@ contextBridge.exposeInMainWorld('ares', {
     ipcRenderer.invoke('findings:export', runId, format),
   onProgress: (cb: (pct: number) => void) =>
     ipcRenderer.on('trace:progress', (_e, pct) => cb(pct as number)),
-  onLoaded: (cb: (s: { runId: number; eventCount: number; errors: number }) => void) =>
-    ipcRenderer.on('trace:loaded', (_e, s) => cb(s as { runId: number; eventCount: number; errors: number })),
+  onLoaded: (cb: (s: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }) => void) =>
+    ipcRenderer.on('trace:loaded', (_e, s) => cb(s as { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] })),
   getTracerConfig: () => ipcRenderer.invoke('tracer:config:get'),
   setTracerConfig: (cfg: { aresBinary: string; specsDir: string }) =>
     ipcRenderer.invoke('tracer:config:set', cfg),
