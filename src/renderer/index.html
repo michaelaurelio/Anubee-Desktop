@@ -376,6 +376,7 @@
       .float { background: var(--bar); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
       /* square collapse button, floats in the view just outside the table's right edge */
       #tab-left { position: absolute; top: 8px; left: 8px; z-index: 6; }
+      #tab-left.collapsed svg { transform: scaleX(-1); }
       .new-tab { width: 28px; height: 28px; cursor: pointer; color: var(--muted);
         display: flex; align-items: center; justify-content: center; }
       .new-tab:hover { color: var(--text); background: var(--hover); }
