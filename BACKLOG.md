@@ -302,6 +302,11 @@ The probe-spec field is now a dropdown populated from `tracer:listSpecs` →
 repopulated in place via `applySpecChoices` on every specs-dir edit.
 
 ### Known drawbacks / follow-ups from feature 9
+- **`correlate` capture renders no graph.** The correlate graph adapter was
+  removed (its cross-engine edge coloring had unclear goals). The `correlate`
+  capture capability is still selectable, so a correlate run captures a JSONL
+  that the desktop ingests but does not render as a graph. Either hide the
+  `correlate` capability or restore a dedicated correlate visualization later.
 - **`--snapshot` native `.stacks` sidecar is not pulled or consumed.** Enabling
   the capture form's stack-snapshot toggle makes ARES write a native
   `<out>.jsonl.stacks` sidecar (raw CFI stack snapshots for off-device DWARF
