@@ -1,7 +1,7 @@
 import type { SyscallEvent } from './events'
 import { parseFrameSymbol, type ParsedFrame } from './frame-symbol'
 
-export type NodeKind = 'java' | 'native' | 'syscall' | 'func' | 'check'
+export type NodeKind = 'java' | 'native' | 'syscall' | 'func'
 
 export interface GraphNode {
   id: string
@@ -40,7 +40,6 @@ export function labelForId(id: string): { kind: NodeKind; label: string; module:
   if (id.startsWith('java:')) return { kind: 'java', label: id.slice(5), module: null }
   if (id.startsWith('sys:')) return { kind: 'syscall', label: id.slice(4), module: null }
   if (id.startsWith('fn:')) return { kind: 'func', label: id.slice(3), module: null }
-  if (id.startsWith('check:')) return { kind: 'check', label: id.slice(6), module: null }
   const rest = id.slice(4) // 'nat:'
   const p = parseFrameSymbol(rest)
   const label = p.symbol ? `${p.symbol} (${p.module})` : (p.module ?? rest)
