@@ -31,13 +31,14 @@ export const SYSCALL_KEYS = [
 export const BACKTRACE_KEYS = ['frame', 'addr', 'symbol', 'java'] as const
 
 // Funcs record keys the app consumes, guarded against ../ARES/src/funcs/funcs_emit.c.
-// `stack_id` is intentionally excluded (dropped - no stack sidecar in funcs output).
-// `caller_addr` is likewise excluded: it exists on the internal `struct event`
-// (funcs.h) and is printed to the human console (funcs.c human_detail), but
-// funcs_emit.c never serializes it into the JSON record - it is not part of
-// the JSONL schema this app consumes.
+// `stack_id` is emitted (conditionally) but not consumed here - the app has no
+// stack-sidecar join for funcs like the syscall path does - so it is left out.
+// `caller_addr` is excluded for a different reason: it exists on the internal
+// `struct event` (funcs.h) and is printed to the human console (funcs.c
+// human_detail), but funcs_emit.c never serializes it into the JSON record - it
+// is not part of the JSONL schema this app consumes.
 export const FUNCS_KEYS = [
   'type', 'id', 'pid', 'tid', 'ppid', 'module', 'symbol', 'entry_addr', 'offset',
-  'args', 'string_args', 'fd_args', 'sock_args', 'backtrace',
+  'args', 'string_args', 'fd_args', 'sock_args', 'java_stack', 'backtrace',
   'retval', 'elapsed_ns', 'out_args',
 ] as const

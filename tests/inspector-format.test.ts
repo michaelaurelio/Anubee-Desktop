@@ -53,6 +53,11 @@ const rec: FuncEvent = {
 describe('primaryFuncArg', () => {
   it('prefers string_args, else sock, else fd, else raw args', () => {
     expect(primaryFuncArg(rec)).toBe('ro.debuggable')
+    // sock tier: no strings, but a decoded sockaddr present
+    expect(primaryFuncArg({ ...rec, string_args: {}, sock_args: { '0': 'AF_INET 10.0.0.1:53' } })).toBe('AF_INET 10.0.0.1:53')
+    // fd tier: no strings/sock, but an fd path present
+    expect(primaryFuncArg({ ...rec, string_args: {}, sock_args: {}, fd_args: { '0': '/proc/self/status' } })).toBe('/proc/self/status')
+    // raw-args fallback when every resolved map is empty
     expect(primaryFuncArg({ ...rec, string_args: {} })).toBe('0xaa')
   })
 })
