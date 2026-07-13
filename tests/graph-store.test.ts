@@ -467,10 +467,10 @@ describe('GraphStore.ingest cfi sidecar', () => {
     store = new GraphStore()
     await store.ingest(p)
 
-    const n = await store['scalar'](`SELECT count(*) n FROM ev WHERE type = 'cfi_stack'`)
+    const n = Number((await store.raw(`SELECT count(*) n FROM ev WHERE type = 'cfi_stack'`))[0].n)
     expect(n).toBe(1)
-    const len = await store['scalar'](
-      `SELECT len(cfi_backtrace) n FROM ev WHERE type = 'cfi_stack'`)
+    const len = Number((await store.raw(
+      `SELECT len(cfi_backtrace) n FROM ev WHERE type = 'cfi_stack'`))[0].n)
     expect(len).toBe(3)
   })
 
@@ -478,7 +478,7 @@ describe('GraphStore.ingest cfi sidecar', () => {
     store = new GraphStore()
     const r = await store.ingest(fixture()) // existing LINES fixture, no sidecar
     expect(r.errors).toBe(1) // the one malformed line, unchanged
-    const n = await store['scalar'](`SELECT count(*) n FROM ev WHERE type = 'cfi_stack'`)
+    const n = Number((await store.raw(`SELECT count(*) n FROM ev WHERE type = 'cfi_stack'`))[0].n)
     expect(n).toBe(0)
   })
 })
