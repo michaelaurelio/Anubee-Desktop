@@ -70,7 +70,7 @@ const cy = cytoscape({
     {
       selector: 'edge',
       style: {
-        width: 'mapData(count, 1, 50, 2, 6)',
+        width: 'data(w)',
         'curve-style': 'bezier',
         'target-arrow-shape': 'triangle',
         'arrow-scale': 1.2,

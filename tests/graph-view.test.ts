@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sliceToElements, sliceToElkGraph, elkResultToPositions, filterForRow, truncateLabel, kindGlyph } from '../src/renderer/graph-view'
+import { sliceToElements, sliceToElkGraph, elkResultToPositions, filterForRow, truncateLabel, kindGlyph, mapCount } from '../src/renderer/graph-view'
 import type { GraphSlice } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
 
@@ -99,5 +99,19 @@ describe('sliceToElements glyph', () => {
   it('prefixes the node label with its kind glyph', () => {
     const slice = { nodes: [{ id: 'sys:read', label: 'read', kind: 'syscall', count: 1 }], edges: [] } as any
     expect(sliceToElements(slice).nodes[0].data.label.startsWith('■ ')).toBe(true)
+  })
+})
+
+describe('mapCount', () => {
+  it('clamps low', () => expect(mapCount(1)).toBeCloseTo(2))
+  it('clamps high (no extrapolation)', () => expect(mapCount(500)).toBeCloseTo(6))
+  it('maps midrange', () => expect(mapCount(25)).toBeGreaterThan(3.5))
+  it('maps upper bound', () => expect(mapCount(50)).toBeCloseTo(6))
+})
+
+describe('sliceToElements edge width', () => {
+  it('puts a clamped width on each edge', () => {
+    const slice = { nodes: [], edges: [{ id: 'e', source: 'a', target: 'b', count: 999 }] } as any
+    expect(sliceToElements(slice).edges[0].data.w).toBeCloseTo(6)
   })
 })
