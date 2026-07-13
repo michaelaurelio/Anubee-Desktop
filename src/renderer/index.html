@@ -352,6 +352,11 @@
       /* columns picker modal rows */
       .col-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; color: var(--text); }
       .col-row.fixed { color: var(--muted); }
+      .cs-mode-label { font-size:9px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:2px 0 5px; }
+      .seg.cs-mode { display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-bottom:8px; }
+      .seg.cs-mode .btn { border:0; border-radius:0; text-transform:capitalize; }
+      .seg.cs-mode .btn.on { background:var(--accent); color:#fff; }
+      .col-row .lock-ic { width:13px; height:13px; margin-left:auto; fill:none; stroke:var(--muted); stroke-width:2; }
 
       /* uniform rows + structured cells */
       #table td { height:40px; box-sizing:border-box; vertical-align:middle; }

@@ -132,3 +132,10 @@ export function parseLayout(engine: 'syscall' | 'func', raw: string | null): Col
   }
   return defaultLayout(engine)
 }
+
+// The canonical column order for an engine in a given call-site mode (drives the
+// picker list order and the post-toggle column rebuild, so callSite lands where
+// the default layout puts it, not where ALL_COLUMNS lists it).
+export function engineColumnKeys(engine: 'syscall' | 'func', mode: CallSiteMode): ColumnKey[] {
+  return [...engineKeys(engine, mode)]
+}

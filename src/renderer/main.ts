@@ -4,7 +4,8 @@ import { wirePanels } from './panels'
 import { sliceToElements, filterForRow } from './graph-view'
 import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
-import { serializeColumns, columnsForEngine, columnCatalogue, type ColumnKey } from './columns'
+import { serializeLayout, parseLayout, columnCatalogue, engineColumnKeys, type ColumnLayout, type ColumnKey } from './columns'
+import { applyWidths, nextWidth } from './column-resize'
 import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector, showRecordDetail, showFuncsNodeInspector, showFuncsRecordDetail } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
@@ -210,7 +211,7 @@ const TABLE_PAGE = 500
 let tableOffset = 0
 let selectedRowId: number | undefined // the row whose detail is open, so re-renders can re-highlight it
 const selEpoch = makeEpoch() // guards stale-async paints across row-select / node-tap / canvas-clear
-let currentColumns: ColumnKey[] = columnsForEngine(activeEngine, savedColumns(activeEngine))
+let currentLayout: ColumnLayout = parseLayout(activeEngine, savedColumns(activeEngine))
 
 function renderPager(offset: number, pageLen: number, total: number): void {
   const rng = document.getElementById('pager-range')
@@ -240,10 +241,46 @@ async function refreshTable(): Promise<void> {
     window.ares.table(filter, { limit: TABLE_PAGE, offset: tableOffset }, activeRunId),
     window.ares.count(filter, activeRunId),
   ])
-  currentColumns = columnsForEngine(activeEngine, savedColumns(activeEngine))
-  renderTable(rows, currentColumns, selectRow, tableBadgeFor)
+  currentLayout = parseLayout(activeEngine, savedColumns(activeEngine))
+  const elapsedMax = rows.reduce((m, r) => Math.max(m, r.elapsed ?? 0), 0)
+  renderTable(rows, currentLayout.columns, selectRow, tableBadgeFor, elapsedMax)
+  const scroll = document.querySelector<HTMLElement>('#table .table-scroll')
+  if (scroll) { applyWidths(scroll, currentLayout.widths); wireColGrips(scroll) }
   if (selectedRowId !== undefined) highlightTableRow(selectedRowId) // survive paging/filter/column re-render
   renderPager(tableOffset, rows.length, total)
+}
+
+// Wire drag-resize + double-click-to-autofit on each column's grip. Window-level
+// pointermove/up listeners (like panels.ts) so the drag survives leaving the
+// grip's small hit area. The last grip is the flex remainder column - not resizable.
+function wireColGrips(scroll: HTMLElement): void {
+  const grips = [...scroll.querySelectorAll<HTMLElement>('.col-grip')]
+  grips.slice(0, -1).forEach(grip => {          // last column is the flex remainder - not resizable
+    const key = grip.dataset.col!
+    const th = grip.parentElement as HTMLElement
+    grip.onpointerdown = (e) => {
+      e.preventDefault()
+      const startW = th.getBoundingClientRect().width
+      const startX = e.clientX
+      const move = (ev: PointerEvent) => {
+        const w = nextWidth(startW, ev.clientX - startX)
+        for (const el of scroll.querySelectorAll<HTMLElement>(`.col-${key}`)) (el as HTMLElement).style.width = `${w}px`
+      }
+      const up = (ev: PointerEvent) => {
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', up)
+        currentLayout.widths[key] = nextWidth(startW, ev.clientX - startX)
+        localStorage.setItem(columnsKey(activeEngine), serializeLayout(currentLayout))
+      }
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', up)
+    }
+    grip.ondblclick = () => {                    // auto-fit: drop explicit width, let it re-flow
+      delete currentLayout.widths[key]
+      localStorage.setItem(columnsKey(activeEngine), serializeLayout(currentLayout))
+      void refreshTable()
+    }
+  })
 }
 
 // Populate the suggestions list into a given host. A suggestion drops off the
@@ -792,32 +829,55 @@ wireExport()
 wireDiff()
 
 function openColumnsModal(): void {
-  showModal({
-    title: 'Table columns',
-    width: 300,
-    render: host => {
-      for (const def of columnCatalogue(activeEngine)) {
-        const row = document.createElement('label')
-        row.className = 'col-row' + (def.fixed ? ' fixed' : '')
-        const cb = document.createElement('input')
-        cb.type = 'checkbox'
-        cb.checked = currentColumns.includes(def.key)
-        cb.disabled = !!def.fixed
-        cb.addEventListener('change', () => {
-          const set = new Set(currentColumns)
-          if (cb.checked) set.add(def.key); else set.delete(def.key)
-          set.add('id')
-          currentColumns = columnCatalogue(activeEngine).map(d => d.key).filter(k => set.has(k))
-          localStorage.setItem(columnsKey(activeEngine), serializeColumns(currentColumns))
-          void refreshTable()
-        })
-        const span = document.createElement('span')
-        span.textContent = def.label + (def.fixed ? ' (always)' : '')
-        row.append(cb, span)
-        host.appendChild(row)
-      }
-    },
-  })
+  showModal({ title: 'Columns', width: 300, render: host => buildColumnsBody(host) })
+}
+
+function buildColumnsBody(host: HTMLElement): void {
+  host.innerHTML = ''
+  const label = document.createElement('div'); label.className = 'cs-mode-label'; label.textContent = 'call site'
+  const seg = document.createElement('div'); seg.className = 'seg cs-mode'
+  for (const m of ['stacked', 'split'] as const) {
+    const b = document.createElement('button')
+    b.className = 'btn' + (currentLayout.callSite === m ? ' on' : '')
+    b.textContent = m
+    b.onclick = () => {
+      currentLayout = { ...currentLayout, callSite: m, columns: engineColumnKeys(activeEngine, m) }
+      localStorage.setItem(columnsKey(activeEngine), serializeLayout(currentLayout))
+      void refreshTable()
+      buildColumnsBody(host)
+    }
+    seg.appendChild(b)
+  }
+  host.append(label, seg)
+
+  const cat = columnCatalogue(activeEngine, currentLayout.callSite)
+  const byKey = new Map(cat.map(d => [d.key, d]))
+  for (const key of engineColumnKeys(activeEngine, currentLayout.callSite)) {
+    const def = byKey.get(key); if (!def) continue
+    const row = document.createElement('label')
+    row.className = 'col-row' + (def.fixed ? ' fixed' : '')
+    const cb = document.createElement('input')
+    cb.type = 'checkbox'
+    cb.checked = currentLayout.columns.includes(def.key)
+    cb.disabled = !!def.fixed
+    cb.addEventListener('change', () => {
+      const set = new Set(currentLayout.columns)
+      if (cb.checked) set.add(def.key); else set.delete(def.key)
+      set.add('id')
+      currentLayout.columns = engineColumnKeys(activeEngine, currentLayout.callSite).filter(k => set.has(k))
+      localStorage.setItem(columnsKey(activeEngine), serializeLayout(currentLayout))
+      void refreshTable()
+    })
+    const span = document.createElement('span'); span.textContent = def.label
+    row.append(cb, span)
+    if (def.fixed) {
+      const lock = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      lock.setAttribute('viewBox', '0 0 24 24'); lock.setAttribute('class', 'lock-ic')
+      const use = document.createElementNS('http://www.w3.org/2000/svg', 'use')
+      use.setAttribute('href', '#i-lock'); lock.appendChild(use); row.append(lock)
+    }
+    host.appendChild(row)
+  }
 }
 document.getElementById('cols-btn')?.addEventListener('click', openColumnsModal)
 
