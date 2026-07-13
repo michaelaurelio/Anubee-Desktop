@@ -105,7 +105,7 @@ describe('GraphStore.eventById', () => {
   it('returns one raw record as a plain SyscallEvent', async () => {
     store = new GraphStore()
     await store.ingest(fixture())
-    const e = await store.eventById(1)
+    const e = await store.eventById(1) as import('@shared/events').SyscallEvent | undefined
     expect(e).toBeDefined()
     expect(e!.syscall).toBe('openat')
     expect(e!.tid).toBe(101)
@@ -316,6 +316,42 @@ describe('GraphStore.nodeEvents', () => {
     await store.ingest(fixture())
     expect((await store.nodeEvents('sys:openat', { tid: 101 })).map(e => e.id)).toEqual([1, 2])
     expect((await store.nodeEvents('sys:openat', { tid: 999 }))).toEqual([])
+  })
+})
+
+const FUNCS_DETAIL_LINES = [
+  JSON.stringify({ type: 'call', id: 1, pid: 9, tid: 9, ppid: 1, module: 'libexample.so', symbol: 'checkRoot', entry_addr: '0x1000', offset: 4096, caller_addr: '0x2000', args: ['0xaa'], string_args: { '0': 'ro.debuggable' }, fd_args: {}, sock_args: {}, backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libexample.so!checkRoot' }, { frame: 1, addr: '0x2000', symbol: 'libc.so!__libc_init+0x40' }] }),
+  JSON.stringify({ type: 'return', id: 1, pid: 9, tid: 9, module: 'libexample.so', symbol: 'checkRoot', offset: 4096, retval: 1, elapsed_ns: 2300, out_args: { '0': 'result' }, backtrace: [{ frame: 0, addr: '0x2000', symbol: 'libc.so!__libc_init+0x40' }] }),
+]
+function funcsDetailFixture(): string {
+  dir = mkdtempSync(join(tmpdir(), 'ares-funcs-detail-'))
+  const p = join(dir, 'run.jsonl')
+  writeFileSync(p, FUNCS_DETAIL_LINES.join('\n') + '\n')
+  return p
+}
+
+describe('GraphStore funcs inspector data', () => {
+  it('eventById merges the return retval/elapsed/out_args onto the call', async () => {
+    store = new GraphStore()
+    await store.ingest(funcsDetailFixture())
+    const ev = await store.eventById(1) as import('@shared/events').FuncEvent
+    expect(ev.type).toBe('call')
+    expect(ev.symbol).toBe('checkRoot')
+    expect(ev.string_args).toEqual({ '0': 'ro.debuggable' })
+    expect(ev.retval).toBe(1)
+    expect(ev.elapsed_ns).toBe(2300)
+    expect(ev.out_args).toEqual({ '0': 'result' })
+  })
+
+  it('nodeEvents returns the enriched funcs calls whose chain touches a node', async () => {
+    store = new GraphStore()
+    await store.ingest(funcsDetailFixture())
+    const fnRows = await store.nodeEvents('fn:libexample.so!checkRoot') as import('@shared/events').FuncEvent[]
+    expect(fnRows).toHaveLength(1)
+    expect(fnRows[0].retval).toBe(1)
+    // the unhooked caller frame is a nat: node the same call passes through
+    const natRows = await store.nodeEvents('nat:libc.so!__libc_init') as import('@shared/events').FuncEvent[]
+    expect(natRows.map(r => r.id)).toEqual([1])
   })
 })
 

@@ -27,6 +27,7 @@ import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, a
 import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
 import { showModal, isModalOpen } from './modal'
 import { makeEpoch } from './selection-epoch'
+import type { SyscallEvent } from '@shared/events'
 
 let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
 document.documentElement.setAttribute('data-theme', theme)
@@ -356,7 +357,9 @@ async function selectRow(row: TableRow): Promise<void> {
   const host = document.getElementById('inspector')
   const ev = await window.ares.eventById(row.id, activeRunId)
   if (!selEpoch.isCurrent(e)) return // a newer selection superseded this row; drop the stale detail
-  if (host && ev) showRecordDetail(host, ev)
+  // TODO(funcs detail panel): showRecordDetail only renders SyscallEvent today;
+  // a funcs-run FuncEvent is dropped here until the panel is widened.
+  if (host && ev && ev.type === 'syscall') showRecordDetail(host, ev)
 
   showView('graph')
   const slice = await window.ares.slice(filterForRow(row, currentFilter()), GRAPH_SLICE_CAP, activeRunId)
@@ -387,15 +390,20 @@ cy.on('tap', 'node', evt => {
     void Promise.all([
       window.ares.nodeOffsets(nodeId, currentFilter(), activeRunId),
       window.ares.nodeEvents(nodeId, currentFilter(), activeRunId),
-    ]).then(([rows, events]) => {
+    ]).then(([rows, rawEvents]) => {
       if (!selEpoch.isCurrent(e)) return // node deselected / another selected during the round-trip
+      // TODO(funcs detail panel): the node inspector/offset popup render
+      // SyscallEvent only today; a funcs run's FuncEvent rows are dropped here
+      // until they are widened.
+      const events = rawEvents.filter((ev): ev is SyscallEvent => ev.type === 'syscall')
       showNodeInspector(nodeId, events)
       showOffsetPopup({ nodeId, rows, anchor: box, eventForOffset: (row) => eventForOffset(events, row) })
     })
   } else {
     closeOffsetPopup()
-    void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(events => {
+    void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(rawEvents => {
       if (!selEpoch.isCurrent(e)) return // stale inspector repaint
+      const events = rawEvents.filter((ev): ev is SyscallEvent => ev.type === 'syscall')
       showNodeInspector(nodeId, events)
     })
   }

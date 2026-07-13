@@ -1,6 +1,6 @@
 import { openSync, readSync, closeSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
-import type { SyscallEvent, CoverageEvent } from '@shared/events'
+import type { SyscallEvent, CoverageEvent, FuncEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
 import { capSlice, labelForId, mergeGraphs, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
@@ -391,9 +391,22 @@ export class GraphStore {
   }
 
   // One raw record, reconstructed as a plain SyscallEvent via DuckDB's to_json.
-  // `id` is an internal integer, safe to inline.
-  async eventById(id: number, runId?: number): Promise<SyscallEvent | undefined> {
+  // `id` is an internal integer, safe to inline. On a funcs run, the call row
+  // (id) is LEFT JOINed with its paired return (shared id) so the detail panel
+  // gets retval/elapsed_ns/out_args merged onto the call, same as `table`.
+  async eventById(id: number, runId?: number): Promise<SyscallEvent | FuncEvent | undefined> {
     const rid = this.resolveRun(runId)
+    if (this.engineOf(rid) === 'funcs') {
+      const rows = await this.rows(
+        `SELECT to_json(c) AS js, r.retval AS retval, r.elapsed_ns AS elapsed, to_json(r.out_args) AS out_args
+         FROM ev c LEFT JOIN ev r ON r.run_id = ${rid} AND r.type = 'return' AND r.span IS NULL AND r.id = c.id
+         WHERE c.run_id = ${rid} AND c.type = 'call' AND c.span IS NULL AND c.id = ${Math.trunc(id)}`,
+      )
+      if (rows.length === 0) return undefined
+      const { run_id: _drop, ...call } = JSON.parse(rows[0].js as string)
+      return { ...call, retval: num(rows[0].retval) ?? undefined, elapsed_ns: num(rows[0].elapsed) ?? undefined,
+               out_args: JSON.parse((rows[0].out_args as string | null) ?? 'null') ?? undefined } as FuncEvent
+    }
     const rows = await this.rows(
       `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND id = ${Math.trunc(id)}`,
     )
@@ -423,10 +436,29 @@ export class GraphStore {
     filter: Filter = {},
     limit = 500,
     runId?: number,
-  ): Promise<SyscallEvent[]> {
+  ): Promise<(SyscallEvent | FuncEvent)[]> {
     const rid = this.resolveRun(runId)
     const { where, params } = filterToSql(filter)
     const lim = Math.max(0, Math.trunc(limit))
+    if (this.engineOf(rid) === 'funcs') {
+      const fnScoped = `run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where})`
+      const cte =
+        `WITH h AS (SELECT list(DISTINCT module || '!' || symbol) AS fns FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL),
+              chains AS (SELECT id AS eid, ${FUNCS_CHAIN_SQL} AS chain FROM ev, h WHERE ${fnScoped})`
+      const rows = await this.rows(
+        `${cte}
+         SELECT to_json(c) AS js, r.retval AS retval, r.elapsed_ns AS elapsed, to_json(r.out_args) AS out_args
+         FROM ev c JOIN chains ON c.id = chains.eid AND c.run_id = ${rid} AND c.type = 'call' AND c.span IS NULL
+         LEFT JOIN ev r ON r.run_id = ${rid} AND r.type = 'return' AND r.span IS NULL AND r.id = c.id
+         WHERE list_contains(chain, ?) ORDER BY c.id LIMIT ${lim}`,
+        [...params, nodeId],
+      )
+      return rows.map(row => {
+        const { run_id: _drop, ...call } = JSON.parse(row.js as string)
+        return { ...call, retval: num(row.retval) ?? undefined, elapsed_ns: num(row.elapsed) ?? undefined,
+                 out_args: JSON.parse((row.out_args as string | null) ?? 'null') ?? undefined } as FuncEvent
+      })
+    }
     const scoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
     const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})`
     const rows = await this.rows(
@@ -461,6 +493,10 @@ export class GraphStore {
     // vaddr(hex) -> accumulating row.
     const acc = new Map<string, OffsetRow>()
     for (const ev of events) {
+      // nodeOffsets is a syscall-only view (rows key on `syscall`); a funcs run's
+      // nat: nodes are skipped here, matching the pre-widen behaviour where a
+      // funcs run's nodeEvents (scoped to type='syscall') returned none anyway.
+      if (ev.type !== 'syscall') continue
       const base = this.moduleBase(rid, ev.pid, meta.module)
       // Distinct offsets this event contributes (one event counts an offset once).
       const seen = new Set<string>()

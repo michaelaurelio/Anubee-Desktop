@@ -300,7 +300,10 @@ ipcMain.handle('findings:export', async (_e, runId: number, format: 'md' | 'json
   const reps: Record<string, SyscallEvent[]> = {}
   for (const t of tags) {
     if (reps[t.target]) continue
-    reps[t.target] = await store.nodeEvents(t.target, {}, 50, runId)
+    // findings export is a syscall-only view today; a funcs run's calls are
+    // filtered out here (same shape reps has always had).
+    reps[t.target] = (await store.nodeEvents(t.target, {}, 50, runId))
+      .filter((e): e is SyscallEvent => e.type === 'syscall')
   }
   const findings = buildFindings(tags, reps)
   const text = format === 'md' ? renderMarkdown(findings) : renderJSON(findings)
