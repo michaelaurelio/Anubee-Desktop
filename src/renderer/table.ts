@@ -92,6 +92,10 @@ export function renderTable(
     th.textContent = LABEL[key]
     th.title = LABEL[key]
     head.appendChild(th)
+    const grip = document.createElement('span')
+    grip.className = 'col-grip'
+    grip.dataset.col = key
+    th.appendChild(grip)
   }
 
   for (const r of rows) {
