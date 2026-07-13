@@ -81,6 +81,16 @@ mixed `trace` run (both engines) renders one organic native call graph rather
 than two disconnected islands. Funcs chains, list, and count all carry the
 `span IS NULL` guard, so span-tagged correlate rows never leak in.
 
+- **Funcs record inspector.** Clicking a funcs graph node lists the `call`
+  records whose chain touches it (`# · caller · retval · elapsed · args`); clicking
+  a list row - or a master-table row - opens that record's full detail (function,
+  tid, caller, retval, `elapsed_ns`, then `args`, `string_args`, `fd_args`,
+  `sock_args`, `out_args`, and the backtrace). A displayed record is the `call`
+  row merged with `retval`/`elapsed_ns`/`out_args` from its paired `return` (shared
+  `id`), joined in SQL by `GraphStore.eventById` / `nodeEvents` (engine-routed,
+  bounded, `span IS NULL`). The ghidra offset popup is syscall-only for now, so
+  node-tap skips it on a funcs run.
+
 ## UI shell
 
 The toolbar is a single **chrome bar** housing a **File ▾** dropdown (Open JSONL,
@@ -142,10 +152,12 @@ The master table's columns are **configurable**. Default set: `id · syscall · 
     badge only when its innermost native frame carries a tag. Multiple tags
     render as a comma-separated badge list.
 
-- **Funcs runs** use a fixed column set (`id · function · caller · retval ·
-  elapsed · args`) chosen by engine (`columnsForEngine`), not the saved syscall
-  preference; the column picker persists syscall columns only (funcs column
-  persistence is deferred).
+- **Engine-aware picker.** The column set and the `⚙ columns` picker are chosen
+  by the run's engine (`columnCatalogue` / `columnsForEngine`): a funcs run offers
+  only funcs columns (`id · function · caller · retval · elapsed · args`), a
+  syscall run only syscall columns. Toggles persist per engine under
+  `ares.columns.<engine>` (the legacy `ares.columns` key is still read as the
+  syscall fallback), so a saved funcs layout and a saved syscall layout coexist.
 
 - **Column widths:** each column width is keyed by column name (not position), so
   any subset of columns lays out correctly. Text-heavy columns (`top java`,
