@@ -361,7 +361,7 @@ export class GraphStore {
     // syscall chains: LEFT JOIN each syscall row to its cfi_stack sidecar (by
     // stack_id) and pick CFI_CHAIN_SQL when one exists, else CHAIN_SQL.
     const sysScoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
-    const cfiCte = `cfi AS (SELECT stack_id, cfi_backtrace FROM ev WHERE run_id = ${rid} AND type = 'cfi_stack')`
+    const cfiCte = `cfi AS (SELECT stack_id, any_value(cfi_backtrace) AS cfi_backtrace FROM ev WHERE run_id = ${rid} AND type = 'cfi_stack' GROUP BY stack_id)`
     const sysCte =
       `WITH ${cfiCte},
             chains AS (
@@ -412,7 +412,7 @@ export class GraphStore {
     const { where, params } = filterToSql(filter)
     const scoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
     const cte =
-      `WITH cfi AS (SELECT stack_id, cfi_backtrace FROM ev WHERE run_id = ${rid} AND type = 'cfi_stack'),
+      `WITH cfi AS (SELECT stack_id, any_value(cfi_backtrace) AS cfi_backtrace FROM ev WHERE run_id = ${rid} AND type = 'cfi_stack' GROUP BY stack_id),
             chains AS (
               SELECT CASE WHEN c.stack_id IS NOT NULL THEN ${CFI_CHAIN_SQL} ELSE ${CHAIN_SQL} END AS chain
               FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id

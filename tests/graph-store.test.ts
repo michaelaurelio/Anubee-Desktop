@@ -280,6 +280,45 @@ describe('GraphStore.slice', () => {
     }
   })
 
+  it('does not inflate counts when a stack_id has a duplicate cfi_stack sidecar row', async () => {
+    // ARES's cfi_stack dedup set is an LRU capped at 16384 entries; on long
+    // runs it can legitimately re-emit a cfi_stack record for a stack_id
+    // already seen. The cfi CTE must collapse these before the LEFT JOIN,
+    // else one syscall row fans out into N chain rows (N = duplicate count).
+    const sys = JSON.stringify({
+      type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 29, syscall: 'ioctl',
+      args: [], retval: 0, string_args: {}, fd_args: {}, decoded_args: {}, stack_id: 11,
+      java_stack: ['com.android.internal.os.Zygote.callPostForkChildHooks'],
+      backtrace: [{ frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8' }],
+    })
+    const cfi = JSON.stringify({
+      type: 'cfi_stack', pid: 100, tid: 101, stack_id: 11,
+      cfi_backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8', kind: 'native' },
+        { frame: 1, addr: '0x5', symbol: 'boot.oat!com.android.internal.os.Zygote.callPostForkChildHooks+0x28', kind: 'managed' },
+        { frame: 2, addr: '0x7', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' },
+      ],
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-dup-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, sys + '\n')
+    // Two identical cfi_stack rows for the same stack_id - the re-emit case.
+    writeFileSync(p + '.stacks', cfi + '\n' + cfi + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const slice = await store.slice()
+
+    // One syscall event in, one occurrence out - the duplicate sidecar row
+    // must not fan the join into two chain rows.
+    const outerNative = slice.nodes.find(n => n.id === 'nat:libandroid_runtime.so!SpecializeCommon')
+    expect(outerNative?.count).toBe(1)
+    const edge = slice.edges.find(e =>
+      e.id === 'nat:libandroid_runtime.so!SpecializeCommon=>java:com.android.internal.os.Zygote.callPostForkChildHooks',
+    )
+    expect(edge?.count).toBe(1)
+  })
+
   it('falls back to CHAIN_SQL for a syscall row whose stack_id has no cfi_stack', async () => {
     store = new GraphStore()
     await store.ingest(fixture()) // LINES: syscalls with java_stack, no .stacks sidecar
