@@ -443,3 +443,42 @@ describe('GraphStore.previewRule', () => {
     expect(await store.previewRule(r.runId, rule)).toEqual({ events: 0, targets: 0 })
   })
 })
+
+describe('GraphStore.ingest cfi sidecar', () => {
+  it('loads a companion <run>.stacks sidecar into cfi_stack rows', async () => {
+    const sys = JSON.stringify({
+      type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 29, syscall: 'ioctl',
+      args: [], retval: 0, string_args: {}, fd_args: {}, decoded_args: {}, stack_id: 11,
+      backtrace: [{ frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8' }],
+    })
+    const cfi = JSON.stringify({
+      type: 'cfi_stack', pid: 100, tid: 101, stack_id: 11,
+      cfi_backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8', kind: 'native' },
+        { frame: 1, addr: '0x5', symbol: 'boot.oat!com.android.internal.os.Zygote.callPostForkChildHooks+0x28', kind: 'managed' },
+        { frame: 2, addr: '0x7', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' },
+      ],
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, sys + '\n')
+    writeFileSync(p + '.stacks', cfi + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+
+    const n = await store['scalar'](`SELECT count(*) n FROM ev WHERE type = 'cfi_stack'`)
+    expect(n).toBe(1)
+    const len = await store['scalar'](
+      `SELECT len(cfi_backtrace) n FROM ev WHERE type = 'cfi_stack'`)
+    expect(len).toBe(3)
+  })
+
+  it('ingests normally when no .stacks sidecar is present', async () => {
+    store = new GraphStore()
+    const r = await store.ingest(fixture()) // existing LINES fixture, no sidecar
+    expect(r.errors).toBe(1) // the one malformed line, unchanged
+    const n = await store['scalar'](`SELECT count(*) n FROM ev WHERE type = 'cfi_stack'`)
+    expect(n).toBe(0)
+  })
+})

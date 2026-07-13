@@ -1,4 +1,4 @@
-import { openSync, readSync, closeSync } from 'node:fs'
+import { openSync, readSync, closeSync, existsSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
 import type { SyscallEvent, CoverageEvent, FuncEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
@@ -29,6 +29,7 @@ const COLS =
   "'java_stack':'VARCHAR[]'," +
   "'library':'VARCHAR','start':'VARCHAR','end':'VARCHAR','pgoff':'BIGINT'," +
   "'backtrace':'STRUCT(frame INTEGER, addr VARCHAR, symbol VARCHAR)[]'," +
+  "'cfi_backtrace':'STRUCT(frame INTEGER, addr VARCHAR, symbol VARCHAR, kind VARCHAR)[]'," +
   // 'engine' is CoverageEvent's own field (e.g. "type":"coverage","engine":"funcs");
   // coverage() round-trips it, so it stays in the schema.
   "'engine':'VARCHAR'," +
@@ -164,6 +165,17 @@ export class GraphStore {
 
     if (firstRun) await this.conn().run(`CREATE TABLE ev AS ${source}`)
     else await this.conn().run(`INSERT INTO ev ${source}`)
+
+    // Companion CFI stack sidecar: <run>.stacks holds the full ordered walk
+    // (cfi_stack records) that recovers JNI interleaving the FP backtrace drops.
+    // Absent is normal (non-snapshot run) - fall back to the two-list chain.
+    const stacksPath = path + '.stacks'
+    if (existsSync(stacksPath)) {
+      await this.conn().run(
+        `INSERT INTO ev SELECT ${runId} AS run_id, * FROM read_json(${sqlStr(stacksPath)}, ` +
+        `format='${fmt}', columns=${COLS}, maximum_object_size=20000000, ignore_errors=true)`,
+      )
+    }
 
     // A malformed line becomes an all-null row (type NULL); a valid non-syscall
     // record keeps its type (e.g. 'lib'). Count them apart, keep only syscalls.
