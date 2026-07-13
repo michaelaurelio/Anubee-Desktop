@@ -63,7 +63,11 @@ backtrace) and a `return` record (retval, `elapsed_ns`) that **share one `id`**
   function-to-function call graph**, built entirely in SQL (`FUNCS_CHAIN_SQL`)
   and verified against the pure-TS oracle `foldFuncEvents` by a lockstep test.
   The chain is the whole reversed backtrace (plus reversed `java_stack` when a
-  capture carries it). A backtrace frame whose `module!symbol` is itself a
+  capture carries it). Managed frames collapse by method: the ART bytecode
+  offset (`+0x<dexpc>`) is stripped from `java:` ids exactly as native call-sites
+  collapse by their dropped `+0x<off>`, so one managed method is one node whether
+  it was AOT-compiled (no offset) or interpreted (carries a dexpc). A backtrace
+  frame whose `module!symbol` is itself a
   hooked function collapses into that function's own `fn:` node (unify), so a
   function appears once whether it is a leaf or a caller; unhooked intermediate
   frames stay `nat:` scaffold nodes. Nodes reuse the `func` kind (gold) in the
