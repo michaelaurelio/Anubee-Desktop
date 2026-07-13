@@ -438,7 +438,7 @@ cy.on('tap', 'node', evt => {
   highlightNeighborhood(cy, node)
   showSide(true)
   const nodeKind = node.data('kind') as string | undefined
-  const nodeCats = tagsByTarget(tags, nodeId).map(t => t.category)
+  const nodeCats = [...new Set(tagsByTarget(tags, nodeId).map(t => t.category))]
   if (activeEngine === 'func') {
     closeOffsetPopup()
     void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(records => {

@@ -72,6 +72,7 @@ function buildStackRows(sec: { lines: string[]; highlight?: number }): HTMLDivEl
   const wrap = document.createElement('div'); wrap.className = 'bt'
   sec.lines.forEach((line, i) => {
     const row = document.createElement('div'); row.className = 'f'
+    // highlight === -1 (all-system backtrace) renders plain rows with no .app/.sys classes
     if (sec.highlight !== undefined && sec.highlight >= 0) row.classList.add(i === sec.highlight ? 'app' : 'sys')
     const m = /^(#\d+)\s(.*)$/.exec(line)
     const idx = document.createElement('span'); idx.className = 'idx'; idx.textContent = m ? m[1] : ''
