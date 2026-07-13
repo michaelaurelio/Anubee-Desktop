@@ -126,13 +126,9 @@
         background:var(--panel); border:1px solid var(--border-soft); color:var(--muted);
         border-radius:20px; padding:3px 10px; font-size:10px; }
 
-      /* zoom cluster */
-      #zoom { position: absolute; right: 8px; bottom: 8px; z-index: 4; display: flex; flex-direction: column;
-        border: 1px solid var(--input-bd); border-radius: var(--radius); overflow: hidden; background: var(--bar); }
-      #zoom button { border: 0; border-bottom: 1px solid var(--input-bd); background: transparent;
-        padding: 5px 8px; cursor: pointer; }
-      #zoom button:last-child { border-bottom: 0; }
-      #zoom button:hover { background: var(--hover); }
+      /* zoom cluster (visual box is the shared .float + .new-zoom classes; this
+         rule only positions it, see redesign section) */
+      #zoom { position: absolute; right: 8px; bottom: 8px; z-index: 4; }
 
       #legend { position: absolute; bottom: 8px; left: 8px; display: flex; gap: 10px; padding: 4px 8px;
         background: var(--bar); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; z-index: 2; }
@@ -363,34 +359,40 @@
       .modal-head { display: flex; align-items: center; justify-content: space-between;
                     padding: 11px 14px; border-bottom: 1px solid var(--border); }
       .modal-title { font-weight: 600; }
-      .modal-x { cursor: pointer; background: transparent; border: 0; color: var(--muted); font-size: 16px; line-height: 1; }
-      .modal-x:hover { color: var(--text); }
       .modal-body { padding: 14px; }
 
       /* --- redesign: visibility, collapse, pager, columns, selection --- */
       .hidden { display: none !important; }
       #table.collapsed { width: 0; border-right: 0; overflow: hidden; }
+      /* shared flat icon-button: transparent, muted glyph, hover -> subtle fill.
+         Used by pager, zoom, table-collapse, side-close and the modal close (x). */
+      svg.ic { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; width: 15px; height: 15px; }
+      .icon-btn { width: 28px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+        border: 0; background: transparent; color: var(--muted); border-radius: 6px; cursor: pointer; }
+      .icon-btn:hover { background: var(--hover); color: var(--text); }
+      .icon-btn:disabled { opacity: .3; cursor: default; }
+      /* shared floating-overlay surface: collapse tab + zoom cluster hover over
+         the canvas and read as one family with the legend/chip surface */
+      .float { background: var(--bar); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
       /* square collapse button, floats in the view just outside the table's right edge */
-      #tab-left { position: absolute; top: 8px; left: 8px; z-index: 6;
-        width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
-        border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2);
-        color: var(--muted); cursor: pointer; box-shadow: var(--shadow); }
-      #tab-left:hover { background: var(--hover); color: var(--text); border-color: var(--accent-bd); }
+      #tab-left { position: absolute; top: 8px; left: 8px; z-index: 6; }
+      .new-tab { width: 28px; height: 28px; cursor: pointer; color: var(--muted);
+        display: flex; align-items: center; justify-content: center; }
+      .new-tab:hover { color: var(--text); background: var(--hover); }
       /* table-header pager */
-      .pager { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
-      .pager button { background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
-        width: 24px; height: 22px; border-radius: 5px; cursor: pointer; line-height: 1; }
-      .pager button:hover:not(:disabled) { background: var(--hover); }
-      .pager button:disabled { opacity: .35; cursor: default; }
-      .pager .rng { font-family: var(--mono); }
-      #cols-btn { margin-left: auto; padding: 2px 8px; }
+      .pager { display: inline-flex; align-items: center; gap: 4px; }
+      .pager .rng { font: 11px var(--mono); color: var(--muted); padding: 0 4px; }
+      .cols-btn { display: inline-flex; align-items: center; gap: 6px; margin-left: auto;
+        padding: 4px 9px; border: 1px solid var(--border); border-radius: 6px;
+        background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; }
+      .cols-btn:hover { background: var(--hover); color: var(--text); }
       /* selected master-table row */
       #table tr.sel td { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent-fg); }
       /* right-panel close */
-      #side-close { margin-left: auto; width: 24px; height: 24px; border: 1px solid var(--border);
-        border-radius: 5px; background: var(--panel); color: var(--muted); cursor: pointer;
-        font-size: 14px; line-height: 1; }
-      #side-close:hover { background: var(--hover); color: var(--text); }
+      #side-close { margin-left: auto; }
+      /* zoom cluster (positioned at #zoom above; this is the button-group look) */
+      .new-zoom { display: inline-flex; flex-direction: column; overflow: hidden; }
+      .new-zoom button:not(:last-child) { border-bottom: 1px solid var(--border-soft); }
       /* columns picker modal rows */
       .col-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; color: var(--text); }
       .col-row.fixed { color: var(--muted); }
@@ -444,6 +446,14 @@
       <g id="i-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></g>
       <g id="i-search"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></g>
       <g id="i-lock"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g>
+      <g id="i-cl"><path d="m15 18-6-6 6-6"/></g>
+      <g id="i-cr"><path d="m9 18 6-6-6-6"/></g>
+      <g id="i-cols"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/></g>
+      <g id="i-panel"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></g>
+      <g id="i-plus"><path d="M5 12h14M12 5v14"/></g>
+      <g id="i-minus"><path d="M5 12h14"/></g>
+      <g id="i-fit"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></g>
+      <g id="i-x"><path d="M18 6 6 18M6 6l12 12"/></g>
     </defs></svg>
 
     <nav id="rail">
@@ -478,17 +488,17 @@
       <div id="table" class="hidden">
         <div class="panel-head">
           <div class="pager">
-            <button id="pager-prev" title="previous page">&#8249;</button>
+            <button id="pager-prev" class="icon-btn" title="previous page"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cl"/></svg></button>
             <span class="rng" id="pager-range">0 / 0</span>
-            <button id="pager-next" title="next page">&#8250;</button>
+            <button id="pager-next" class="icon-btn" title="next page"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cr"/></svg></button>
           </div>
-          <button id="cols-btn" class="btn" title="choose columns">&#9881; columns</button>
+          <button id="cols-btn" class="cols-btn" title="choose columns"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cols"/></svg> columns</button>
         </div>
         <div class="table-scroll"></div>
       </div>
       <div class="resize-handle hidden" id="table-resize" data-resize="table" title="drag to resize"></div>
       <div id="view">
-        <button id="tab-left" class="hidden" title="collapse / expand table">&#8249;</button>
+        <button id="tab-left" class="hidden float new-tab" title="collapse / expand table"><svg class="ic" viewBox="0 0 24 24"><use href="#i-panel"/></svg></button>
         <div id="cy">
           <div id="banner"></div>
           <div id="legend">
@@ -497,10 +507,10 @@
             <span><i class="k-syscall"></i> syscall</span>
             <span><i class="k-func"></i> func</span>
           </div>
-          <div id="zoom">
-            <button id="zoom-in" title="zoom in">+</button>
-            <button id="zoom-out" title="zoom out">&#8722;</button>
-            <button id="zoom-fit" title="fit">&#10530;</button>
+          <div id="zoom" class="float new-zoom">
+            <button id="zoom-in" class="icon-btn" title="zoom in"><svg class="ic" viewBox="0 0 24 24"><use href="#i-plus"/></svg></button>
+            <button id="zoom-out" class="icon-btn" title="zoom out"><svg class="ic" viewBox="0 0 24 24"><use href="#i-minus"/></svg></button>
+            <button id="zoom-fit" class="icon-btn" title="fit"><svg class="ic" viewBox="0 0 24 24"><use href="#i-fit"/></svg></button>
           </div>
         </div>
         <div id="flame"></div>
@@ -517,7 +527,7 @@
       </div>
       <div class="resize-handle hidden" id="side-resize" data-resize="side" title="drag to resize"></div>
       <div id="side" class="hidden">
-        <div class="panel-head"><button id="side-close" title="close">&#10005;</button></div>
+        <div class="panel-head"><button id="side-close" class="icon-btn" title="close"><svg class="ic" viewBox="0 0 24 24"><use href="#i-x"/></svg></button></div>
         <div id="orphans"></div>
         <div id="inspector"></div>
         <div id="diff-table"></div>
