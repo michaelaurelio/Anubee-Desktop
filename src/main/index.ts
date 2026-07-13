@@ -316,6 +316,20 @@ ipcMain.handle('findings:export', async (_e, runId: number, format: 'md' | 'json
   return r.filePath
 })
 
+ipcMain.handle('log:save', async (_e, text: string) => {
+  const now = new Date()
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  const stamp = `${now.getFullYear()}${p2(now.getMonth() + 1)}${p2(now.getDate())}_` +
+    `${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}`
+  const r = await dialog.showSaveDialog(win, {
+    defaultPath: `ares_${stamp}.log`,
+    filters: [{ name: 'Log', extensions: ['log'] }],
+  })
+  if (r.canceled || !r.filePath) return null
+  writeFileSync(r.filePath, text)
+  return r.filePath
+})
+
 app.whenReady().then(createWindow)
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

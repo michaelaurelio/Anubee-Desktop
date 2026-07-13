@@ -1,4 +1,4 @@
-import { logGetAll, logSubscribe, logClear, type LogEntry } from './log-store'
+import { logGetAll, logSubscribe, logClear, logAppend, formatLog, type LogEntry } from './log-store'
 
 function hhmmss(ts: number): string {
   const d = new Date(ts)
@@ -48,6 +48,14 @@ export function renderLogModal(host: HTMLElement): () => void {
 
   const bar = document.createElement('div')
   bar.className = 'log-actions'
+  const save = document.createElement('button')
+  save.className = 'btn'; save.textContent = 'Save'
+  save.onclick = () => {
+    void window.ares.logSave(formatLog(logGetAll())).then(p => {
+      if (p) logAppend('success', 'log', `Saved ${p}`)
+    })
+  }
+  bar.appendChild(save)
   const clear = document.createElement('button')
   clear.className = 'btn'; clear.textContent = 'Clear'
   clear.onclick = () => logClear()
