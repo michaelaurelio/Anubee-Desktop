@@ -176,11 +176,6 @@ function redrawBadges(): void {
   })
 }
 
-function status(text: string): void {
-  const el = document.getElementById('status')
-  if (el) el.textContent = text
-}
-
 function showTablePanel(visible: boolean): void {
   document.getElementById('table')?.classList.toggle('hidden', !visible)
   document.getElementById('table-resize')?.classList.toggle('hidden', !visible)
@@ -734,13 +729,22 @@ function wireExport(): void {
   })
 }
 
-window.ares.onProgress(pct => status(`Loading... ${pct}%`))
+window.ares.onProgress(pct => {
+  const wrap = document.getElementById('ingest-progress')
+  const bar = document.getElementById('ingest-bar')
+  const label = document.getElementById('ingest-pct')
+  if (!wrap || !bar || !label) return
+  wrap.classList.remove('hidden')
+  bar.style.width = `${pct}%`
+  label.textContent = `Loading... ${pct}%`
+})
 window.ares.onLoaded(s => {
   activeRunId = s.runId
   activeEngine = s.kinds.includes('funcs') && !s.kinds.includes('syscall') ? 'func' : 'syscall'
   tableOffset = 0 // a fresh run starts at page 1; a stale offset could land past its row count
   selectedRowId = undefined
   document.getElementById('empty-state')?.classList.add('hidden')
+  document.getElementById('ingest-progress')?.classList.add('hidden')
   showTablePanel(true)
   showSide(false) // clear a prior run's open detail; refreshOrphans re-opens it if this run has orphans
   logAppend(s.errors > 0 ? 'warn' : 'success', 'load', `Loaded ${s.eventCount} events (${s.errors} parse errors)`)
