@@ -30,10 +30,8 @@ const COLS =
   "'java_stack':'VARCHAR[]'," +
   "'library':'VARCHAR','start':'VARCHAR','end':'VARCHAR','pgoff':'BIGINT'," +
   "'backtrace':'STRUCT(frame INTEGER, addr VARCHAR, symbol VARCHAR)[]'," +
-  // 'engine' is kept (not in the brief's removal list as applied here): it is
-  // CoverageEvent's own field (e.g. "type":"coverage","engine":"funcs"), unrelated
-  // to GraphEdge.engine (the edge-coloring tag set in TS by funcsAdapter, Task 3's
-  // concern) - dropping it would silently break coverage()'s round-trip.
+  // 'engine' is CoverageEvent's own field (e.g. "type":"coverage","engine":"funcs");
+  // coverage() round-trips it, so it stays in the schema.
   "'engine':'VARCHAR'," +
   "'span':'BIGINT','entry_addr':'VARCHAR','elapsed_ns':'BIGINT','symbol':'VARCHAR','module':'VARCHAR'," +
   "'snaps':'STRUCT(total INTEGER, truncated INTEGER)'," +
