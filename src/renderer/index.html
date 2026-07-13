@@ -419,11 +419,13 @@
       .col-grip { position:absolute; top:0; right:-3px; width:6px; height:100%; cursor:col-resize; }
       .col-grip:hover::after { content:''; position:absolute; right:2px; top:0; width:2px; height:100%; background:var(--accent-fg); }
       /* theme pill toggle */
-      .theme-pill { width:46px; height:26px; border-radius:14px; background:var(--stripe); border:1px solid var(--border); position:relative; display:flex; align-items:center; justify-content:space-between; padding:0 6px; box-sizing:border-box; }
+      .theme-pill { width:40px; height:26px; border-radius:14px; background:var(--stripe); border:1px solid var(--border); position:relative; display:flex; align-items:center; justify-content:space-between; padding:0 5px; box-sizing:border-box; }
       .theme-pill svg { width:13px; height:13px; color:var(--muted); z-index:1; }
       .theme-knob { position:absolute; top:2px; width:20px; height:20px; border-radius:50%; background:var(--accent-fg); transition:left .15s; display:flex; align-items:center; justify-content:center; }
       .theme-knob svg { width:12px; height:12px; color:#0d1117; }
-      .theme-pill.dark .theme-knob { left:2px; } .theme-pill.light .theme-knob { left:28px; }
+      .theme-pill.dark .theme-knob { left:2px; } .theme-pill.light .theme-knob { left:18px; }
+      #theme-toggle { padding-left:3px; }
+      #rail:hover #theme-toggle { padding-left:13px; }
     </style>
   </head>
   <body>
