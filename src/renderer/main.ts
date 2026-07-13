@@ -236,7 +236,6 @@ async function refreshTable(): Promise<void> {
   renderTable(rows, currentColumns, selectRow, tableBadgeFor)
   if (selectedRowId !== undefined) highlightTableRow(selectedRowId) // survive paging/filter/column re-render
   renderPager(tableOffset, rows.length, total)
-  status(total > rows.length ? `showing ${rows.length} of ${total} rows` : `${total} rows`)
 }
 
 // Populate the suggestions list into a given host. A suggestion drops off the
