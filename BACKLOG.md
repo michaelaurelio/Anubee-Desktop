@@ -3,6 +3,59 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-13) - UI/UX redesign: rail shell, stacked call-site table, graph empty-state
+
+Replaced the chrome-bar/File-dropdown/segmented-switch/filter-bar shell with a
+left icon rail (`#rail`, collapsed 46px, hover-expands to ~172px; inline SVG
+icons, no emoji) grouped into view (Graph/Flame) / tools (Suggestions, Rules,
+Diff, Capture) / file (Open, Export, Log) zones plus a bottom theme toggle, and
+a single command bar (`#cmdbar`: omni filter + syscall/library/tid/has-java_stack
++ Apply). Export and Diff now open as modals from the rail. The Quit menu item
+was dropped from the UI (window close / Ctrl+Q still quit). The master table
+gained a stacked call-site cell (java-over-native or function-over-caller, `↳`
+/ `◂ from` prefixes, uniform 40px rows, leaf `title` tooltips), tag chips, a
+funcs duration bar with red-hottest highlighting and red negative retval, a
+stacked/split column-picker toggle with an SVG-locked id column, and
+per-column drag-resize (double-click grip auto-fits; widths persist per engine
+under `ares.columns.<engine>` alongside the column set + mode). The graph pane
+gained a "Pick a row to trace its call chain" empty-state prompt, kind-glyph
+node label prefixes (`◆`/`●`/`■`), and demoted the truncation banner to a
+gated top-right chip shown only after a selection (fixes the old load-time
+overlap with the empty-state). Full detail in `DOCUMENTATION.md`'s "UI shell",
+"Master table columns", and "Graph empty-state and node labels" sections.
+
+### Deferred by design
+- **Compact single-line table density toggle** - the redesign settled on the
+  taller 40px stacked-cell row as the default; a compact mode that drops back
+  to one text line per row (trading the stacked call-site/duration-bar detail
+  for row density) was considered and deferred, not forgotten.
+- **Drag-to-reorder columns** - column width is drag-resizable and the
+  stacked/split call-site mode is toggleable, but column *order* is fixed by
+  `ALL_COLUMNS`/`engineColumnKeys`; reordering by drag was out of scope this
+  pass.
+- **Graph left-to-right layout mode** - the focused subgraph's ELK layout
+  still flows top-down only (java → native → syscall reads downward); a
+  left-to-right orientation option was considered for wide/shallow chains but
+  deferred.
+
+### Cleanup debt
+- **Legacy column exports are now dead code.** `columnsForEngine`,
+  `serializeColumns`, `parseColumns`, `DEFAULT_COLUMNS`, and `ENGINE_KEYS` in
+  `src/renderer/columns.ts` predate the `ColumnLayout`/`parseLayout`/
+  `serializeLayout` model this redesign introduced; `main.ts` no longer calls
+  any of them (it reads/writes `ColumnLayout` end to end), but they're still
+  exported and still covered by `tests/columns.test.ts`. Remove both the
+  exports and their tests in a follow-up cleanup pass.
+
+### Pre-existing bug (not introduced by this redesign, needs a separate fix)
+- **Dimmed off-path graph edges render oversized grey arrowheads.** Visible in
+  the `04-filtered` / `08-collapsed` screenshots: a long dimmed (out-of-path)
+  edge's arrowhead renders disproportionately large relative to its stroke
+  width. Looks like a cytoscape edge-width/arrow-scale interaction that only
+  shows up on long dimmed edges - predates this redesign (the redesign didn't
+  touch dimmed-edge styling). Needs its own fix: cap `arrow-scale` or edge
+  `width` specifically on the dimmed-edge style rule.
+
 ## Shipped (2026-07-13) - java_stack graph fidelity Phase 2 (JNI interleaving)
 
 The desktop now ingests the `<run>.jsonl.stacks` sidecar (`cfi_stack` records -
