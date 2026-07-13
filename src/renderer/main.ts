@@ -6,7 +6,7 @@ import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
 import { serializeColumns, columnsForEngine, columnCatalogue, type ColumnKey } from './columns'
 import { currentFilter, wireFilterControls } from './filter-controls'
-import { showNodeInspector, showRecordDetail } from './inspector'
+import { showNodeInspector, showRecordDetail, showFuncsNodeInspector, showFuncsRecordDetail } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
 import { highlightNeighborhood, clearHighlight } from './graph-highlight'
 import { showOffsetPopup, closeOffsetPopup, eventForOffset, type NodeBox } from './offset-popup'
@@ -27,7 +27,7 @@ import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, a
 import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
 import { showModal, isModalOpen } from './modal'
 import { makeEpoch } from './selection-epoch'
-import type { SyscallEvent } from '@shared/events'
+import type { SyscallEvent, FuncEvent } from '@shared/events'
 
 let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
 document.documentElement.setAttribute('data-theme', theme)
@@ -357,9 +357,10 @@ async function selectRow(row: TableRow): Promise<void> {
   const host = document.getElementById('inspector')
   const ev = await window.ares.eventById(row.id, activeRunId)
   if (!selEpoch.isCurrent(e)) return // a newer selection superseded this row; drop the stale detail
-  // TODO(funcs detail panel): showRecordDetail only renders SyscallEvent today;
-  // a funcs-run FuncEvent is dropped here until the panel is widened.
-  if (host && ev && ev.type === 'syscall') showRecordDetail(host, ev)
+  if (host && ev) {
+    if (activeEngine === 'func') showFuncsRecordDetail(host, ev as FuncEvent)
+    else showRecordDetail(host, ev as SyscallEvent)
+  }
 
   showView('graph')
   const slice = await window.ares.slice(filterForRow(row, currentFilter()), GRAPH_SLICE_CAP, activeRunId)
@@ -385,6 +386,14 @@ cy.on('tap', 'node', evt => {
   const nodeId = node.id()
   highlightNeighborhood(cy, node)
   showSide(true)
+  if (activeEngine === 'func') {
+    closeOffsetPopup()
+    void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(records => {
+      if (!selEpoch.isCurrent(e)) return // stale inspector repaint
+      showFuncsNodeInspector(nodeId, records as FuncEvent[])
+    })
+    return
+  }
   if (node.data('kind') === 'native') {
     const box = nodeBox(node)
     void Promise.all([
@@ -392,10 +401,7 @@ cy.on('tap', 'node', evt => {
       window.ares.nodeEvents(nodeId, currentFilter(), activeRunId),
     ]).then(([rows, rawEvents]) => {
       if (!selEpoch.isCurrent(e)) return // node deselected / another selected during the round-trip
-      // TODO(funcs detail panel): the node inspector/offset popup render
-      // SyscallEvent only today; a funcs run's FuncEvent rows are dropped here
-      // until they are widened.
-      const events = rawEvents.filter((ev): ev is SyscallEvent => ev.type === 'syscall')
+      const events = rawEvents as SyscallEvent[]
       showNodeInspector(nodeId, events)
       showOffsetPopup({ nodeId, rows, anchor: box, eventForOffset: (row) => eventForOffset(events, row) })
     })
@@ -403,7 +409,7 @@ cy.on('tap', 'node', evt => {
     closeOffsetPopup()
     void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(rawEvents => {
       if (!selEpoch.isCurrent(e)) return // stale inspector repaint
-      const events = rawEvents.filter((ev): ev is SyscallEvent => ev.type === 'syscall')
+      const events = rawEvents as SyscallEvent[]
       showNodeInspector(nodeId, events)
     })
   }

@@ -1,4 +1,4 @@
-import type { SyscallEvent } from '@shared/events'
+import type { SyscallEvent, FuncEvent } from '@shared/events'
 
 // A readable multi-line summary of one raw syscall record. Pure and unit-tested.
 export function formatEvent(e: SyscallEvent): string {
@@ -160,4 +160,136 @@ export function showRecordDetail(host: HTMLElement, e: SyscallEvent): void {
   detail.className = 'insp-detail'
   renderEventDetail(detail, e)
   host.appendChild(detail)
+}
+
+// The primary arg for a funcs record: resolved string arg, else sock, else fd,
+// else raw args. Pure and unit-tested.
+export function primaryFuncArg(e: FuncEvent): string {
+  const strs = Object.values(e.string_args ?? {})
+  if (strs.length) return strs.join(' ')
+  const socks = Object.values(e.sock_args ?? {})
+  if (socks.length) return socks.join(' ')
+  const fds = Object.values(e.fd_args ?? {})
+  if (fds.length) return fds.join(' ')
+  return (e.args ?? []).join(' ')
+}
+
+// Group a funcs record into the inspector's detail cards. Pure and unit-tested.
+export function funcDetailSections(e: FuncEvent): DetailSection[] {
+  const out: DetailSection[] = []
+  out.push({ title: 'Summary', kind: 'kv', rows: [
+    ['function', `${e.module}!${e.symbol}`],
+    ['tid', String(e.tid)],
+    ['retval', e.retval === undefined ? '-' : String(e.retval)],
+    ['elapsed', e.elapsed_ns === undefined ? '-' : `${e.elapsed_ns} ns`],
+  ] })
+  const argRows: [string, string][] = []
+  for (const [k, v] of Object.entries(e.string_args ?? {})) argRows.push([`string[${k}]`, v])
+  for (const [k, v] of Object.entries(e.fd_args ?? {})) argRows.push([`fd[${k}]`, v])
+  for (const [k, v] of Object.entries(e.sock_args ?? {})) argRows.push([`sock[${k}]`, v])
+  for (const [k, v] of Object.entries(e.out_args ?? {})) argRows.push([`out[${k}]`, v])
+  ;(e.args ?? []).forEach((v, i) => argRows.push([`arg[${i}]`, v]))
+  if (argRows.length) out.push({ title: 'Args', kind: 'kv', rows: argRows })
+  if (e.java_stack?.length) out.push({ title: 'Java stack', kind: 'stack', lines: e.java_stack.slice() })
+  if (e.backtrace.length) out.push({ title: 'Backtrace', kind: 'stack', lines: e.backtrace.map(f => `#${f.frame} ${f.symbol}`) })
+  return out
+}
+
+// Immediate native caller (backtrace[1], offset stripped), or '-'.
+function funcCaller(e: FuncEvent): string {
+  const s = e.backtrace[1]?.symbol
+  return s ? s.replace(/\+0x[0-9a-fA-F]+$/, '') : '-'
+}
+
+// Render one funcs record's full detail (single-record mode, master-table row click).
+export function showFuncsRecordDetail(host: HTMLElement, e: FuncEvent): void {
+  host.innerHTML = ''
+  const head = document.createElement('div')
+  head.className = 'insp-head'
+  head.textContent = `#${e.id} · ${e.module}!${e.symbol} · tid ${e.tid}`
+  host.appendChild(head)
+  const detail = document.createElement('div')
+  detail.className = 'insp-detail'
+  renderFuncDetail(detail, e)
+  host.appendChild(detail)
+}
+
+// DOM wrapper around funcDetailSections (mirrors renderEventDetail).
+function renderFuncDetail(host: HTMLElement, e: FuncEvent): void {
+  host.innerHTML = ''
+  for (const sec of funcDetailSections(e)) {
+    const card = document.createElement('div'); card.className = 'insp-card'
+    const h = document.createElement('div'); h.className = 'insp-card-h'
+    const t = document.createElement('span'); t.textContent = sec.title; h.appendChild(t)
+    if (sec.kind === 'stack') { const c = document.createElement('span'); c.className = 'insp-card-cnt'; c.textContent = String(sec.lines.length); h.appendChild(c) }
+    card.appendChild(h)
+    if (sec.kind === 'kv') {
+      const tbl = document.createElement('table'); tbl.className = 'insp-kv'
+      for (const [k, v] of sec.rows) {
+        const tr = document.createElement('tr')
+        const kd = document.createElement('td'); kd.textContent = k
+        const vd = document.createElement('td'); vd.textContent = v
+        tr.append(kd, vd); tbl.appendChild(tr)
+      }
+      card.appendChild(tbl)
+    } else {
+      const pre = document.createElement('div'); pre.className = 'insp-stack'
+      pre.textContent = sec.lines.join('\n')
+      card.appendChild(pre)
+    }
+    host.appendChild(card)
+  }
+}
+
+// Render the funcs records behind a clicked node: a compact table
+// (# / caller / retval / elapsed / args); clicking a row shows that record's detail.
+export function showFuncsNodeInspector(nodeId: string, records: FuncEvent[]): void {
+  const host = document.getElementById('inspector')
+  if (!host) return
+  host.innerHTML = ''
+  const head = document.createElement('div')
+  head.className = 'insp-head'
+  head.textContent = `${nodeId} - ${records.length} call(s)`
+  host.appendChild(head)
+
+  const detail = document.createElement('div')
+  detail.className = 'insp-detail'
+  const scroll = document.createElement('div')
+  scroll.className = 'insp-table-wrap'
+  const table = document.createElement('table')
+  table.className = 'insp-table'
+  const thead = document.createElement('thead')
+  const htr = document.createElement('tr')
+  for (const h of ['#', 'caller', 'ret', 'elapsed', 'args']) {
+    const th = document.createElement('th'); th.textContent = h; htr.appendChild(th)
+  }
+  thead.appendChild(htr); table.appendChild(thead)
+
+  const tbody = document.createElement('tbody')
+  let selected: HTMLTableRowElement | undefined
+  for (const ev of records.slice(0, 500)) {
+    const tr = document.createElement('tr')
+    const cells = [String(ev.id), funcCaller(ev),
+      ev.retval === undefined ? '-' : String(ev.retval),
+      ev.elapsed_ns === undefined ? '-' : `${ev.elapsed_ns} ns`, primaryFuncArg(ev)]
+    for (let i = 0; i < cells.length; i++) {
+      const td = document.createElement('td')
+      td.textContent = cells[i]
+      if (i === 4) td.className = 'insp-arg'
+      tr.appendChild(td)
+    }
+    tr.onclick = () => {
+      selected?.classList.remove('sel'); tr.classList.add('sel'); selected = tr
+      renderFuncDetail(detail, ev)
+    }
+    tbody.appendChild(tr)
+  }
+  table.appendChild(tbody); scroll.appendChild(table)
+  host.appendChild(scroll); host.appendChild(detail)
+
+  if (records[0]) {
+    renderFuncDetail(detail, records[0])
+    tbody.firstChild && (tbody.firstChild as HTMLTableRowElement).classList.add('sel')
+    selected = tbody.firstChild as HTMLTableRowElement
+  }
 }
