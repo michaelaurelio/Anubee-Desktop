@@ -1,9 +1,8 @@
 import { openSync, readSync, closeSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
-import type { SyscallEvent, FuncEvent, CoverageEvent } from '@shared/events'
+import type { SyscallEvent, CoverageEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
 import { capSlice, labelForId, mergeGraphs, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
-import { funcsAdapter } from '@shared/adapters/funcs'
 import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
 import { compileWhere, scoreWith, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
@@ -53,6 +52,21 @@ const CHAIN_SQL = `list_concat(
     s -> 'nat:' || regexp_replace(s, '\\+0x[0-9a-fA-F]+$', '')
   ),
   ['sys:' || syscall]
+)`
+
+// The funcs analogue of CHAIN_SQL, over `call` rows. Reversed java_stack, then
+// reversed backtrace; each cleaned "module!symbol" frame is promoted to fn: when
+// it is in the run's hooked-set (the `h.fns` list cross-joined in), else nat:.
+// Same cleaning as CHAIN_SQL: bare-address frames dropped, +0x offsets stripped.
+const FUNCS_CHAIN_SQL = `list_concat(
+  list_transform(array_reverse(coalesce(java_stack, [])), x -> 'java:' || x),
+  list_transform(
+    list_transform(
+      list_filter(array_reverse(list_transform(backtrace, b -> b.symbol)),
+                  s -> NOT (starts_with(s, '0x') AND NOT contains(s, '!'))),
+      s -> regexp_replace(s, '\\+0x[0-9a-fA-F]+$', '')),
+    s -> CASE WHEN list_contains(h.fns, s) THEN 'fn:' || s ELSE 'nat:' || s END
+  )
 )`
 
 // Rebuild a node's kind/label/module from its id via the shared labelForId.
@@ -262,42 +276,51 @@ export class GraphStore {
   // Aggregated syscall->native->java graph over the filtered events, capped.
   // Reconstructs identity + counts in SQL, then assembles GraphNodes with the
   // shared labelling - matched node-for-node against the foldEvents oracle.
+  // Unions in the funcs engine's own SQL chain (FUNCS_CHAIN_SQL) over `call`
+  // rows, matched against the foldFuncEvents oracle - a funcs run renders
+  // without a separate JS adapter. Shared `nat:` nodes across the two engines
+  // are intentional (mergeGraphs sums their counts into one node).
+  // GraphSlice.eventCount here counts syscall OR funcs rows (was syscall-only
+  // before the funcs union), so a funcs-only run reports a non-zero count.
   async slice(filter: Filter = {}, cap?: number, runId?: number): Promise<GraphSlice> {
     const rid = this.resolveRun(runId)
     const { where, params } = filterToSql(filter)
-    const scoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
-    const cte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${scoped})`
 
-    const nodeRows = await this.rows(
-      `${cte} SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`,
-      params,
-    )
-    const edgeRows = await this.rows(
-      `${cte} SELECT chain[i] AS src, chain[i + 1] AS tgt, count(*) AS c
-       FROM chains, range(1, len(chain)) AS t(i) GROUP BY src, tgt`,
-      params,
-    )
-    const eventCount = await this.scalar(`SELECT count(*) AS n FROM ev WHERE ${scoped}`, params)
+    // syscall chains (unchanged)
+    const sysScoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
+    const sysCte = `WITH chains AS (SELECT id AS eid, ${CHAIN_SQL} AS chain FROM ev WHERE ${sysScoped})`
+    const sysNodeRows = await this.rows(
+      `${sysCte} SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`, params)
+    const sysEdgeRows = await this.rows(
+      `${sysCte} SELECT chain[i] AS src, chain[i + 1] AS tgt, count(*) AS c
+       FROM chains, range(1, len(chain)) AS t(i) GROUP BY src, tgt`, params)
 
-    const sqlNodes = nodeRows.map(r => nodeFromId(r.nid as string, Number(r.c)))
-    const sqlEdges = edgeRows.map(r => {
-      const source = r.src as string
-      const target = r.tgt as string
+    // funcs chains: hooked-set cross-joined as h.fns; same aggregation shape.
+    // `span IS NULL` keeps this to funcs' own records - a span-tagged correlate
+    // `call` row must not leak into the funcs graph, the hooked-set, or eventCount.
+    const fnScoped = `run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where})`
+    const fnCte =
+      `WITH h AS (SELECT list(DISTINCT module || '!' || symbol) AS fns FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL),
+            chains AS (SELECT ${FUNCS_CHAIN_SQL} AS chain FROM ev, h WHERE ${fnScoped})`
+    const fnNodeRows = await this.rows(
+      `${fnCte} SELECT nid, count(*) AS c FROM (SELECT unnest(chain) AS nid FROM chains) GROUP BY nid`, params)
+    const fnEdgeRows = await this.rows(
+      `${fnCte} SELECT chain[i] AS src, chain[i + 1] AS tgt, count(*) AS c
+       FROM chains, range(1, len(chain)) AS t(i) GROUP BY src, tgt`, params)
+
+    const eventCount = await this.scalar(
+      `SELECT count(*) AS n FROM ev WHERE (${sysScoped}) OR (${fnScoped})`, [...params, ...params])
+
+    const toNodes = (rows: Record<string, unknown>[]) => rows.map(r => nodeFromId(r.nid as string, Number(r.c)))
+    const toEdges = (rows: Record<string, unknown>[]) => rows.map(r => {
+      const source = r.src as string, target = r.tgt as string
       return { id: `${source}=>${target}`, source, target, count: Number(r.c) }
     })
 
-    // Fold in the funcs engine's call/return records (retained alongside
-    // syscalls at ingest) via the shared adapter, so a funcs run renders
-    // without a separate code path. `span IS NULL` keeps this to funcs' own
-    // records (correlate's span-tagged rows, if any file carries them, are not
-    // rendered - the correlate adapter was removed).
-    const funcRows = await this.rows(
-      `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type IN ('call', 'return') AND span IS NULL`,
+    const { nodes, edges } = mergeGraphs(
+      { nodes: toNodes(sysNodeRows), edges: toEdges(sysEdgeRows) },
+      { nodes: toNodes(fnNodeRows), edges: toEdges(fnEdgeRows) },
     )
-    const funcEvents = funcRows.map(r => JSON.parse(r.js as string) as FuncEvent)
-    const fa = funcsAdapter(funcEvents)
-
-    const { nodes, edges } = mergeGraphs({ nodes: sqlNodes, edges: sqlEdges }, fa)
     return capSlice(nodes, edges, eventCount, cap)
   }
 

@@ -3,8 +3,8 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
-import { parseJsonl, isSyscall } from '@shared/ares-parse'
-import { foldEvents, type GraphSlice } from '@shared/graph-shape'
+import { parseJsonl, isSyscall, isCall } from '@shared/ares-parse'
+import { foldEvents, foldFuncEvents, type GraphSlice } from '@shared/graph-shape'
 import type { Rule } from '@shared/rasp-heuristics'
 
 // A trace with 2 root-check bridges (java + native), 1 java-less read, a
@@ -206,6 +206,21 @@ describe('GraphStore.slice', () => {
     expect(funcNode).toEqual({ id: 'fn:libexample.so!derive_key', kind: 'func', label: 'libexample.so!derive_key', module: null, count: 1 })
     const edge = slice.edges.find(e => e.id === 'nat:libexample.so!check_su=>fn:libexample.so!derive_key')
     expect(edge?.count).toBe(1)
+  })
+})
+
+describe('GraphStore.slice funcs', () => {
+  it('matches the foldFuncEvents oracle for a funcs run', async () => {
+    store = new GraphStore()
+    await store.ingest(funcsFixture())
+    const slice = await store.slice({})
+    const calls = parseJsonl(FUNCS_LINES.join('\n')).events.filter(isCall)
+    const oracle = foldFuncEvents(calls)
+    const norm = (s: { nodes: { id: string; count: number }[]; edges: { id: string; count: number }[] }) => ({
+      nodes: [...s.nodes].map(n => ({ id: n.id, count: n.count })).sort((a, b) => a.id.localeCompare(b.id)),
+      edges: [...s.edges].map(e => ({ id: e.id, count: e.count })).sort((a, b) => a.id.localeCompare(b.id)),
+    })
+    expect(norm(slice)).toEqual(norm(oracle))
   })
 })
 
