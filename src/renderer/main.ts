@@ -26,6 +26,9 @@ import type { GraphSlice } from '@shared/graph-shape'
 import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
 import { showModal, isModalOpen } from './modal'
+import { renderLogModal } from './log-view'
+import { logAppend } from './log-store'
+import { runLogged } from './run-logged'
 import { makeEpoch } from './selection-epoch'
 import type { SyscallEvent, FuncEvent } from '@shared/events'
 
@@ -156,7 +159,13 @@ async function refreshTags(): Promise<void> {
 
 async function persistTags(): Promise<void> {
   if (activeRunId === undefined) return
-  await window.ares.saveTags(activeRunId, tags)
+  try {
+    await window.ares.saveTags(activeRunId, tags)
+    logAppend('success', 'tags', 'Tags saved')
+  } catch (e) {
+    logAppend('error', 'tags', e instanceof Error ? e.message : String(e))
+    throw e
+  }
 }
 
 function redrawBadges(): void {
@@ -165,11 +174,6 @@ function redrawBadges(): void {
     if (b) n.data('badge', b)
     else n.removeData('badge')
   })
-}
-
-function status(text: string): void {
-  const el = document.getElementById('status')
-  if (el) el.textContent = text
 }
 
 function showTablePanel(visible: boolean): void {
@@ -495,7 +499,8 @@ function wireDiff(): void {
   document.getElementById('load-run-b')?.addEventListener('click', async () => {
     // Compare-load: ingests run B without the trace:loaded broadcast, so it never
     // steals activeRunId or repaints the primary panels with B's data.
-    const summary = await window.ares.openFileForCompare()
+    const summary = await runLogged('compare', () => window.ares.openFileForCompare(),
+      s => (s ? { level: s.errors > 0 ? 'warn' : 'success', message: `Compare loaded ${s.eventCount} events (${s.errors} parse errors)` } : null))
     if (summary) {
       runB = summary.runId
       await refreshTags()
@@ -654,6 +659,8 @@ function wireCapture(): void {
     preflightBtn.disabled = true
     try {
       const checks = await window.ares.tracerPreflight(pkg)
+      logAppend(checks.some(c => !c.ok) ? 'warn' : 'success', 'preflight',
+        `Preflight: ${checks.length} checks, ${checks.filter(c => !c.ok).length} failing`)
       if (!preflightEpoch.isCurrent(token)) return // superseded by an edit or another run; don't enable Start for stale inputs
       preflightOk = checks.every(c => c.ok)
       startBtn.disabled = !preflightOk
@@ -678,7 +685,8 @@ function wireCapture(): void {
     startBtn.disabled = true; stopBtn.disabled = false
     const timeout = binTimeout()
     try {
-      const r = await window.ares.tracerStart(cap.id, vals, timeout, saveIn?.value || undefined)
+      const r = await runLogged('capture', () => window.ares.tracerStart(cap.id, vals, timeout, saveIn?.value || undefined),
+        res => ({ level: res.code === 0 ? 'success' : 'error', message: `Capture ${cap.id} finished (${res.kind}, code ${res.code})` }))
       appendConsoleLine(consoleHost, `--- done (exit ${r.code}, kind ${r.kind}) ---`)
       if (r.kind === 'jsonl' && r.runId !== undefined) showView('graph')
     } catch (err) {
@@ -688,7 +696,7 @@ function wireCapture(): void {
     }
   })
 
-  stopBtn.addEventListener('click', () => void window.ares.tracerStop())
+  stopBtn.addEventListener('click', () => { logAppend('info', 'capture', 'Stop requested'); void window.ares.tracerStop() })
 
   function binTimeout(): number | undefined {
     const t = parseInt((document.getElementById('cap-timeout') as HTMLInputElement).value, 10)
@@ -712,23 +720,34 @@ function wireExport(): void {
   const md = document.getElementById('export-md')
   const json = document.getElementById('export-json')
   md?.addEventListener('click', () => {
-    if (activeRunId !== undefined) void window.ares.exportFindings(activeRunId, 'md').then(p => p && status(`Exported ${p}`))
+    if (activeRunId !== undefined) void runLogged('export', () => window.ares.exportFindings(activeRunId!, 'md'),
+      p => (p ? { level: 'success', message: `Exported ${p}` } : null))
   })
   json?.addEventListener('click', () => {
-    if (activeRunId !== undefined) void window.ares.exportFindings(activeRunId, 'json').then(p => p && status(`Exported ${p}`))
+    if (activeRunId !== undefined) void runLogged('export', () => window.ares.exportFindings(activeRunId!, 'json'),
+      p => (p ? { level: 'success', message: `Exported ${p}` } : null))
   })
 }
 
-window.ares.onProgress(pct => status(`Loading... ${pct}%`))
+window.ares.onProgress(pct => {
+  const wrap = document.getElementById('ingest-progress')
+  const bar = document.getElementById('ingest-bar')
+  const label = document.getElementById('ingest-pct')
+  if (!wrap || !bar || !label) return
+  wrap.classList.remove('hidden')
+  bar.style.width = `${pct}%`
+  label.textContent = `Loading... ${pct}%`
+})
 window.ares.onLoaded(s => {
   activeRunId = s.runId
   activeEngine = s.kinds.includes('funcs') && !s.kinds.includes('syscall') ? 'func' : 'syscall'
   tableOffset = 0 // a fresh run starts at page 1; a stale offset could land past its row count
   selectedRowId = undefined
   document.getElementById('empty-state')?.classList.add('hidden')
+  document.getElementById('ingest-progress')?.classList.add('hidden')
   showTablePanel(true)
   showSide(false) // clear a prior run's open detail; refreshOrphans re-opens it if this run has orphans
-  status(`Loaded ${s.eventCount} events (${s.errors} parse errors)`)
+  logAppend(s.errors > 0 ? 'warn' : 'success', 'load', `Loaded ${s.eventCount} events (${s.errors} parse errors)`)
   void refreshTags().then(() => {
     void refreshTable()
     refreshMiddle()
@@ -748,7 +767,7 @@ document.getElementById('rules-btn')?.addEventListener('click', () => {
   showModal({
     title: 'Rules',
     width: 640,
-    render: host => { void renderRules(host, activeRunId, () => { void recolorRasp(); void refreshSuggestions() }) },
+    render: host => { void renderRules(host, activeRunId, () => { logAppend('info', 'rules', 'Rules updated'); void recolorRasp(); void refreshSuggestions() }) },
   })
 })
 document.getElementById('pager-prev')?.addEventListener('click', () => {
@@ -812,13 +831,25 @@ window.addEventListener('keydown', e => {
   else if (e.key === '-' || e.code === 'NumpadSubtract') { e.preventDefault(); zoomBy(1 / 1.2) }
 })
 
-document.getElementById('file-open')?.addEventListener('click', () => { void window.ares.openFile() })
+document.getElementById('file-open')?.addEventListener('click', () => {
+  void runLogged('open', () => window.ares.openFile(), () => null)
+})
 document.getElementById('file-quit')?.addEventListener('click', () => { void window.ares.quit() })
 document.getElementById('file-capture')?.addEventListener('click', () => openCaptureModal())
+document.getElementById('file-log')?.addEventListener('click', () => {
+  let cleanup: (() => void) | undefined
+  showModal({
+    title: 'Activity log',
+    width: 720,
+    render: h => { cleanup = renderLogModal(h) },
+    onClose: () => { cleanup?.(); cleanup = undefined },
+  })
+})
 
 // Registered once (not per Capture-modal open) so re-opening Capture doesn't
 // stack tracer:line subscriptions; appends to whichever cap-console is live.
 window.ares.onTracerLine(line => {
+  logAppend('info', 'tracer', line)
   const c = document.getElementById('cap-console')
   if (c) appendConsoleLine(c, line)
 })

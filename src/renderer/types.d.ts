@@ -40,6 +40,7 @@ declare global {
       dismissedSave(runId: number, dismissed: import('@shared/project-store').Dismissed[]): Promise<void>
       orphans(runId: number, targets: string[]): Promise<string[]>
       exportFindings: (runId: number, format: 'md' | 'json') => Promise<string | null>
+      logSave(text: string): Promise<string | null>
       onProgress(cb: (pct: number) => void): void
       onLoaded(cb: (s: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }) => void): void
       getTracerConfig(): Promise<{ aresBinary: string; specsDir: string }>

@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('ares', {
   orphans: (runId: number, targets: string[]) => ipcRenderer.invoke('tags:orphans', runId, targets),
   exportFindings: (runId: number, format: 'md' | 'json') =>
     ipcRenderer.invoke('findings:export', runId, format),
+  logSave: (text: string) => ipcRenderer.invoke('log:save', text),
   onProgress: (cb: (pct: number) => void) =>
     ipcRenderer.on('trace:progress', (_e, pct) => cb(pct as number)),
   onLoaded: (cb: (s: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }) => void) =>
