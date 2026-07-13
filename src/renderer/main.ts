@@ -324,9 +324,8 @@ function refreshMiddle(): void {
   // graph view refreshes on row selection, not on filter apply
 }
 
-// Draws a fetched GraphSlice into the cytoscape canvas. Shared by selectRow
-// (a table row's filtered slice) and the syscall-less run auto-trigger below
-// (a funcs-only run has no table rows to select, so nothing else calls this).
+// Draws a fetched GraphSlice into the cytoscape canvas. Called by selectRow
+// with a table row's filtered slice (funcs and syscall runs both list rows).
 async function renderSlice(slice: GraphSlice): Promise<void> {
   const els = sliceToElements(slice)
   cy.elements().remove()

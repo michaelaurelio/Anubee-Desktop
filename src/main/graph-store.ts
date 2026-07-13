@@ -257,7 +257,7 @@ export class GraphStore {
            r.retval AS retval, r.elapsed_ns AS elapsed,
            coalesce(nullif(array_to_string(map_values(c.string_args), ' '), ''),
                     nullif(array_to_string(c.args, ' '), '')) AS arg
-         FROM calls c LEFT JOIN ev r ON r.run_id = ${rid} AND r.type = 'return' AND r.id = c.id
+         FROM calls c LEFT JOIN ev r ON r.run_id = ${rid} AND r.type = 'return' AND r.span IS NULL AND r.id = c.id
          ORDER BY c.id LIMIT ${limit} OFFSET ${offset}`, params)
       return rows.map(r => ({
         id: num(r.id)!, tid: num(r.tid)!, engine: 'func' as const,
