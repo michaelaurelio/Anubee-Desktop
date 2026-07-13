@@ -26,6 +26,7 @@ import type { GraphSlice } from '@shared/graph-shape'
 import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
 import { showModal, isModalOpen } from './modal'
+import { renderLogModal } from './log-view'
 import { makeEpoch } from './selection-epoch'
 import type { SyscallEvent, FuncEvent } from '@shared/events'
 
@@ -815,6 +816,15 @@ window.addEventListener('keydown', e => {
 document.getElementById('file-open')?.addEventListener('click', () => { void window.ares.openFile() })
 document.getElementById('file-quit')?.addEventListener('click', () => { void window.ares.quit() })
 document.getElementById('file-capture')?.addEventListener('click', () => openCaptureModal())
+document.getElementById('file-log')?.addEventListener('click', () => {
+  let cleanup: (() => void) | undefined
+  showModal({
+    title: 'Activity log',
+    width: 720,
+    render: h => { cleanup = renderLogModal(h) },
+    onClose: () => { cleanup?.(); cleanup = undefined },
+  })
+})
 
 // Registered once (not per Capture-modal open) so re-opening Capture doesn't
 // stack tracer:line subscriptions; appends to whichever cap-console is live.

@@ -299,6 +299,16 @@
       .node-menu-item:hover { background: var(--hover); }
       .tag-popup { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
                    box-shadow: 0 8px 24px rgba(0,0,0,.4); padding: 8px; min-width: 260px; max-width: 360px; }
+      /* activity log modal */
+      .log-term { height: 340px; overflow-y: auto; background: var(--panel, #10151f);
+        border: 1px solid var(--border, #2a2f3a); border-radius: 6px; padding: 8px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; }
+      .log-line { white-space: pre-wrap; word-break: break-all; color: var(--text); }
+      .log-line.log-success { color: #5fd28f; }
+      .log-line.log-warn { color: #d9a441; }
+      .log-line.log-error { color: #ff8b7a; }
+      .log-empty { color: var(--muted, #7f8ba0); font-style: italic; }
+      .log-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 
       /* shared centered modal (Capture / Rules / Suggestions) */
       .modal-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(4,7,12,.62);
@@ -352,6 +362,7 @@
           <button id="file-capture" class="btn">Capture&hellip;</button>
           <button id="export-md" class="btn">Export Markdown</button>
           <button id="export-json" class="btn">Export JSON</button>
+          <button id="file-log" class="btn">Log&hellip;</button>
           <button id="file-quit" class="btn">Quit</button>
         </div>
       </div>
