@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { ALL_COLUMNS, DEFAULT_COLUMNS, serializeColumns, parseColumns, columnsForEngine, type ColumnKey } from '../src/renderer/columns'
-import { columnCatalogue, SYSCALL_COLUMNS, FUNCS_COLUMNS } from '../src/renderer/columns'
+import { columnCatalogue, SYSCALL_COLUMNS, FUNCS_COLUMNS, parseLayout, serializeLayout, type ColumnLayout } from '../src/renderer/columns'
 
 describe('columns module', () => {
   it('default set is the six and every key is in the catalogue', () => {
@@ -49,5 +49,46 @@ describe('columnsForEngine', () => {
   it('falls back to the engine default when nothing is saved', () => {
     expect(columnsForEngine('func', null)).toEqual([...FUNCS_COLUMNS])
     expect(columnsForEngine('syscall', null)).toEqual(['id', 'syscall', 'topJava', 'topNative', 'arg', 'tags'])
+  })
+})
+
+describe('parseLayout', () => {
+  it('defaults a syscall run to the stacked call-site columns', () => {
+    const l = parseLayout('syscall', null)
+    expect(l.columns).toEqual(['id', 'syscall', 'callSite', 'arg', 'tags'])
+    expect(l.callSite).toBe('stacked')
+    expect(l.widths).toEqual({})
+  })
+  it('defaults a funcs run to the stacked funcs columns', () => {
+    expect(parseLayout('func', null).columns).toEqual(['id', 'callSite', 'retval', 'elapsed', 'arg'])
+  })
+  it('reads a legacy bare-array string as columns with stacked mode + no widths', () => {
+    const l = parseLayout('syscall', JSON.stringify(['id', 'syscall', 'arg']))
+    expect(l.columns).toEqual(['id', 'syscall', 'arg'])
+    expect(l.callSite).toBe('stacked')
+  })
+  it('round-trips a full layout and forces id present', () => {
+    const src: ColumnLayout = { columns: ['syscall', 'callSite'], widths: { callSite: 260 }, callSite: 'split' }
+    const l = parseLayout('syscall', serializeLayout(src))
+    expect(l.columns[0]).toBe('id')
+    expect(l.widths.callSite).toBe(260)
+    expect(l.callSite).toBe('split')
+  })
+})
+
+describe('columnCatalogue mode', () => {
+  it('stacked syscall offers callSite, not the split java/native columns', () => {
+    const keys = columnCatalogue('syscall', 'stacked').map(c => c.key)
+    expect(keys).toContain('callSite')
+    expect(keys).not.toContain('topJava')
+  })
+  it('split syscall offers topJava/topNative, not callSite', () => {
+    const keys = columnCatalogue('syscall', 'split').map(c => c.key)
+    expect(keys).toContain('topJava')
+    expect(keys).not.toContain('callSite')
+  })
+  it('split funcs offers function/caller, stacked offers callSite', () => {
+    expect(columnCatalogue('func', 'split').map(c => c.key)).toContain('fn')
+    expect(columnCatalogue('func', 'stacked').map(c => c.key)).toContain('callSite')
   })
 })

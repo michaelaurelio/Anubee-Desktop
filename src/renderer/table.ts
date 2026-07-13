@@ -18,6 +18,7 @@ const CELL: Record<ColumnKey, (r: TableRow, badge: string) => string> = {
   elapsed: r => (r.elapsed === null || r.elapsed === undefined ? '' : `${r.elapsed} ns`),
   arg: r => r.arg,
   tags: (_r, badge) => badge,
+  callSite: () => '', // Task 2: placeholder for merged call-site rendering (TBD)
 }
 
 // Render the master table into #table from a caller-chosen ordered column set.
