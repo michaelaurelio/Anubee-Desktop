@@ -4,7 +4,7 @@ import { wirePanels } from './panels'
 import { sliceToElements, filterForRow } from './graph-view'
 import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
-import { ALL_COLUMNS, parseColumns, serializeColumns, columnsForEngine, type ColumnKey } from './columns'
+import { serializeColumns, columnsForEngine, columnCatalogue, type ColumnKey } from './columns'
 import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector, showRecordDetail } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
@@ -130,6 +130,16 @@ async function recolorRasp(): Promise<void> {
 
 let activeRunId: number | undefined
 let activeEngine: 'syscall' | 'func' = 'syscall'
+
+// Per-engine column preference key. The legacy `ares.columns` (syscall-only) is
+// read as the syscall fallback so a returning user keeps their saved columns.
+function columnsKey(engine: 'syscall' | 'func'): string {
+  return `ares.columns.${engine}`
+}
+function savedColumns(engine: 'syscall' | 'func'): string | null {
+  return localStorage.getItem(columnsKey(engine)) ?? (engine === 'syscall' ? localStorage.getItem('ares.columns') : null)
+}
+
 let tags: Tag[] = []
 let dismissed: Dismissed[] = []
 let runB: number | undefined
@@ -191,7 +201,7 @@ const TABLE_PAGE = 500
 let tableOffset = 0
 let selectedRowId: number | undefined // the row whose detail is open, so re-renders can re-highlight it
 const selEpoch = makeEpoch() // guards stale-async paints across row-select / node-tap / canvas-clear
-let currentColumns: ColumnKey[] = parseColumns(localStorage.getItem('ares.columns'))
+let currentColumns: ColumnKey[] = columnsForEngine(activeEngine, savedColumns(activeEngine))
 
 function renderPager(offset: number, pageLen: number, total: number): void {
   const rng = document.getElementById('pager-range')
@@ -221,8 +231,8 @@ async function refreshTable(): Promise<void> {
     window.ares.table(filter, { limit: TABLE_PAGE, offset: tableOffset }, activeRunId),
     window.ares.count(filter, activeRunId),
   ])
-  const cols = columnsForEngine(activeEngine, localStorage.getItem('ares.columns'))
-  renderTable(rows, cols, selectRow, tableBadgeFor)
+  currentColumns = columnsForEngine(activeEngine, savedColumns(activeEngine))
+  renderTable(rows, currentColumns, selectRow, tableBadgeFor)
   if (selectedRowId !== undefined) highlightTableRow(selectedRowId) // survive paging/filter/column re-render
   renderPager(tableOffset, rows.length, total)
   status(total > rows.length ? `showing ${rows.length} of ${total} rows` : `${total} rows`)
@@ -745,7 +755,7 @@ function openColumnsModal(): void {
     title: 'Table columns',
     width: 300,
     render: host => {
-      for (const def of ALL_COLUMNS) {
+      for (const def of columnCatalogue(activeEngine)) {
         const row = document.createElement('label')
         row.className = 'col-row' + (def.fixed ? ' fixed' : '')
         const cb = document.createElement('input')
@@ -756,8 +766,8 @@ function openColumnsModal(): void {
           const set = new Set(currentColumns)
           if (cb.checked) set.add(def.key); else set.delete(def.key)
           set.add('id')
-          currentColumns = ALL_COLUMNS.map(d => d.key).filter(k => set.has(k))
-          localStorage.setItem('ares.columns', serializeColumns(currentColumns))
+          currentColumns = columnCatalogue(activeEngine).map(d => d.key).filter(k => set.has(k))
+          localStorage.setItem(columnsKey(activeEngine), serializeColumns(currentColumns))
           void refreshTable()
         })
         const span = document.createElement('span')
