@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall, isCall } from '@shared/ares-parse'
-import { foldEvents, foldFuncEvents, type GraphSlice } from '@shared/graph-shape'
+import { foldEvents, foldFuncEvents, chainOfCfi, type GraphSlice } from '@shared/graph-shape'
 import type { Rule } from '@shared/rasp-heuristics'
 
 // A trace with 2 root-check bridges (java + native), 1 java-less read, a
@@ -235,6 +235,56 @@ describe('GraphStore.slice', () => {
 
     // And the SQL slice still equals the pure-TS oracle for this input.
     const oracle = foldEvents(parseJsonl([withOff, noOff].join('\n')).events.filter(isSyscall))
+    expect(normNodes(slice)).toEqual(normNodes(oracle))
+    expect(normEdges(slice)).toEqual(normEdges(oracle))
+  })
+
+  it('uses the cfi_stack sidecar to place the outer-native caller above java', async () => {
+    const sys = JSON.stringify({
+      type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 29, syscall: 'ioctl',
+      args: [], retval: 0, string_args: {}, fd_args: {}, decoded_args: {}, stack_id: 11,
+      java_stack: ['com.android.internal.os.Zygote.callPostForkChildHooks'],
+      backtrace: [{ frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8' }],
+    })
+    const cfi = JSON.stringify({
+      type: 'cfi_stack', pid: 100, tid: 101, stack_id: 11,
+      cfi_backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8', kind: 'native' },
+        { frame: 1, addr: '0x5', symbol: 'boot.oat!com.android.internal.os.Zygote.callPostForkChildHooks+0x28', kind: 'managed' },
+        { frame: 2, addr: '0x7', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' },
+      ],
+    })
+    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, sys + '\n')
+    writeFileSync(p + '.stacks', cfi + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const slice = await store.slice()
+
+    // The outer-native caller is present and sits ABOVE the java frame.
+    expect(slice.nodes.map(n => n.id)).toContain('nat:libandroid_runtime.so!SpecializeCommon')
+    expect(slice.edges.find(e =>
+      e.id === 'nat:libandroid_runtime.so!SpecializeCommon=>java:com.android.internal.os.Zygote.callPostForkChildHooks',
+    )).toBeTruthy()
+    // The java frame is NOT a root: nothing points *from* it back up to native above it,
+    // and the outer-native node is a source, proving the fallback (java-as-root) was not used.
+    const oracle = chainOfCfi(
+      JSON.parse(cfi).cfi_backtrace, 'sys:ioctl',
+    ).map(n => n.id)
+    // walk the oracle chain's edges and assert each exists in the slice
+    for (let i = 1; i < oracle.length; i++) {
+      const id = `${oracle[i - 1]}=>${oracle[i]}`
+      expect(slice.edges.find(e => e.id === id), `missing edge ${id}`).toBeTruthy()
+    }
+  })
+
+  it('falls back to CHAIN_SQL for a syscall row whose stack_id has no cfi_stack', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture()) // LINES: syscalls with java_stack, no .stacks sidecar
+    const oracle = foldEvents(oracleEvents)
+    const slice = await store.slice()
     expect(normNodes(slice)).toEqual(normNodes(oracle))
     expect(normEdges(slice)).toEqual(normEdges(oracle))
   })
