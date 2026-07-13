@@ -1022,8 +1022,8 @@ window.ares.onConfirmClose(() => {
       const save = mk('Save', 'btn pri', async () => {
         if (activeRunId === undefined) { respond('close'); closeModal(); return }
         const r = await window.ares.saveProject(activeRunId, currentLayout)
-        if ('path' in r && r.path) { dirty = false; respond('close'); closeModal() }
-        else respond('cancel') // save dialog canceled/failed - abort close, leave the confirm dialog open to retry
+        if (r && 'path' in r && r.path) { dirty = false; respond('close'); closeModal() }
+        // else: the save dialog was canceled - leave this modal open so the user can choose again; do NOT respond or close.
       })
       const dont = mk("Don't Save", 'btn', () => { respond('close'); closeModal() })
       const cancel = mk('Cancel', 'btn', () => { respond('cancel'); closeModal() })
