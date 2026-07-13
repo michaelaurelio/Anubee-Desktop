@@ -9,6 +9,28 @@ export interface BacktraceFrame {
   java?: string
 }
 
+// One frame of a cfi_stack record's ordered CFI walk. `kind` tags the frame so
+// the graph can place managed vs native vs the interpreter boundary in true order
+// - verified against ../ARES/src/common/symbolize.c ares_emit_cfi_stack_json.
+export interface CfiFrame {
+  frame: number
+  addr: string
+  symbol: string
+  kind: 'native' | 'managed' | 'interp' | 'jni-trampoline'
+}
+
+// A `cfi_stack` record from the `<run>.jsonl.stacks` sidecar: the full ordered
+// walk for one stack_id (innermost-first). Interpreted methods appear inline as
+// kind:'interp' frames with addr '0x0'; the interpreter entry machinery is
+// kind:'interp' with a real addr.
+export interface CfiStackEvent {
+  type: 'cfi_stack'
+  pid: number
+  tid: number
+  stack_id?: string
+  cfi_backtrace: CfiFrame[]
+}
+
 export interface SyscallEvent {
   type: 'syscall'
   id: number
@@ -48,6 +70,7 @@ export interface CoverageEvent {
 export interface FuncEvent {
   type: 'call' | 'return'
   id: number
+  stack_id?: string
   pid: number
   tid: number
   ppid?: number
@@ -73,4 +96,4 @@ export interface UnknownEvent {
   [k: string]: unknown
 }
 
-export type TraceEvent = SyscallEvent | CoverageEvent | FuncEvent | UnknownEvent
+export type TraceEvent = SyscallEvent | CoverageEvent | FuncEvent | CfiStackEvent | UnknownEvent
