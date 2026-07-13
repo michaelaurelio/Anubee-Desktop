@@ -437,15 +437,17 @@ cy.on('tap', 'node', evt => {
   const nodeId = node.id()
   highlightNeighborhood(cy, node)
   showSide(true)
+  const nodeKind = node.data('kind') as string | undefined
+  const nodeCats = tagsByTarget(tags, nodeId).map(t => t.category)
   if (activeEngine === 'func') {
     closeOffsetPopup()
     void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(records => {
       if (!selEpoch.isCurrent(e)) return // stale inspector repaint
-      showFuncsNodeInspector(nodeId, records as FuncEvent[])
+      showFuncsNodeInspector(nodeId, records as FuncEvent[], { kind: nodeKind, cats: nodeCats })
     })
     return
   }
-  if (node.data('kind') === 'native') {
+  if (nodeKind === 'native') {
     const box = nodeBox(node)
     void Promise.all([
       window.ares.nodeOffsets(nodeId, currentFilter(), activeRunId),
@@ -453,7 +455,7 @@ cy.on('tap', 'node', evt => {
     ]).then(([rows, rawEvents]) => {
       if (!selEpoch.isCurrent(e)) return // node deselected / another selected during the round-trip
       const events = rawEvents as SyscallEvent[]
-      showNodeInspector(nodeId, events)
+      showNodeInspector(nodeId, events, { kind: nodeKind, cats: nodeCats })
       showOffsetPopup({ nodeId, rows, anchor: box, eventForOffset: (row) => eventForOffset(events, row) })
     })
   } else {
@@ -461,7 +463,7 @@ cy.on('tap', 'node', evt => {
     void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(rawEvents => {
       if (!selEpoch.isCurrent(e)) return // stale inspector repaint
       const events = rawEvents as SyscallEvent[]
-      showNodeInspector(nodeId, events)
+      showNodeInspector(nodeId, events, { kind: nodeKind, cats: nodeCats })
     })
   }
 })

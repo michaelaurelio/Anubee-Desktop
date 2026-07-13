@@ -249,26 +249,52 @@
       .tag-editor .tag-existing { display: flex; flex-direction: column; gap: 3px; color: var(--muted); }
       /* inspector: records-behind-a-node table + detail */
       .insp-head { font-weight: 600; color: var(--text); margin-bottom: 6px; word-break: break-all; font-size: 12px; }
+      .insp-head-title { display: flex; align-items: center; gap: 8px; }
+      .insp-kdot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: var(--muted); }
+      .insp-kdot.k-java { background: var(--k-java); }
+      .insp-kdot.k-native { background: var(--k-native); }
+      .insp-kdot.k-syscall { background: var(--k-syscall); }
+      .insp-kdot.k-func { background: var(--k-func); }
+      .insp-head-nm { font: 12px var(--mono); color: var(--text); word-break: break-all; }
+      .insp-head-nm.k-java { color: var(--k-java); }
+      .insp-head-nm.k-native { color: var(--k-native); }
+      .insp-head-nm.k-syscall { color: var(--k-syscall); }
+      .insp-head-nm.k-func { color: var(--k-func); }
+      .insp-pill { margin-left: auto; font-size: 10px; color: var(--muted); background: var(--stripe);
+        border: 1px solid var(--border-soft); border-radius: 20px; padding: 2px 8px; white-space: nowrap; }
+      .insp-head-cats { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
       .insp-table-wrap { max-height: 40vh; overflow: auto; border: 1px solid var(--border-soft); border-radius: 6px; }
       .insp-table { width: 100%; border-collapse: collapse; font-size: 11px; }
       .insp-table th { position: sticky; top: 0; background: var(--bar); color: var(--muted); text-align: left;
         font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--border); }
       .insp-table td { padding: 3px 6px; color: var(--text); border-bottom: 1px solid var(--border-soft);
         white-space: nowrap; font-family: var(--mono); }
+      .insp-table td.insp-rsys { color: var(--k-syscall); }
+      .insp-table td.insp-rneg { color: var(--k-syscall); }
       .insp-table td.insp-arg { white-space: normal; word-break: break-all; color: var(--muted); font-family: var(--font); max-width: 220px; }
       .insp-table tbody tr { cursor: pointer; }
-      .insp-table tbody tr:hover { background: var(--hover); }
-      .insp-table tbody tr.sel { background: var(--hover); outline: 1px solid var(--border); }
+      .insp-table tbody tr:hover td { background: var(--hover); }
+      .insp-table tbody tr.sel td { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent-fg); }
       .insp-detail { margin-top: 8px; display: flex; flex-direction: column; gap: 9px; }
       .insp-card { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel-2); }
       .insp-card-h { display: flex; justify-content: space-between; align-items: center; padding: 5px 10px;
-                     background: var(--stripe); font-size: 11px; font-weight: 600; color: var(--text); }
+                     background: var(--stripe); font-size: 11px; font-weight: 600; color: var(--text);
+                     border-left: 2px solid var(--accent-fg); }
       .insp-card-cnt { color: var(--muted); font-weight: 400; }
       .insp-kv { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
       .insp-kv td { padding: 4px 10px; border-bottom: 1px solid var(--stripe); vertical-align: top; }
       .insp-kv td:first-child { color: var(--muted); white-space: nowrap; width: 90px; }
       .insp-kv tr:last-child td { border-bottom: 0; }
-      .insp-stack { padding: 7px 10px; font-family: var(--mono); font-size: 11px; white-space: pre-wrap; line-height: 1.5; }
+      /* backtrace/java-stack frame rows; the app's own frame (highlight) is
+         called out against the bionic/ART scaffolding via .f.app / .f.sys */
+      .bt { padding: 7px 10px; font-family: var(--mono); font-size: 10.5px; line-height: 1.7; }
+      .bt .f { display: flex; gap: 8px; }
+      .bt .idx { color: var(--muted); flex: 0 0 22px; }
+      .bt .sym { color: var(--text); word-break: break-all; }
+      .bt .off { color: var(--muted); }
+      .bt .f.app { background: color-mix(in srgb, var(--cat-root) 12%, transparent); border-radius: 4px; margin: 0 -4px; padding: 0 4px; }
+      .bt .f.app .sym { color: var(--cat-root); font-weight: 600; }
+      .bt .f.sys .sym { color: var(--muted); }
       /* suggestions (opened from the rail button, into a modal body) */
       .sug-head { font-weight: 600; color: var(--text); margin-bottom: 8px; }
       .sug-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }
