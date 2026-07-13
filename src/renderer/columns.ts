@@ -2,6 +2,7 @@
 // Pure (no DOM): the renderer chooses a subset, table.ts renders it, main.ts
 // persists the choice to localStorage. `id` is always present.
 export type ColumnKey = 'id' | 'tid' | 'syscall' | 'java' | 'topJava' | 'topNative' | 'arg' | 'tags'
+  | 'fn' | 'caller' | 'retval' | 'elapsed'
 
 export interface ColumnDef { key: ColumnKey; label: string; fixed?: boolean }
 
@@ -12,11 +13,16 @@ export const ALL_COLUMNS: ColumnDef[] = [
   { key: 'java', label: 'java?' },
   { key: 'topJava', label: 'top java' },
   { key: 'topNative', label: 'top native' },
+  { key: 'fn', label: 'function' },
+  { key: 'caller', label: 'caller' },
+  { key: 'retval', label: 'retval' },
+  { key: 'elapsed', label: 'elapsed' },
   { key: 'arg', label: 'args' },
   { key: 'tags', label: 'tags' },
 ]
 
 export const DEFAULT_COLUMNS: ColumnKey[] = ['id', 'syscall', 'topJava', 'topNative', 'arg', 'tags']
+export const FUNCS_COLUMNS: ColumnKey[] = ['id', 'fn', 'caller', 'retval', 'elapsed', 'arg']
 
 const VALID = new Set<ColumnKey>(ALL_COLUMNS.map(c => c.key))
 
@@ -32,4 +38,12 @@ export function parseColumns(raw: string | null): ColumnKey[] {
   const keys = (arr as unknown[]).filter((k): k is ColumnKey => typeof k === 'string' && VALID.has(k as ColumnKey))
   if (!keys.includes('id')) keys.unshift('id')
   return keys.length ? keys : [...DEFAULT_COLUMNS]
+}
+
+// The visible columns for a run: funcs runs get a fixed funcs set; syscall runs
+// use the saved preference (or the syscall default). Column config persistence
+// stays syscall-only in Phase 1.
+export function columnsForEngine(engine: 'syscall' | 'func', saved: string | null): ColumnKey[] {
+  if (engine === 'func') return [...FUNCS_COLUMNS]
+  return parseColumns(saved)
 }

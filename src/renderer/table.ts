@@ -12,6 +12,10 @@ const CELL: Record<ColumnKey, (r: TableRow, badge: string) => string> = {
   java: r => (r.hasJava ? '✓' : ''),
   topJava: r => r.topJava ?? '',
   topNative: r => r.topNative ?? '',
+  fn: r => r.fn ?? '',
+  caller: r => r.caller ?? '',
+  retval: r => (r.retval === null || r.retval === undefined ? '' : String(r.retval)),
+  elapsed: r => (r.elapsed === null || r.elapsed === undefined ? '' : `${r.elapsed} ns`),
   arg: r => r.arg,
   tags: (_r, badge) => badge,
 }

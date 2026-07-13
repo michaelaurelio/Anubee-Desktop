@@ -65,6 +65,11 @@ describe('filterForRow', () => {
     expect(filterForRow(row(), { library: 'libexample' }))
       .toEqual({ library: 'libexample', text: 'com.example.Sec.check', hasJavaStack: true })
   })
+
+  it('filterForRow selects a funcs row by module + symbol', () => {
+    const row = { id: 1, tid: 1, engine: 'func', syscall: '', retval: null, hasJava: false, topJava: null, topNative: null, arg: '', fn: 'libc.so!getProp', caller: null, elapsed: null } as never
+    expect(filterForRow(row)).toEqual({ module: 'libc.so', symbol: 'getProp' })
+  })
 })
 
 describe('truncateLabel', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ALL_COLUMNS, DEFAULT_COLUMNS, serializeColumns, parseColumns, type ColumnKey } from '../src/renderer/columns'
+import { ALL_COLUMNS, DEFAULT_COLUMNS, serializeColumns, parseColumns, columnsForEngine, type ColumnKey } from '../src/renderer/columns'
 
 describe('columns module', () => {
   it('default set is the six and every key is in the catalogue', () => {
@@ -20,5 +20,12 @@ describe('columns module', () => {
 
   it('drops unknown keys and always includes id', () => {
     expect(parseColumns(JSON.stringify(['syscall', 'bogus']))).toEqual(['id', 'syscall'])
+  })
+
+  it('uses funcs columns for a funcs run', () => {
+    expect(columnsForEngine('func', null)).toEqual(['id', 'fn', 'caller', 'retval', 'elapsed', 'arg'])
+  })
+  it('uses the saved/default syscall columns for a syscall run', () => {
+    expect(columnsForEngine('syscall', null)).toEqual(['id', 'syscall', 'topJava', 'topNative', 'arg', 'tags'])
   })
 })

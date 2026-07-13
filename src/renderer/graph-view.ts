@@ -82,6 +82,10 @@ export function elkResultToPositions(result: ElkLaidOut): Record<string, { x: nu
 // A java-bearing row selects by its java method; a java-less row falls back to
 // syscall + tid. The active toolbar filter is ANDed underneath.
 export function filterForRow(row: TableRow, active: Filter = {}): Filter {
+  if (row.engine === 'func') {
+    const bang = (row.fn ?? '').indexOf('!')
+    return { ...active, module: (row.fn ?? '').slice(0, bang), symbol: (row.fn ?? '').slice(bang + 1) }
+  }
   const f: Filter = { ...active }
   if (row.topJava) {
     f.text = row.topJava

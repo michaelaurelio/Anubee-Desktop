@@ -4,7 +4,7 @@ import { wirePanels } from './panels'
 import { sliceToElements, filterForRow } from './graph-view'
 import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
-import { ALL_COLUMNS, parseColumns, serializeColumns, type ColumnKey } from './columns'
+import { ALL_COLUMNS, parseColumns, serializeColumns, columnsForEngine, type ColumnKey } from './columns'
 import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector, showRecordDetail } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
@@ -129,6 +129,7 @@ async function recolorRasp(): Promise<void> {
 }
 
 let activeRunId: number | undefined
+let activeEngine: 'syscall' | 'func' = 'syscall'
 let tags: Tag[] = []
 let dismissed: Dismissed[] = []
 let runB: number | undefined
@@ -220,7 +221,8 @@ async function refreshTable(): Promise<void> {
     window.ares.table(filter, { limit: TABLE_PAGE, offset: tableOffset }, activeRunId),
     window.ares.count(filter, activeRunId),
   ])
-  renderTable(rows, currentColumns, selectRow, tableBadgeFor)
+  const cols = columnsForEngine(activeEngine, localStorage.getItem('ares.columns'))
+  renderTable(rows, cols, selectRow, tableBadgeFor)
   if (selectedRowId !== undefined) highlightTableRow(selectedRowId) // survive paging/filter/column re-render
   renderPager(tableOffset, rows.length, total)
   status(total > rows.length ? `showing ${rows.length} of ${total} rows` : `${total} rows`)
@@ -698,6 +700,7 @@ function wireExport(): void {
 window.ares.onProgress(pct => status(`Loading... ${pct}%`))
 window.ares.onLoaded(s => {
   activeRunId = s.runId
+  activeEngine = s.kinds.includes('funcs') && !s.kinds.includes('syscall') ? 'func' : 'syscall'
   tableOffset = 0 // a fresh run starts at page 1; a stale offset could land past its row count
   selectedRowId = undefined
   document.getElementById('empty-state')?.classList.add('hidden')
@@ -711,18 +714,8 @@ window.ares.onLoaded(s => {
     void refreshSuggestions()
     void refreshOrphans()
   })
-  // A funcs-only run has zero syscalls: the table is empty, so selectRow never
-  // fires and the graph would stay blank. Render its slice directly instead -
-  // the funcs adapter (merged into slice() in EPIC A) is the only content.
-  let renderTrigger: Promise<void> = Promise.resolve()
-  if (s.eventCount === 0) {
-    showView('graph')
-    renderTrigger = window.ares.slice({}, GRAPH_SLICE_CAP, s.runId).then(renderSlice)
-  }
-  // EPIC A coverage health banner: not graph data, so it waits for any
-  // auto-triggered render above to settle first (renderSlice's own
-  // showBanner(false) call would otherwise clobber this one).
-  void renderTrigger.then(() => window.ares.coverage(s.runId)).then(cov => {
+  // Coverage health banner (not graph data).
+  void window.ares.coverage(s.runId).then(cov => {
     if (!cov) return
     showBanner(true, `Coverage: ${cov.snaps.total} snapshots (${cov.snaps.truncated} truncated) · CFI walks ${cov.cfi.walks}`)
   })
