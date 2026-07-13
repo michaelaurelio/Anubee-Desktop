@@ -53,6 +53,7 @@ export interface FuncEvent {
   symbol: string
   entry_addr: string
   backtrace: BacktraceFrame[]
+  java_stack?: string[]
   retval?: number // return only
   elapsed_ns?: number // return only
 }

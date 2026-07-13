@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { chainOf, foldEvents, labelForId, capSlice, mergeGraphs, nativeNodeId } from '@shared/graph-shape'
-import type { SyscallEvent } from '@shared/events'
+import { chainOf, foldEvents, labelForId, capSlice, mergeGraphs, nativeNodeId, chainOfFunc, foldFuncEvents } from '@shared/graph-shape'
+import type { SyscallEvent, FuncEvent } from '@shared/events'
 
 function syscall(over: Partial<SyscallEvent> = {}): SyscallEvent {
   return {
@@ -180,5 +180,46 @@ describe('nativeNodeId', () => {
   })
   it('bare address is null', () => {
     expect(nativeNodeId('0x7fabc')).toBeNull()
+  })
+})
+
+const fcall = (bt: [number, string][]): FuncEvent => ({
+  type: 'call', pid: 1, tid: 1, module: 'libexample.so', symbol: 'checkRoot',
+  entry_addr: '0x0',
+  backtrace: bt.map(([frame, symbol]) => ({ frame, addr: '0x0', symbol })),
+})
+
+describe('chainOfFunc', () => {
+  it('promotes hooked frames to fn: and keeps unhooked frames nat:, outermost first', () => {
+    const hooked = new Set(['libexample.so!checkRoot', 'libc.so!getProp'])
+    const e = fcall([[0, 'libc.so!getProp'], [1, 'libexample.so!checkRoot+0x8'], [2, 'libandroid.so!Specialize+0x20']])
+    // e is a getProp call whose caller is checkRoot, whose caller is Specialize (unhooked).
+    e.symbol = 'getProp'
+    e.module = 'libc.so'
+    expect(chainOfFunc(e, hooked).map(c => c.id)).toEqual([
+      'nat:libandroid.so!Specialize',
+      'fn:libexample.so!checkRoot',
+      'fn:libc.so!getProp',
+    ])
+  })
+
+  it('drops bare-address frames', () => {
+    const hooked = new Set(['libexample.so!checkRoot'])
+    const e = fcall([[0, 'libexample.so!checkRoot'], [1, '0x7fffdead']])
+    expect(chainOfFunc(e, hooked).map(c => c.id)).toEqual(['fn:libexample.so!checkRoot'])
+  })
+})
+
+describe('foldFuncEvents', () => {
+  it('counts calls once and builds caller edges', () => {
+    const hooked = new Set(['libexample.so!checkRoot'])
+    const e = fcall([[0, 'libexample.so!checkRoot'], [1, 'libc.so!__libc_init+0x40']])
+    const slice = foldFuncEvents([e, e]) // same call twice
+    const cr = slice.nodes.find(n => n.id === 'fn:libexample.so!checkRoot')!
+    expect(cr.count).toBe(2) // calls only, no double-count from returns
+    expect(slice.edges).toEqual([
+      { id: 'nat:libc.so!__libc_init=>fn:libexample.so!checkRoot',
+        source: 'nat:libc.so!__libc_init', target: 'fn:libexample.so!checkRoot', count: 2 },
+    ])
   })
 })
