@@ -1,11 +1,64 @@
 import type { TableRow } from '@shared/table'
 import { ALL_COLUMNS, type ColumnKey } from './columns'
+import { javaLeaf, nativeLeaf, formatDuration } from './call-site'
 
 const LABEL = Object.fromEntries(ALL_COLUMNS.map(c => [c.key, c.label])) as Record<ColumnKey, string>
 
-// The text a given column shows for a row. `tags` is the only column that
-// depends on external state, so it takes the pre-computed badge string.
-const CELL: Record<ColumnKey, (r: TableRow, badge: string) => string> = {
+function span(cls: string, text: string, title = text): HTMLElement {
+  const s = document.createElement('span')
+  s.className = cls
+  s.textContent = text        // trace-derived text is never innerHTML
+  s.title = title
+  return s
+}
+
+// Build the merged call-site cell for one row. Syscall: java leaf over native
+// leaf (arrow only when paired); native-only -> single native line; neither ->
+// "— no backtrace". Funcs: function over "◂ from" caller.
+function renderCallSite(td: HTMLElement, r: TableRow): void {
+  td.classList.add('cs')
+  if (r.engine === 'func') {
+    td.appendChild(span('cs-fn', nativeLeaf(r.fn ?? ''), r.fn ?? ''))
+    if (r.caller) td.appendChild(span('cs-caller', nativeLeaf(r.caller), r.caller))
+    else td.appendChild(span('cs-caller cs-top', '— top frame'))
+    return
+  }
+  if (r.topJava && r.topNative) {
+    td.classList.add('paired')
+    td.appendChild(span('cs-java', javaLeaf(r.topJava), r.topJava))
+    td.appendChild(span('cs-native', nativeLeaf(r.topNative), r.topNative))
+  } else if (r.topNative) {
+    td.appendChild(span('cs-native', nativeLeaf(r.topNative), r.topNative))
+  } else {
+    td.appendChild(span('cs-none', '— no backtrace'))
+  }
+}
+
+function renderTags(td: HTMLElement, badge: string): void {
+  if (!badge) return
+  for (const t of badge.replace(/[[\]]/g, '').split(',').map(s => s.trim()).filter(Boolean)) {
+    const chip = span(`chip cat-${t}`, t)
+    td.appendChild(chip)
+  }
+}
+
+function renderElapsed(td: HTMLElement, r: TableRow, max: number): void {
+  if (r.elapsed === null || r.elapsed === undefined) { td.textContent = '—'; return }
+  td.appendChild(span('dur', formatDuration(r.elapsed)))
+  const bar = document.createElement('div')
+  bar.className = 'bar' + (max > 0 && r.elapsed >= max ? ' hot' : '')
+  bar.style.width = max > 0 ? `${Math.round((r.elapsed / max) * 100)}%` : '0%'
+  td.appendChild(bar)
+}
+
+function renderRetval(td: HTMLElement, r: TableRow): void {
+  if (r.retval === null || r.retval === undefined) { td.textContent = '—'; return }
+  const neg = r.retval < 0
+  td.appendChild(span(neg ? 'neg' : '', String(r.retval)))
+}
+
+// Simple text columns: value + title, empty -> ''.
+const TEXT: Partial<Record<ColumnKey, (r: TableRow) => string>> = {
   id: r => String(r.id),
   tid: r => String(r.tid),
   syscall: r => r.syscall,
@@ -14,21 +67,18 @@ const CELL: Record<ColumnKey, (r: TableRow, badge: string) => string> = {
   topNative: r => r.topNative ?? '',
   fn: r => r.fn ?? '',
   caller: r => r.caller ?? '',
-  retval: r => (r.retval === null || r.retval === undefined ? '' : String(r.retval)),
-  elapsed: r => (r.elapsed === null || r.elapsed === undefined ? '' : `${r.elapsed} ns`),
   arg: r => r.arg,
-  tags: (_r, badge) => badge,
 }
 
-// Render the master table into #table from a caller-chosen ordered column set.
-// Cells use textContent (not innerHTML) so trace-derived strings can never
-// inject markup. Each row carries data-row-id so the renderer can highlight the
-// selected record. Clicking a row selects it.
+// Render the master table. Cells that carry structure (callSite, tags, elapsed,
+// retval) build child elements; the rest set textContent. `elapsedMax` scales
+// the funcs duration bar (pass the visible page's max elapsed, or 0 to hide bars).
 export function renderTable(
   rows: TableRow[],
   columns: ColumnKey[],
   onSelect: (row: TableRow) => void,
   badgeFor: (row: TableRow) => string = () => '',
+  elapsedMax = 0,
 ): void {
   const host = document.querySelector<HTMLElement>('#table .table-scroll')
   if (!host) return
@@ -38,10 +88,14 @@ export function renderTable(
   const head = tbl.insertRow()
   for (const key of columns) {
     const th = document.createElement('th')
-    th.className = `col-${key}` // width is keyed by column, not position (columns are configurable)
+    th.className = `col-${key}`
     th.textContent = LABEL[key]
     th.title = LABEL[key]
     head.appendChild(th)
+    const grip = document.createElement('span')
+    grip.className = 'col-grip'
+    grip.dataset.col = key
+    th.appendChild(grip)
   }
 
   for (const r of rows) {
@@ -51,9 +105,15 @@ export function renderTable(
     for (const key of columns) {
       const td = tr.insertCell()
       td.className = `col-${key}`
-      const c = CELL[key](r, badge)
-      td.textContent = c
-      if (c) td.title = c
+      if (key === 'callSite') renderCallSite(td, r)
+      else if (key === 'tags') renderTags(td, badge)
+      else if (key === 'elapsed') renderElapsed(td, r, elapsedMax)
+      else if (key === 'retval') renderRetval(td, r)
+      else {
+        const c = TEXT[key]?.(r) ?? ''
+        td.textContent = c
+        if (c) td.title = c
+      }
     }
     tr.style.cursor = 'pointer'
     tr.onclick = () => onSelect(r)

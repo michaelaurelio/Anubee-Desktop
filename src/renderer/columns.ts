@@ -2,12 +2,13 @@
 // Pure (no DOM): the renderer chooses a subset, table.ts renders it, main.ts
 // persists the choice to localStorage. `id` is always present.
 export type ColumnKey = 'id' | 'tid' | 'syscall' | 'java' | 'topJava' | 'topNative' | 'arg' | 'tags'
-  | 'fn' | 'caller' | 'retval' | 'elapsed'
+  | 'fn' | 'caller' | 'retval' | 'elapsed' | 'callSite'
 
 export interface ColumnDef { key: ColumnKey; label: string; fixed?: boolean }
 
 export const ALL_COLUMNS: ColumnDef[] = [
   { key: 'id', label: 'id', fixed: true },
+  { key: 'callSite', label: 'call site' },
   { key: 'tid', label: 'tid' },
   { key: 'syscall', label: 'syscall' },
   { key: 'java', label: 'java?' },
@@ -44,8 +45,10 @@ export function parseColumns(raw: string | null): ColumnKey[] {
 }
 
 // The toggleable column defs for a run's engine, in catalogue order.
-export function columnCatalogue(engine: 'syscall' | 'func'): ColumnDef[] {
-  const keys = new Set(ENGINE_KEYS[engine])
+// With mode: returns the columns for a specific call-site mode.
+// Without mode: returns the engine's default columns (legacy behavior).
+export function columnCatalogue(engine: 'syscall' | 'func', mode?: CallSiteMode): ColumnDef[] {
+  const keys = new Set(mode ? engineKeys(engine, mode) : ENGINE_KEYS[engine])
   return ALL_COLUMNS.filter(c => keys.has(c.key))
 }
 
@@ -63,4 +66,76 @@ export function columnsForEngine(engine: 'syscall' | 'func', saved: string | nul
   const keys = (arr as unknown[]).filter((k): k is ColumnKey => typeof k === 'string' && valid.has(k as ColumnKey))
   if (!keys.includes('id')) keys.unshift('id')
   return keys.length ? keys : [...def]
+}
+
+// --- New layout model (Task 2): stacked/split call-site mode + persisted widths ---
+// Stacked-mode key sets (the merged call-site cell) per engine.
+const SYSCALL_STACKED: ColumnKey[] = ['id', 'syscall', 'callSite', 'arg', 'tags']
+const FUNCS_STACKED: ColumnKey[] = ['id', 'callSite', 'retval', 'elapsed', 'arg']
+// Split-mode key sets (java/native or function/caller as separate columns).
+const SYSCALL_SPLIT: ColumnKey[] = ['id', 'syscall', 'java', 'topJava', 'topNative', 'arg', 'tags']
+const FUNCS_SPLIT: ColumnKey[] = ['id', 'fn', 'caller', 'retval', 'elapsed', 'arg']
+
+export type CallSiteMode = 'stacked' | 'split'
+
+function engineKeys(engine: 'syscall' | 'func', mode: CallSiteMode): ColumnKey[] {
+  if (engine === 'func') return mode === 'split' ? FUNCS_SPLIT : FUNCS_STACKED
+  return mode === 'split' ? SYSCALL_SPLIT : SYSCALL_STACKED
+}
+
+export interface ColumnLayout {
+  columns: ColumnKey[]
+  widths: Record<string, number> // keyed by ColumnKey, px; absent = auto/flex
+  callSite: CallSiteMode
+}
+
+function defaultLayout(engine: 'syscall' | 'func'): ColumnLayout {
+  return { columns: [...engineKeys(engine, 'stacked')], widths: {}, callSite: 'stacked' }
+}
+
+export function serializeLayout(layout: ColumnLayout): string {
+  return JSON.stringify(layout)
+}
+
+function coerceColumns(arr: unknown, engine: 'syscall' | 'func', mode: CallSiteMode): ColumnKey[] {
+  const valid = new Set(engineKeys(engine, mode))
+  const def = engineKeys(engine, mode)
+  if (!Array.isArray(arr)) return [...def]
+  const keys = (arr as unknown[]).filter((k): k is ColumnKey => typeof k === 'string' && valid.has(k as ColumnKey))
+  if (!keys.includes('id')) keys.unshift('id')
+  return keys.length ? keys : [...def]
+}
+
+// Parse a persisted layout string. Back-compatible: a bare array (the legacy
+// ares.columns format) becomes {columns, stacked, no widths}. Foreign/stale keys
+// dropped against the resolved mode's key set; id forced present.
+export function parseLayout(engine: 'syscall' | 'func', raw: string | null): ColumnLayout {
+  if (!raw) return defaultLayout(engine)
+  let parsed: unknown
+  try { parsed = JSON.parse(raw) } catch { return defaultLayout(engine) }
+
+  if (Array.isArray(parsed)) {
+    const mode: CallSiteMode = 'stacked'
+    return { columns: coerceColumns(parsed, engine, mode), widths: {}, callSite: mode }
+  }
+  if (parsed && typeof parsed === 'object') {
+    const o = parsed as Record<string, unknown>
+    const mode: CallSiteMode = o.callSite === 'split' ? 'split' : 'stacked'
+    const cols = coerceColumns(o.columns, engine, mode)
+    const widths: Record<string, number> = {}
+    if (o.widths && typeof o.widths === 'object') {
+      for (const [k, v] of Object.entries(o.widths as Record<string, unknown>)) {
+        if (typeof v === 'number' && Number.isFinite(v)) widths[k] = v
+      }
+    }
+    return { columns: cols, widths, callSite: mode }
+  }
+  return defaultLayout(engine)
+}
+
+// The canonical column order for an engine in a given call-site mode (drives the
+// picker list order and the post-toggle column rebuild, so callSite lands where
+// the default layout puts it, not where ALL_COLUMNS lists it).
+export function engineColumnKeys(engine: 'syscall' | 'func', mode: CallSiteMode): ColumnKey[] {
+  return [...engineKeys(engine, mode)]
 }

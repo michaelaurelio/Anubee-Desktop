@@ -41,48 +41,39 @@
       *::-webkit-scrollbar-corner { background: transparent; }
       button, input, select { font: inherit; color: inherit; }
 
-      /* --- chrome bar --- */
-      #chrome { display: flex; align-items: center; gap: var(--sp); padding: 6px 10px;
-                background: var(--bar); border-bottom: 1px solid var(--border); }
-      #chrome .mark { font-weight: 700; letter-spacing: .5px; color: var(--accent-fg); }
-      #chrome .spacer { flex: 1; }
       .btn { background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
              padding: 4px 10px; border-radius: 5px; cursor: pointer; }
       .btn:hover { background: var(--hover); }
       .btn.pri { background: var(--accent); border-color: var(--accent-bd); color: #fff; }
 
-      /* segmented view switch: three preserved tab buttons styled as a segment */
-      .segment { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-      .segment .btn { border: 0; border-radius: 0; border-right: 1px solid var(--border); }
-      .segment .btn:last-child { border-right: 0; }
-      .segment .btn.on { background: var(--accent); color: #fff; }
-
-      /* ▾ menus (Export / Diff): CSS-revealed, wrapping preserved controls */
-      .menu { position: relative; }
-      .menu > .menu-body { display: none; position: absolute; right: 0; top: calc(100% + 4px); z-index: 20;
-        background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-        box-shadow: var(--shadow); padding: 6px; min-width: 150px; flex-direction: column; gap: 6px; }
-      .menu.open > .menu-body { display: flex; }
-      .menu-body .btn, .menu-body select { width: 100%; }
-      /* File is the left-most menu: open its body rightward so it isn't clipped
-         by the left screen edge (Export/Diff sit on the right and keep right:0). */
-      #file-menu > .menu-body { right: auto; left: 0; }
-
-      #theme-toggle { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
-        border: 1px solid var(--border); border-radius: 5px; background: var(--panel-2); cursor: pointer; }
-
-      /* --- filter bar --- */
-      #filterbar { display: flex; align-items: center; gap: 6px; padding: 5px 10px;
-                   background: var(--panel); border-bottom: 1px solid var(--border); }
-      #filterbar .flabel { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
-      #filterbar input[type=text], #filterbar input:not([type]) {
-        background: var(--input-bg); border: 1px solid var(--input-bd); color: var(--text);
-        padding: 3px 7px; border-radius: 5px; }
-      #f-text { flex: 1; }
-      #filterbar label { font-size: 12px; color: var(--muted); }
+      /* rail */
+      #rail { position:absolute; top:0; bottom:0; left:0; width:46px; background:var(--bar);
+        border-right:1px solid var(--border); display:flex; flex-direction:column; padding:8px 0; gap:2px; z-index:10;
+        overflow:hidden; transition:width .12s; }
+      #rail:hover { width:172px; }
+      #rail .brand { display:flex; justify-content:center; padding:4px 0 10px; color:var(--accent-fg); }
+      #rail .brand svg { width:20px; height:20px; fill:var(--accent-fg); }
+      .rail-item { display:flex; align-items:center; gap:11px; height:36px; padding:0 0 0 13px;
+        border:0; border-left:2px solid transparent; background:transparent; color:var(--muted); cursor:pointer; }
+      .rail-item:hover { color:var(--text); background:#ffffff08; }
+      .rail-item.on { color:var(--accent-fg); border-left-color:var(--accent-fg); background:var(--accent-soft); }
+      .rail-item .ic { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:0 0 auto; }
+      .rail-item .lbl { font-size:12px; white-space:nowrap; opacity:0; transition:opacity .12s; }
+      #rail:hover .rail-item .lbl { opacity:1; }
+      .rail-div { height:1px; background:var(--border); margin:7px 10px; }
+      .rail-grow { flex:1; }
+      /* command bar */
+      #cmdbar { position:absolute; top:0; left:46px; right:0; height:44px; box-sizing:border-box;
+        display:flex; align-items:center; gap:8px; padding:0 12px; background:var(--bar); border-bottom:1px solid var(--border); }
+      #cmdbar .omni { flex:1; display:flex; align-items:center; gap:8px; background:var(--input-bg);
+        border:1px solid var(--input-bd); border-radius:6px; padding:0 10px; }
+      #cmdbar .omni .ic { width:15px; height:15px; fill:none; stroke:var(--muted); stroke-width:2; }
+      #cmdbar .omni input { flex:1; background:transparent; border:0; padding:6px 0; color:var(--text); outline:none; }
+      #cmdbar > input[type=text] { background:var(--input-bg); border:1px solid var(--input-bd); color:var(--text); padding:5px 8px; border-radius:5px; }
+      #cmdbar label { font-size:12px; color:var(--muted); }
 
       /* --- body --- */
-      #main { position: absolute; top: 76px; bottom: 0; left: 0; right: 0; display: flex;
+      #main { position: absolute; top: 44px; bottom: 0; left: 46px; right: 0; display: flex;
               --table-w: 420px; --side-w: 320px; }
       .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px;
         font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted);
@@ -118,10 +109,11 @@
       #flame { display: none; overflow: auto; padding: 4px; scrollbar-gutter: stable; }
       #flame.active { display: block; }
       .flame-reset { margin: 2px 0 6px; }
-      .flame-banner, #banner { padding: 4px 8px; background: var(--warn-bg); border: 1px solid var(--warn-bd);
-        color: var(--warn-fg); border-radius: 4px; }
-      .flame-banner { margin-bottom: 6px; }
-      #banner { position: absolute; top: 6px; left: 6px; right: 6px; display: none; z-index: 3; }
+      .flame-banner { padding: 4px 8px; background: var(--warn-bg); border: 1px solid var(--warn-bd);
+        color: var(--warn-fg); border-radius: 4px; margin-bottom: 6px; }
+      #banner { position:absolute; top:9px; right:9px; left:auto; display:none; z-index:3;
+        background:var(--panel); border:1px solid var(--border-soft); color:var(--muted);
+        border-radius:20px; padding:3px 10px; font-size:10px; }
 
       /* zoom cluster */
       #zoom { position: absolute; right: 8px; bottom: 8px; z-index: 4; display: flex; flex-direction: column;
@@ -145,6 +137,14 @@
       #empty-state.hidden { display: none; }
       #empty-state .es-title { font-size: 15px; color: var(--text); }
       #ingest-progress { margin-top: 14px; width: 240px; }
+      #graph-empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+        justify-content:center; gap:10px; color:var(--muted); z-index:2; pointer-events:none; }
+      #graph-empty.hidden { display:none; }
+      #graph-empty .ge-ring { width:52px; height:52px; border-radius:50%; border:1.5px dashed var(--border);
+        display:flex; align-items:center; justify-content:center; }
+      #graph-empty .ge-ring svg { width:24px; height:24px; fill:none; stroke:var(--muted); stroke-width:1.6; }
+      #graph-empty .ge-title { color:var(--text); font-size:14px; }
+      #graph-empty .ge-sub { font-size:12px; }
       #ingest-progress.hidden { display: none; }
       #ingest-progress #ingest-bar { height: 4px; background: var(--accent, #6fa8ff); width: 0%;
         border-radius: 2px; transition: width 0.1s linear; }
@@ -258,7 +258,7 @@
       .insp-kv td:first-child { color: var(--muted); white-space: nowrap; width: 90px; }
       .insp-kv tr:last-child td { border-bottom: 0; }
       .insp-stack { padding: 7px 10px; font-family: var(--mono); font-size: 11px; white-space: pre-wrap; line-height: 1.5; }
-      /* suggestions (opened from the chrome-bar button, into a modal body) */
+      /* suggestions (opened from the rail button, into a modal body) */
       .sug-head { font-weight: 600; color: var(--text); margin-bottom: 8px; }
       .sug-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }
       .sug-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 4px;
@@ -353,47 +353,74 @@
       /* columns picker modal rows */
       .col-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; color: var(--text); }
       .col-row.fixed { color: var(--muted); }
+      .cs-mode-label { font-size:9px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:2px 0 5px; }
+      .seg.cs-mode { display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-bottom:8px; }
+      .seg.cs-mode .btn { border:0; border-radius:0; text-transform:capitalize; }
+      .seg.cs-mode .btn.on { background:var(--accent); color:#fff; }
+      .col-row .lock-ic { width:13px; height:13px; margin-left:auto; fill:none; stroke:var(--muted); stroke-width:2; }
+
+      /* uniform rows + structured cells */
+      #table td { height:40px; box-sizing:border-box; vertical-align:middle; }
+      #table td.col-callSite { line-height:1.35; white-space:nowrap; }
+      #table .cs-java, #table .cs-fn { color:var(--k-java); display:block; overflow:hidden; text-overflow:ellipsis; }
+      #table .cs-fn { color:var(--k-func); }
+      #table .cs-native, #table .cs-caller { color:var(--k-native); font-family:var(--mono); font-size:11px; display:block; overflow:hidden; text-overflow:ellipsis; }
+      #table td.col-callSite.paired .cs-native::before { content:"↳ "; color:var(--muted); }
+      #table .cs-caller::before { content:"◂ from "; color:var(--muted); font-family:var(--font); }
+      #table .cs-caller.cs-top::before { content:""; }
+      #table .cs-none { color:var(--muted); font-style:italic; }
+      #table td.col-retval .neg { color:var(--k-syscall); }
+      #table td.col-elapsed .dur { font-family:var(--mono); font-size:10px; }
+      #table td.col-elapsed .bar { height:4px; margin-top:3px; border-radius:2px; background:var(--accent-fg); }
+      #table td.col-elapsed .bar.hot { background:var(--k-syscall); }
+      #table .chip { display:inline-block; font-size:9px; font-weight:600; padding:1px 5px; border-radius:4px; color:#0d1117; margin-right:3px; }
+      #table .chip.cat-root { background:var(--k-syscall); } #table .chip.cat-hook { background:#26c2a6; }
+      #table .chip.cat-debugger { background:#e08c3b; } #table .chip.cat-emulator { background:#b072e0; }
+      #table .chip.cat-integrity { background:#4aa3ff; } #table .chip.cat-custom { background:#8b97a4; }
+      /* column resize grip */
+      #table th { position:relative; }
+      .col-grip { position:absolute; top:0; right:-3px; width:6px; height:100%; cursor:col-resize; }
+      .col-grip:hover::after { content:''; position:absolute; right:2px; top:0; width:2px; height:100%; background:var(--accent-fg); }
     </style>
   </head>
   <body>
-    <div id="chrome">
-      <span class="mark">&#9670; ARES</span>
-      <div class="menu" id="file-menu">
-        <button class="btn" data-menu-toggle>File &#9662;</button>
-        <div class="menu-body">
-          <button id="file-open" class="btn">Open JSONL&hellip;</button>
-          <button id="file-capture" class="btn">Capture&hellip;</button>
-          <button id="export-md" class="btn">Export Markdown</button>
-          <button id="export-json" class="btn">Export JSON</button>
-          <button id="file-log" class="btn">Log&hellip;</button>
-          <button id="file-quit" class="btn">Quit</button>
-        </div>
-      </div>
-      <span class="spacer"></span>
-      <div class="segment">
-        <button id="tab-graph" class="btn on">Graph</button>
-        <button id="tab-flame" class="btn">Flame</button>
-      </div>
-      <button id="suggest-btn" class="btn">Suggestions</button>
-      <button id="rules-btn" class="btn">Rules</button>
-      <div class="menu" id="diff-menu">
-        <button class="btn" data-menu-toggle>Diff &#9662;</button>
-        <div class="menu-body">
-          <button id="load-run-b" class="btn">Load run B</button>
-          <select id="diff-mode">
-            <option value="all">all</option>
-            <option value="only-in-A">only in A</option>
-            <option value="only-in-B">only in B</option>
-            <option value="tagged">tagged</option>
-          </select>
-        </div>
-      </div>
-      <button id="theme-toggle" title="Toggle light / dark">&#9790;</button>
-    </div>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+      <g id="i-diamond"><path d="M12 2 22 12 12 22 2 12z"/></g>
+      <g id="i-graph"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></g>
+      <g id="i-flame"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2-1-3-1-2.1-.2-4 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.2.4-2.3 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></g>
+      <g id="i-bulb"><path d="M15 14c.2-1 .7-1.7 1.5-2.5C17.7 10.6 18 9.3 18 8A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.8.8 1.3 1.5 1.5 2.5"/><path d="M9 18h6M10 22h4"/></g>
+      <g id="i-rules"><path d="m3 17 2 2 4-4M3 7l2 2 4-4M13 6h8M13 12h8M13 18h8"/></g>
+      <g id="i-diff"><circle cx="5" cy="6" r="3"/><path d="M12 6h5a2 2 0 0 1 2 2v7"/><path d="m15 9-3-3 3-3"/><circle cx="19" cy="18" r="3"/><path d="M12 18H7a2 2 0 0 1-2-2V9"/><path d="m9 15 3 3-3 3"/></g>
+      <g id="i-record"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none"/></g>
+      <g id="i-folder"><path d="M6 14l1.5-3A2 2 0 0 1 9.2 10H20a2 2 0 0 1 1.9 2.5l-1.5 6A2 2 0 0 1 18.5 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.7.9l.8 1.2a2 2 0 0 0 1.7.9H18a2 2 0 0 1 2 2v2"/></g>
+      <g id="i-export"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M12 12v6M9 15l3 3 3-3"/></g>
+      <g id="i-log"><path d="m4 17 6-6-6-6M12 19h8"/></g>
+      <g id="i-moon"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></g>
+      <g id="i-search"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></g>
+      <g id="i-lock"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g>
+    </defs></svg>
 
-    <div id="filterbar">
-      <span class="flabel">filter</span>
-      <input id="f-text" type="text" placeholder="free text search" />
+    <nav id="rail">
+      <span class="brand"><svg viewBox="0 0 24 24"><use href="#i-diamond"/></svg></span>
+      <button id="tab-graph" class="rail-item on" title="Graph"><svg class="ic" viewBox="0 0 24 24"><use href="#i-graph"/></svg><span class="lbl">Graph</span></button>
+      <button id="tab-flame" class="rail-item" title="Flame"><svg class="ic" viewBox="0 0 24 24"><use href="#i-flame"/></svg><span class="lbl">Flame</span></button>
+      <span class="rail-div"></span>
+      <button id="suggest-btn" class="rail-item" title="Suggestions"><svg class="ic" viewBox="0 0 24 24"><use href="#i-bulb"/></svg><span class="lbl">Suggestions</span></button>
+      <button id="rules-btn" class="rail-item" title="Rules"><svg class="ic" viewBox="0 0 24 24"><use href="#i-rules"/></svg><span class="lbl">Rules</span></button>
+      <button id="diff-btn" class="rail-item" title="Diff"><svg class="ic" viewBox="0 0 24 24"><use href="#i-diff"/></svg><span class="lbl">Diff</span></button>
+      <button id="file-capture" class="rail-item" title="Capture"><svg class="ic" viewBox="0 0 24 24"><use href="#i-record"/></svg><span class="lbl">Capture</span></button>
+      <span class="rail-div"></span>
+      <button id="file-open" class="rail-item" title="Open JSONL"><svg class="ic" viewBox="0 0 24 24"><use href="#i-folder"/></svg><span class="lbl">Open</span></button>
+      <button id="export-btn" class="rail-item" title="Export"><svg class="ic" viewBox="0 0 24 24"><use href="#i-export"/></svg><span class="lbl">Export</span></button>
+      <button id="file-log" class="rail-item" title="Log"><svg class="ic" viewBox="0 0 24 24"><use href="#i-log"/></svg><span class="lbl">Log</span></button>
+      <span class="rail-grow"></span>
+      <button id="theme-toggle" class="rail-item" title="Toggle light / dark"><svg class="ic" viewBox="0 0 24 24"><use href="#i-moon"/></svg><span class="lbl">Theme</span></button>
+    </nav>
+
+    <div id="cmdbar">
+      <div class="omni"><svg class="ic" viewBox="0 0 24 24"><use href="#i-search"/></svg>
+        <input id="f-text" type="text" placeholder="filter events - syscall, library, tid, free text…" />
+      </div>
       <input id="f-syscall" type="text" size="8" placeholder="syscall" />
       <input id="f-library" type="text" size="8" placeholder="library" />
       <input id="f-tid" type="text" size="5" placeholder="tid" />
@@ -433,8 +460,13 @@
         <div id="flame"></div>
         <div id="empty-state">
           <div class="es-title">No run loaded</div>
-          <div>Open a run to begin - use <b>File &#9662; Open JSONL</b> above.</div>
+          <div>Open a run to begin - use <b>Open</b> in the left rail.</div>
           <div id="ingest-progress" class="hidden"><div id="ingest-bar"></div><span id="ingest-pct"></span></div>
+        </div>
+        <div id="graph-empty" class="hidden">
+          <div class="ge-ring"><svg viewBox="0 0 24 24"><use href="#i-graph"/></svg></div>
+          <div class="ge-title">Pick a row to trace its call chain</div>
+          <div class="ge-sub">select any event on the left - its java &rarr; native &rarr; syscall path draws here</div>
         </div>
       </div>
       <div class="resize-handle hidden" id="side-resize" data-resize="side" title="drag to resize"></div>

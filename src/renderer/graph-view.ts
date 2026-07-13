@@ -8,6 +8,12 @@ export function truncateLabel(s: string, max = 22): string {
   return s.length <= max ? s : s.slice(0, max - 1) + '…'
 }
 
+// Legend-matching kind glyph prefixed onto a node label so a box reads its kind
+// at rest (◆ java diamond / ● native dot / ■ syscall|func square).
+export function kindGlyph(kind: string): string {
+  return kind === 'java' ? '◆' : kind === 'native' ? '●' : '■'
+}
+
 // Map an aggregated slice to cytoscape element definitions. Node/edge `data`
 // carries just what the stylesheet and inspector need.
 export function sliceToElements(slice: GraphSlice): {
@@ -18,7 +24,7 @@ export function sliceToElements(slice: GraphSlice): {
     // classes mirrors data.kind as a cytoscape class (`.java`/`.native`/`.syscall`)
     // so RASP category selectors can combine `.native.suggested.rasp-<cat>`
     // without a second data-attribute lookup per style rule.
-    nodes: slice.nodes.map(n => ({ data: { id: n.id, label: truncateLabel(n.label), kind: n.kind, count: n.count }, classes: n.kind })),
+    nodes: slice.nodes.map(n => ({ data: { id: n.id, label: `${kindGlyph(n.kind)} ${truncateLabel(n.label)}`, kind: n.kind, count: n.count }, classes: n.kind })),
     edges: slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, count: e.count } })),
   }
 }
@@ -51,7 +57,7 @@ export interface ElkLaidOut {
 // Approximate a node's rendered width from its label (the dot plus the label to
 // its right) so ELK spaces columns without overlap.
 function nodeWidth(label: string): number {
-  return Math.min(230, Math.max(70, label.length * 6.2 + 26))
+  return Math.min(230, Math.max(70, label.length * 6.2 + 40))
 }
 
 // Map cytoscape element defs to an ELK graph. Pure; the worker runs the layout.

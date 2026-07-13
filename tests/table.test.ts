@@ -8,6 +8,16 @@ const row: TableRow = {
   topJava: 'FileCheck.exists', topNative: 'libsentinel.so!chk+0x40', arg: '/data/app/base.apk',
 }
 
+const funcRow: TableRow = {
+  id: 41, tid: 23, engine: 'func', syscall: '', retval: -1, hasJava: false,
+  topJava: null, topNative: null, arg: '-', fn: 'libsentinel.so!mapsScan',
+  caller: 'libsentinel.so!checkRoot+0x8', elapsed: 5400,
+}
+const nativeOnly: TableRow = {
+  id: 2, tid: 9, engine: 'syscall', syscall: 'read', retval: 0, hasJava: false,
+  topJava: null, topNative: 'libc.so!read+0x8', arg: 'fd=3',
+}
+
 beforeEach(() => {
   document.body.innerHTML = '<div id="table"><div class="table-scroll"></div></div>'
 })
@@ -31,5 +41,80 @@ describe('renderTable', () => {
     renderTable([row], ['id'], r => { picked = r })
     document.querySelector<HTMLElement>('#table tr[data-row-id="9"]')!.click()
     expect(picked?.id).toBe(9)
+  })
+})
+
+describe('call-site cell', () => {
+  it('syscall paired row shows java leaf over native leaf', () => {
+    renderTable([row], ['callSite'], () => {})
+    const cell = document.querySelector('#table td.col-callSite')!
+    expect(cell.querySelector('.cs-java')?.textContent).toBe('exists')            // javaLeaf('FileCheck.exists')
+    expect(cell.querySelector('.cs-native')?.textContent).toBe('libsentinel.so!chk') // nativeLeaf strips +0x40
+    expect(cell.classList.contains('paired')).toBe(true)
+  })
+  it('syscall paired row shows the full original string on hover, not the leaf', () => {
+    const fullRow: TableRow = {
+      ...row, id: 10,
+      topJava: 'dev.ares.detector.ChecksKt.CHECK_REGISTRY',
+      topNative: 'libsentinel.so!maps_iterate+0x44',
+    }
+    renderTable([fullRow], ['callSite'], () => {})
+    const cell = document.querySelector('#table td.col-callSite')!
+    const javaEl = cell.querySelector('.cs-java')!
+    const nativeEl = cell.querySelector('.cs-native')!
+    expect(javaEl.textContent).toBe('CHECK_REGISTRY')
+    expect(javaEl.getAttribute('title')).toBe('dev.ares.detector.ChecksKt.CHECK_REGISTRY')
+    expect(nativeEl.textContent).toBe('libsentinel.so!maps_iterate')
+    expect(nativeEl.getAttribute('title')).toBe('libsentinel.so!maps_iterate+0x44')
+  })
+  it('native-only row shows a single native line, not paired', () => {
+    renderTable([nativeOnly], ['callSite'], () => {})
+    const cell = document.querySelector('#table td.col-callSite')!
+    expect(cell.classList.contains('paired')).toBe(false)
+    expect(cell.querySelector('.cs-native')?.textContent).toBe('libc.so!read')
+    expect(cell.querySelector('.cs-java')).toBeNull()
+  })
+  it('no-backtrace row shows the empty marker', () => {
+    const bare: TableRow = { ...nativeOnly, id: 3, topNative: null }
+    renderTable([bare], ['callSite'], () => {})
+    expect(document.querySelector('#table td.col-callSite .cs-none')?.textContent).toContain('no backtrace')
+  })
+  it('funcs row stacks function over caller', () => {
+    renderTable([funcRow], ['callSite'], () => {})
+    const cell = document.querySelector('#table td.col-callSite')!
+    expect(cell.querySelector('.cs-fn')?.textContent).toBe('libsentinel.so!mapsScan')
+    expect(cell.querySelector('.cs-caller')?.textContent).toBe('libsentinel.so!checkRoot')
+  })
+})
+
+describe('funcs numeric cells', () => {
+  it('negative retval gets the neg class', () => {
+    renderTable([funcRow], ['retval'], () => {})
+    expect(document.querySelector('#table td.col-retval .neg')).not.toBeNull()
+  })
+  it('unpaired call (null retval/elapsed) shows em-dash, no bar', () => {
+    const unpaired: TableRow = { ...funcRow, id: 42, retval: null, elapsed: null }
+    renderTable([unpaired], ['retval', 'elapsed'], () => {})
+    expect(document.querySelector('#table td.col-elapsed .bar')).toBeNull()
+    expect(document.querySelector('#table td.col-elapsed')?.textContent).toContain('—')
+  })
+  it('elapsed renders a bar scaled to elapsedMax', () => {
+    renderTable([funcRow], ['elapsed'], () => {}, () => '', 5400)
+    const bar = document.querySelector('#table td.col-elapsed .bar') as HTMLElement
+    expect(bar.style.width).toBe('100%')
+  })
+})
+
+describe('tag chips', () => {
+  it('renders each tag as a chip element, not comma text', () => {
+    // Real badgeText() output is bracketed, e.g. "[root,hook]" - feed that shape
+    // so a regression to naive comma-splitting (which would leave "[root" /
+    // "hook]" and produce classes that match no CSS rule) is caught here.
+    renderTable([row], ['tags'], () => {}, () => '[root,hook]')
+    const chips = [...document.querySelectorAll('#table td.col-tags .chip')]
+    expect(chips.length).toBe(2)
+    expect(chips.map(c => c.textContent)).toEqual(['root', 'hook'])
+    expect(chips[0].classList.contains('cat-root')).toBe(true)
+    expect(chips[1].classList.contains('cat-hook')).toBe(true)
   })
 })

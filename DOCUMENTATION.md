@@ -42,6 +42,30 @@ coding used on the nodes themselves and reused verbatim by the flame view's
 `KIND_FILL` map (`src/renderer/flame-view.ts`) so the two views read as one
 system.
 
+### Graph empty-state and node labels
+
+- **Empty-state prompt.** When a run is loaded but no table row or graph node
+  is selected yet, the graph pane shows a dedicated `#graph-empty` prompt
+  ("Pick a row to trace its call chain", with a sub-line pointing at the
+  table) instead of a blank canvas - distinct from the earlier "no run loaded"
+  empty state, which only covers the pre-load case. It hides as soon as a
+  selection renders a slice, and is re-shown on `onLoaded` for a freshly
+  loaded run before anything is selected.
+- **Node kind-glyph prefix.** Every graph node label is prefixed with a small
+  glyph for its kind (`kindGlyph` in `src/renderer/graph-view.ts`): `◆` for
+  java, `●` for native, `■` for syscall or func. This gives each node a
+  legend-independent visual cue even before checking color, useful once a
+  slice has many same-colored nodes close together.
+- **Coverage/truncation chip.** The `#banner` element is now a quiet chip
+  pinned to the graph pane's top-right corner rather than a banner spanning
+  the pane - and it is gated to appear **only after a row/node is selected**,
+  fixing the earlier behavior where a load-time banner could overlap the
+  empty-state prompt. It carries whichever message currently applies: the
+  slice-truncation warning when the rendered subgraph hit `GRAPH_SLICE_CAP`,
+  or (once a run's coverage health resolves via `window.ares.coverage`) a
+  quiet summary of snapshot/CFI-walk counts (`snapshots · truncated · CFI
+  walks`) - truncation text prefixes the coverage text when both apply.
+
 
 ## Funcs engine support
 
@@ -97,23 +121,46 @@ than two disconnected islands. Funcs chains, list, and count all carry the
 
 ## UI shell
 
-The toolbar is a single **chrome bar** housing a **File ▾** dropdown (Open JSONL,
-Capture, Export Markdown, Export JSON, Log, Quit), the active run pill, the segmented
-Graph/Flame view switch, Rules, Suggestions, Export ▾ / Diff ▾ menus, and the
-theme toggle. The native Electron menu is removed; all navigation flows through
-the File dropdown and toolbar actions. A dedicated **filter bar** sits below the
-chrome bar. Capture, Rules, and Suggestions open as **centered modal overlays**
-(shared `src/renderer/modal.ts` component) that do not consume side-panel space;
-the table and graph remain visible behind the modal and modals are dismissed by
-an explicit Close button or by clicking outside. An empty state is shown in place
-of the body until a run is loaded.
+The chrome is a left **icon rail** (`#rail`, `src/renderer/index.html`) plus a
+single **command bar** (`#cmdbar`) above the body - replacing the earlier
+chrome-bar + File-dropdown + segmented switch + separate filter bar.
 
-### Activity log (File ▾ Log)
+- **Rail.** Collapsed to 46px (icon-only); hovering the rail expands it to
+  ~172px, revealing a text label (`.lbl`) beside each icon (CSS opacity
+  transition, no layout-triggering resize of the rest of the shell - the rail
+  overlays). Icons are inline `<svg><use href="#i-...">` references into a
+  single `<defs>` block at the top of `index.html` - no emoji anywhere in the
+  shell. Items are grouped by a `.rail-div` divider into three zones:
+  - **view** - Graph / Flame (`#tab-graph` / `#tab-flame`); the active view
+    gets an accent left-border bar and accent text color (`.rail-item.on`).
+  - **tools** - Suggestions, Rules, Diff, Capture; each opens its panel/modal.
+  - **file** - Open (JSONL), Export, Log.
+
+  A `.rail-grow` spacer pushes a bottom-pinned **theme toggle** to the foot of
+  the rail. The native Electron menu stays removed (`Menu.setApplicationMenu(null)`
+  in `src/main/index.ts`); the old File ▾ dropdown's **Quit** entry was dropped
+  from the UI (the `app:quit` IPC handler still exists but nothing in the
+  renderer calls it) - closing the window, or Ctrl+Q, still quits.
+
+- **Command bar.** `#cmdbar` sits to the right of the rail and holds a single
+  **omni filter** input (free-text, searches syscall/library/tid/args in one
+  field) plus the explicit `syscall` / `library` / `tid` fields, a
+  `has-java_stack` checkbox, and an **Apply** button. This replaces the old
+  two-tier chrome-bar-plus-filter-bar layout with one row.
+
+- **Modals.** Export and Diff now open as modals from their rail buttons
+  (`#export-btn`, `#diff-btn`), joining Capture, Rules, and Suggestions as
+  **centered modal overlays** (shared `src/renderer/modal.ts` component) that
+  do not consume side-panel space; the table and graph stay visible behind the
+  modal, dismissed by an explicit Close button or by clicking outside. An empty
+  state is shown in place of the body until a run is loaded.
+
+### Activity log (rail Log button)
 
 Every user **action** is recorded to an in-memory activity log - run load, export,
 capture + streamed tracer output, rule updates, tag edits, preflight - each an
 entry with a level (`info` / `success` / `warn` / `error`). Read-queries (table,
-graph slice, node records) are not logged. **File ▾ Log** opens a modal with a
+graph slice, node records) are not logged. The rail's **Log** button opens a modal with a
 scrollable, color-coded monospace **terminal box** that live-appends while open
 (auto-scrolling when pinned to the bottom) and renders entry text with
 `textContent` only (tracer output is untrusted). **Save** writes the buffer to a
@@ -152,41 +199,71 @@ table is collapsed/expanded via a floating square button at the table's right ed
 
 ### Master table columns
 
-The master table's columns are **configurable**. Default set: `id · syscall · top java · top native · args · tags`.
+The master table's columns are **configurable**, engine-aware, and rows render
+at a uniform **40px** height (`#table td { height:40px; vertical-align:middle }`)
+regardless of how many lines a cell's content stacks internally.
 
-- **Column picker:** a `⚙ columns` button in the table header opens a modal with
-  a checkbox per column (with `id` locked on). The chosen set persists to
-  `localStorage` under key `ares.columns`, so column preferences survive an app
-  restart.
+- **Stacked call-site cell (default mode).** Both engines default to a single
+  merged `call site` column (`renderCallSite` in `src/renderer/table.ts`)
+  instead of separate top-java/top-native (or function/caller) columns:
+  - **syscall engine:** the Java leaf (`javaLeaf` - innermost `.`-segment of
+    `java_stack[0]`, bytecode offset stripped) stacked over the native leaf
+    (`nativeLeaf` - `module!symbol`, call-site `+0x<off>` stripped), joined by a
+    `↳` arrow **only when both are present** (`.paired` class gates the
+    `::before` arrow in CSS - an unpaired native-only row shows no arrow).
+    Native-only (no Java frame) renders as a single native line. Neither
+    present renders the literal `— no backtrace` in muted italic (`cs-none`).
+  - **funcs engine:** the function leaf stacked over `◂ from <caller leaf>`;
+    a call with no caller frame (a true root call) renders `— top frame`
+    instead of the `◂ from` prefix (`cs-top` class suppresses the `::before`).
+  - Every leaf span carries the **full original string** in its `title`
+    attribute, so hovering a truncated leaf reveals the untruncated
+    `module!symbol+0x...` or fully-qualified Java method.
 
-- **Column definitions:**
-  - `id` - event id (locked on).
-  - `syscall` - the syscall name.
-  - `top java` - the innermost Java method in the event's `java_stack` (or `-`
-    if no Java).
-  - `top native` - the innermost native symbol in the event's backtrace
-    (or `-` if syscall-only).
-  - `args` - the primary argument, computed by precedence in the DuckDB
-    `table()` SQL query: resolved string arg > fd path > decoded arg > raw arg.
-    Disambiguates which file/path/resource the syscall touched.
-  - `tags` - RASP tags on the row's innermost native frame (`topNative` node id,
-    offset dropped). Tags live on native library nodes; a syscall row shows a
-    badge only when its innermost native frame carries a tag. Multiple tags
-    render as a comma-separated badge list.
+- **Tag chips.** The `tags` column renders each RASP tag on the row's innermost
+  native frame as its own small rounded **chip**, colored by category
+  (`chip cat-root|hook|debugger|emulator|integrity|custom`) rather than a plain
+  comma-separated badge string. Tags still key on the row's `topNative` frame
+  only (offset dropped) - see the existing known-drawback entry in `BACKLOG.md`.
 
-- **Engine-aware picker.** The column set and the `⚙ columns` picker are chosen
-  by the run's engine (`columnCatalogue` / `columnsForEngine`): a funcs run offers
-  only funcs columns (`id · function · caller · retval · elapsed · args`), a
-  syscall run only syscall columns. Toggles persist per engine under
-  `ares.columns.<engine>` (the legacy `ares.columns` key is still read as the
-  syscall fallback), so a saved funcs layout and a saved syscall layout coexist.
+- **Funcs duration bar + red negative retval.** The funcs `elapsed` column
+  shows the formatted duration (`formatDuration`: ns/µs/ms/s) plus a thin bar
+  beneath it, proportional to the **current page's** max elapsed value; the
+  row holding that max gets the `.hot` class (bar renders in the syscall/red
+  accent color) so the hottest call on the visible page is instantly visible.
+  A missing elapsed (call with no matching return) renders a plain em dash. The
+  `retval` column colors a negative return value in the syscall/red accent
+  (`.neg`) to flag an error return at a glance; a missing retval also renders
+  an em dash.
 
-- **Column widths:** each column width is keyed by column name (not position), so
-  any subset of columns lays out correctly. Text-heavy columns (`top java`,
-  `top native`, `args`) share the remaining width after fixed columns; the panel
-  is resizable, and widths are clamped per-column for readability. At the default
-  ~420px table width, the text columns truncate (mitigated by resize + `title`
-  tooltip on hover + full detail in the right-panel record view).
+- **Column picker + stacked/split toggle.** The `⚙ columns` button in the
+  table header opens a modal driven by `columnCatalogue(engine, mode)`: a
+  checkbox per column (with `id` locked on, shown with an inline SVG lock icon
+  next to its row instead of just a disabled checkbox) plus a **stacked / split**
+  segmented toggle. Split mode expands the merged call-site cell back into
+  separate columns - `java?` / `top java` / `top native` for syscall runs,
+  `function` / `caller` for funcs runs - for analysts who want each frame
+  independently sortable/visible rather than stacked. Switching modes rebuilds
+  the column set via `engineColumnKeys(engine, mode)` and re-renders. The
+  resolved `ColumnLayout` (`{ columns, widths, callSite }`) persists to
+  `localStorage` under `ares.columns.<engine>` (`parseLayout`/`serializeLayout`
+  in `src/renderer/columns.ts`), so a saved funcs layout and a saved syscall
+  layout - including their call-site mode and widths - coexist and survive an
+  app restart. A bare legacy `ares.columns` array (pre-dating this layout
+  model) is still parsed and migrated to `{ columns, widths: {}, callSite:
+  'stacked' }`.
+
+- **Per-column drag-resize.** Each `<th>` carries a `.col-grip` drag handle
+  (`src/renderer/column-resize.ts` + `wireColGrips` in `main.ts`); dragging it
+  resizes that column live via window-level pointer listeners (survives the
+  pointer outrunning the small grip hit area, same pattern as the table/side
+  panel resize). Width is clamped `48-640px` (`clampColWidth`). **Double-clicking**
+  a grip drops that column's explicit width, letting it auto-fit back to its
+  flex share. Widths persist per column key (not position) in the same
+  per-engine `ColumnLayout.widths` map, so any subset/order of visible columns
+  lays out correctly. The **last column is the flex remainder** and is not
+  resizable (no grip drag/dblclick wired on it) - it absorbs whatever width the
+  fixed/resized columns don't claim.
 
 ### Adjustable panels
 
@@ -210,8 +287,8 @@ the saved layout.
 ### Theme
 
 `src/renderer/theme.ts` defines a token-based theme system: CSS custom
-properties with a dark default, toggled to light via a ☾/☀ button in the
-chrome bar, persisted to `localStorage['ares.theme']`. Critically, `theme.ts`
+properties with a dark default, toggled to light via the bottom-pinned theme
+button in the left rail, persisted to `localStorage['ares.theme']`. Critically, `theme.ts`
 is the **single source** of the java/native/syscall (plus label-backing and
 edge) colors - `applyGraphTheme` feeds them to cytoscape, the `#legend`, and
 the flame view's `kindFill`, replacing the previously triplicated color
@@ -311,7 +388,7 @@ syscall wrapper) only when the whole native path is system libs (a pure-Java
 check). Matching events are aggregated per target (`aggregate()`: sums
 occurrences, keeps the highest-confidence rationale) into `Suggestion` rows
 (target, category, confidence, rationale, occurrence count) and surfaced in a
-**Suggestions popup** opened from the chrome-bar button
+**Suggestions popup** opened from the rail's Suggestions button
 (`src/renderer/suggestions-view.ts`); the right side panel stays details-only. A
 suggestion is never turned into a tag automatically - the analyst clicks
 **Confirm** (mints a `source: 'heuristic'` tag through the tag editor path) or
@@ -349,8 +426,8 @@ globally disabled.
 
 ### RASP rule-authoring UI
 
-A `#rules` floating panel (`src/renderer/rules-view.ts`, opened by the "Rules"
-toolbar button) lists `resolveRules`' effective set as **card rows** (aligned with
+A `#rules` floating panel (`src/renderer/rules-view.ts`, opened by the rail's
+"Rules" button) lists `resolveRules`' effective set as **card rows** (aligned with
 the Suggestions modal visual language), each displaying a category chip, source
 `[builtin|global|project]` badge, rule id, confidence + syscalls count, and the
 predicate line (field / op / value). Each card row has an aligned trailing
@@ -413,7 +490,7 @@ green (added, B-only), grey (shared).
 ## Flame-graph view
 
 A second view mode alongside the focused subgraph, toggled with the Graph /
-Flame buttons in the toolbar (`#tab-graph` / `#tab-flame`, `showView()` in
+Flame buttons in the rail's view zone (`#tab-graph` / `#tab-flame`, `showView()` in
 `main.ts`): an icicle over every chain in the current filter, for reading call
 *depth* rather than the graph's cross-link structure.
 
@@ -496,7 +573,7 @@ the adb orchestration behind an injected `Adb`/`Spawner` seam: `preflight`,
 `startRun` (spawn + per-stream line buffering via `lineSplitter`), `stop`,
 `pullResult`. `src/renderer/capture-view.ts` renders an aligned-field form +
 bordered console (unified visual language with Rules and Suggestions modals);
-the toolbar wiring lives in `main.ts`'s `wireCapture()`.
+the rail-button wiring lives in `main.ts`'s `wireCapture()`.
 
 **Capture form layout and save destination.** The form collects engine, target
 package, engine-specific arguments, timeout, and a `syscalls` field. The
