@@ -48,6 +48,12 @@ function runsDir(): string {
   return d
 }
 
+// Guards the window-X path: the renderer may hold an unsaved project (dirty
+// tags/dismissed/rules), so 'close' is intercepted and handed to the renderer's
+// save-on-close confirmation; allowClose flips true only after the renderer
+// has answered (or had nothing to save).
+let allowClose = false
+
 function createWindow(): void {
   win = new BrowserWindow({
     width: 1400,
@@ -59,6 +65,12 @@ function createWindow(): void {
   })
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(resolve(__dirname, '../renderer/index.html'))
+
+  win.on('close', e => {
+    if (allowClose) return
+    e.preventDefault()
+    win.webContents.send('app:confirmClose')
+  })
 
   // Open a run given on launch (ARES_OPEN_FILE). Handy for CLI use and lets the
   // screenshot harness load a fixture without driving the native file dialog.
@@ -258,6 +270,15 @@ ipcMain.handle('project:open', async () => {
   return { summary, layout: b.layout }
 })
 ipcMain.handle('app:quit', () => app.quit())
+// Quit rail item and window-X both funnel through the renderer's confirm
+// flow: it always answers exactly once, either 'close' (nothing to save, or
+// the user resolved the prompt) or 'cancel' (stay open).
+ipcMain.on('app:closeResponse', (_e, action: 'close' | 'cancel') => {
+  if (action === 'cancel') return
+  allowClose = true
+  win.close()
+})
+ipcMain.on('app:requestClose', () => { win.close() })
 ipcMain.handle('graph:runs', () => store.runs())
 ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }, runId?: number) => store.table(filter, page, runId))
 ipcMain.handle('graph:count', (_e, filter: Filter, runId?: number) => store.count(filter, runId))

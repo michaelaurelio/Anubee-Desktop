@@ -17,6 +17,9 @@ declare global {
         error?: string
       }>
       quit(): Promise<void>
+      requestClose(): void
+      onConfirmClose(cb: () => void): void
+      respondClose(action: 'close' | 'cancel'): void
       copyToClipboard(text: string): Promise<void>
       runs(): Promise<{ runId: number; file: string; ingestedAt: string; eventCount: number }[]>
       table(filter: Filter, page: { limit: number; offset: number }, runId?: number): Promise<TableRow[]>

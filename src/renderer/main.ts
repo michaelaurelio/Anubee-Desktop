@@ -26,7 +26,7 @@ import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
 import type { GraphSlice } from '@shared/graph-shape'
 import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
-import { showModal, isModalOpen } from './modal'
+import { showModal, closeModal, isModalOpen } from './modal'
 import { renderLogModal } from './log-view'
 import { logAppend } from './log-store'
 import { runLogged } from './run-logged'
@@ -150,6 +150,9 @@ let dismissed: Dismissed[] = []
 let runB: number | undefined
 let diffMode: DiffMode = 'all'
 let currentView: 'graph' | 'flame' = 'graph'
+// Unsaved-project-changes flag: set on any tag/dismiss/rule mutation, cleared
+// once Save project completes; drives the save-on-close confirmation.
+let dirty = false
 
 async function refreshTags(): Promise<void> {
   const rid = activeRunId
@@ -162,6 +165,7 @@ async function persistTags(): Promise<void> {
   if (activeRunId === undefined) return
   try {
     await window.ares.saveTags(activeRunId, tags)
+    dirty = true
     logAppend('success', 'tags', 'Tags saved')
   } catch (e) {
     logAppend('error', 'tags', e instanceof Error ? e.message : String(e))
@@ -306,6 +310,7 @@ async function renderSuggestionsInto(host: HTMLElement): Promise<void> {
     async s => {
       dismissed = addDismissed(dismissed, s.target, s.category)
       await window.ares.dismissedSave(activeRunId!, dismissed)
+      dirty = true
       void recolorRasp()
     })
   void recolorRasp()
@@ -828,7 +833,7 @@ document.getElementById('rules-btn')?.addEventListener('click', () => {
   showModal({
     title: 'Rules',
     width: 640,
-    render: host => { void renderRules(host, activeRunId, () => { logAppend('info', 'rules', 'Rules updated'); void recolorRasp(); void refreshSuggestions() }) },
+    render: host => { void renderRules(host, activeRunId, () => { dirty = true; logAppend('info', 'rules', 'Rules updated'); void recolorRasp(); void refreshSuggestions() }) },
   })
 })
 document.getElementById('pager-prev')?.addEventListener('click', () => {
@@ -938,7 +943,10 @@ document.getElementById('export-btn')?.addEventListener('click', () => {
     const saveProj = document.createElement('button'); saveProj.className = 'btn'; saveProj.id = 'save-project'
     saveProj.textContent = 'Save project…'
     saveProj.onclick = () => {
-      if (activeRunId !== undefined) void runLogged('save-project', () => window.ares.saveProject(activeRunId!, currentLayout), () => null)
+      if (activeRunId !== undefined) void runLogged('save-project', () => window.ares.saveProject(activeRunId!, currentLayout), r => {
+        if ('path' in r && r.path) dirty = false
+        return null
+      })
     }
     host.appendChild(saveProj)
   }})
@@ -989,3 +997,38 @@ window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); void window.ares.openFile() }
 })
 
+document.getElementById('app-quit')?.addEventListener('click', () => window.ares.requestClose())
+
+// Registered once at startup: main intercepts both the window-X and the Quit
+// rail item into the same 'app:confirmClose' signal, so there is exactly one
+// place that decides whether unsaved project changes block the close.
+window.ares.onConfirmClose(() => {
+  if (!dirty) { window.ares.respondClose('close'); return }
+  let responded = false
+  const respond = (a: 'close' | 'cancel') => { if (!responded) { responded = true; window.ares.respondClose(a) } }
+  showModal({
+    title: 'Unsaved project changes',
+    width: 380,
+    onClose: () => respond('cancel'), // X / outside-click = Cancel; no-op if already responded
+    render: host => {
+      const msg = document.createElement('p')
+      msg.textContent = 'Save this project bundle before closing?'
+      msg.style.margin = '4px 0 14px'
+      const row = document.createElement('div')
+      row.style.cssText = 'display:flex; gap:8px; justify-content:flex-end'
+      const mk = (label: string, cls: string, fn: () => void) => {
+        const b = document.createElement('button'); b.className = cls; b.textContent = label; b.onclick = fn; return b
+      }
+      const save = mk('Save', 'btn pri', async () => {
+        if (activeRunId === undefined) { respond('close'); closeModal(); return }
+        const r = await window.ares.saveProject(activeRunId, currentLayout)
+        if ('path' in r && r.path) { dirty = false; respond('close'); closeModal() }
+        else respond('cancel') // save dialog canceled/failed - abort close, leave the confirm dialog open to retry
+      })
+      const dont = mk("Don't Save", 'btn', () => { respond('close'); closeModal() })
+      const cancel = mk('Cancel', 'btn', () => { respond('cancel'); closeModal() })
+      row.append(save, dont, cancel)
+      host.append(msg, row)
+    },
+  })
+})
