@@ -43,6 +43,44 @@ coding used on the nodes themselves and reused verbatim by the flame view's
 system.
 
 
+## Funcs engine support
+
+The app loads both `ares syscalls` and `ares funcs` output. A run's engine is
+detected at ingest from the record types present (`RunInfo.kinds`); the left
+panel and graph adapt automatically. A funcs run traces native function
+entry/exit via uprobes: each hooked call emits a `call` record (entry, args,
+backtrace) and a `return` record (retval, `elapsed_ns`) that **share one `id`**
+(a monotonic per-call span counter the tracer emits on both).
+
+- **Funcs list.** For a funcs run the master table lists one row per `call`,
+  with columns `function` (`module!symbol`), `caller` (the immediate native
+  frame, offset stripped), `retval`, `elapsed`, and `args`. retval/elapsed are
+  folded from the matching `return` by a deterministic join on the shared `id`
+  (`GraphStore.table()`), so recursion and reentrancy pair correctly; a call
+  with no return shows blank. `return` records are not listed.
+
+- **Funcs call graph.** Selecting a row draws a **deep, unified
+  function-to-function call graph**, built entirely in SQL (`FUNCS_CHAIN_SQL`)
+  and verified against the pure-TS oracle `foldFuncEvents` by a lockstep test.
+  The chain is the whole reversed backtrace (plus reversed `java_stack` when a
+  capture carries it). A backtrace frame whose `module!symbol` is itself a
+  hooked function collapses into that function's own `fn:` node (unify), so a
+  function appears once whether it is a leaf or a caller; unhooked intermediate
+  frames stay `nat:` scaffold nodes. Nodes reuse the `func` kind (gold) in the
+  same visual language as the syscall graph.
+
+```mermaid
+flowchart TD
+  JNI["nat: JNI_OnLoad (unhooked)"] --> CR["fn: checkRoot"]
+  CR --> GP["fn: getProp"]
+  CR --> OP["fn: open"]
+```
+
+Funcs and syscall graphs share common `nat:` native nodes by identity, so a
+mixed `trace` run (both engines) renders one organic native call graph rather
+than two disconnected islands. Funcs chains, list, and count all carry the
+`span IS NULL` guard, so span-tagged correlate rows never leak in.
+
 ## UI shell
 
 The toolbar is a single **chrome bar** housing a **File ▾** dropdown (Open JSONL,
@@ -103,6 +141,11 @@ The master table's columns are **configurable**. Default set: `id · syscall · 
     offset dropped). Tags live on native library nodes; a syscall row shows a
     badge only when its innermost native frame carries a tag. Multiple tags
     render as a comma-separated badge list.
+
+- **Funcs runs** use a fixed column set (`id · function · caller · retval ·
+  elapsed · args`) chosen by engine (`columnsForEngine`), not the saved syscall
+  preference; the column picker persists syscall columns only (funcs column
+  persistence is deferred).
 
 - **Column widths:** each column width is keyed by column name (not position), so
   any subset of columns lays out correctly. Text-heavy columns (`top java`,

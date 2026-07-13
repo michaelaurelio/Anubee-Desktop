@@ -3,6 +3,34 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-13) - funcs engine support, Phase 1
+
+Loads `ares funcs` runs: engine detection at ingest (`RunInfo.kinds`), a funcs
+master-table list (function / caller / retval / elapsed / args) with retval/elapsed
+folded from the matching `return` by shared `id`, and a deep unified
+function-to-function call graph built in SQL (`FUNCS_CHAIN_SQL`, replaces the old
+JS `funcsAdapter`) verified against the `foldFuncEvents` oracle. Off-heap and
+`span IS NULL`-guarded throughout.
+
+### Known drawbacks / deferrals from funcs Phase 1 (to resolve later)
+- **GUI smoke test pending on a fresh capture.** Core logic is covered by unit +
+  integration + lockstep tests, but the interactive Electron smoke (funcs columns
+  render, row-click draws the gold `fn:` graph) was not run: the committed
+  `../ares-detector-funcs-sample.jsonl` predates the tracer's `id` field, so it
+  lists calls with null ids and no folded retval/elapsed. Recapture a funcs run
+  (with `id`) and run the smoke before calling the feature user-ready.
+- **Funcs `stack_id` dropped.** funcs emits `stack_id` as a large raw number;
+  it is unused (no stack sidecar in funcs output) and left unmapped. Revisit if a
+  stack sidecar lands.
+- **Funcs column persistence deferred.** A funcs run uses a fixed column set; the
+  `⚙ columns` picker still shows/persists syscall columns only, so toggling it on a
+  funcs run has no visible effect. Make the picker engine-aware in a later phase.
+- **funcs-vs-syscall run diff is not meaningful** (node-id namespaces differ);
+  diffing two funcs runs is the intended use.
+- **Deferred to Phase 2/3:** record inspector for funcs (args/retval/elapsed
+  detail + `COLS`/`FuncEvent` widening), module/symbol filter-control UI, flame
+  view for funcs, run diff + RASP heuristics for funcs.
+
 ## Known drawbacks from body-panel & master-table redesign
 - **Tags column keys on innermost native frame only** - the tag lookup on a
   syscall row resolves only the row's `topNative` (innermost native frame in the
