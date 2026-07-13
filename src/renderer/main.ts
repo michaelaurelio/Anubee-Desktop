@@ -187,17 +187,21 @@ function showSide(visible: boolean): void {
   document.getElementById('side-resize')?.classList.toggle('hidden', !visible)
 }
 
-// #banner is shared by the graph-truncation warning and the EPIC A coverage
-// health summary - whichever call comes last wins (both are simple one-off
-// informational states, not stacked notifications), so callers that render a
-// slice (which always calls showBanner(slice.truncated)) must settle before
-// a coverage banner call, or the coverage message gets clobbered.
+// #banner is a quiet top-right chip shared by the graph-truncation warning
+// and the EPIC A coverage health summary - whichever message is passed wins
+// (both are simple one-off informational states, not stacked notifications).
+// An empty/absent message always hides the chip, regardless of `show`.
 function showBanner(show: boolean, message?: string): void {
   const b = document.getElementById('banner')
   if (!b) return
-  b.style.display = show ? 'block' : 'none'
-  if (show) b.textContent = message ?? 'Graph truncated - narrow the filter to see the full slice.'
+  const text = message ?? ''
+  b.style.display = show && text ? 'block' : 'none'
+  if (show && text) b.textContent = text
 }
+
+// Coverage summary text computed on load; only surfaced once a row is
+// selected (renderSlice), so the chip never appears before there's a graph.
+let coverageChip = ''
 
 // The master table renders at most one page; a filter matching more than this
 // shows "first <PAGE> of <total>" so the hidden remainder is never silent.
@@ -347,7 +351,11 @@ async function renderSlice(slice: GraphSlice): Promise<void> {
   cy.add(els.edges)
   await runElkLayout(cy)
   cy.fit(undefined, 48) // frame the slice with padding; consistent zoom per selection
-  showBanner(slice.truncated)
+  document.getElementById('graph-empty')?.classList.add('hidden')
+  // gate on truncation||coverage: an empty message (no truncation, no coverage
+  // text yet) hides the chip regardless of the `show` flag - see showBanner.
+  showBanner(slice.truncated || !!coverageChip, slice.truncated
+    ? `graph truncated · ${coverageChip}` : coverageChip)
   redrawBadges()
   void recolorRasp()
 }
@@ -746,6 +754,7 @@ window.ares.onLoaded(s => {
   document.getElementById('empty-state')?.classList.add('hidden')
   document.getElementById('ingest-progress')?.classList.add('hidden')
   showTablePanel(true)
+  document.getElementById('graph-empty')?.classList.remove('hidden')
   showSide(false) // clear a prior run's open detail; refreshOrphans re-opens it if this run has orphans
   logAppend(s.errors > 0 ? 'warn' : 'success', 'load', `Loaded ${s.eventCount} events (${s.errors} parse errors)`)
   void refreshTags().then(() => {
@@ -755,10 +764,10 @@ window.ares.onLoaded(s => {
     void refreshSuggestions()
     void refreshOrphans()
   })
-  // Coverage health banner (not graph data).
+  // Coverage health text (not graph data) - stored, not shown, until a row
+  // is selected and renderSlice surfaces it via the chip.
   void window.ares.coverage(s.runId).then(cov => {
-    if (!cov) return
-    showBanner(true, `Coverage: ${cov.snaps.total} snapshots (${cov.snaps.truncated} truncated) · CFI walks ${cov.cfi.walks}`)
+    coverageChip = cov ? `${cov.snaps.total} snapshots · ${cov.snaps.truncated} truncated · CFI walks ${cov.cfi.walks}` : ''
   })
 })
 document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))

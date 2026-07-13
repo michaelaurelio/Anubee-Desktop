@@ -108,10 +108,11 @@
       #flame { display: none; overflow: auto; padding: 4px; scrollbar-gutter: stable; }
       #flame.active { display: block; }
       .flame-reset { margin: 2px 0 6px; }
-      .flame-banner, #banner { padding: 4px 8px; background: var(--warn-bg); border: 1px solid var(--warn-bd);
-        color: var(--warn-fg); border-radius: 4px; }
-      .flame-banner { margin-bottom: 6px; }
-      #banner { position: absolute; top: 6px; left: 6px; right: 6px; display: none; z-index: 3; }
+      .flame-banner { padding: 4px 8px; background: var(--warn-bg); border: 1px solid var(--warn-bd);
+        color: var(--warn-fg); border-radius: 4px; margin-bottom: 6px; }
+      #banner { position:absolute; top:9px; right:9px; left:auto; display:none; z-index:3;
+        background:var(--panel); border:1px solid var(--border-soft); color:var(--muted);
+        border-radius:20px; padding:3px 10px; font-size:10px; }
 
       /* zoom cluster */
       #zoom { position: absolute; right: 8px; bottom: 8px; z-index: 4; display: flex; flex-direction: column;
@@ -135,6 +136,14 @@
       #empty-state.hidden { display: none; }
       #empty-state .es-title { font-size: 15px; color: var(--text); }
       #ingest-progress { margin-top: 14px; width: 240px; }
+      #graph-empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+        justify-content:center; gap:10px; color:var(--muted); z-index:2; pointer-events:none; }
+      #graph-empty.hidden { display:none; }
+      #graph-empty .ge-ring { width:52px; height:52px; border-radius:50%; border:1.5px dashed var(--border);
+        display:flex; align-items:center; justify-content:center; }
+      #graph-empty .ge-ring svg { width:24px; height:24px; fill:none; stroke:var(--muted); stroke-width:1.6; }
+      #graph-empty .ge-title { color:var(--text); font-size:14px; }
+      #graph-empty .ge-sub { font-size:12px; }
       #ingest-progress.hidden { display: none; }
       #ingest-progress #ingest-bar { height: 4px; background: var(--accent, #6fa8ff); width: 0%;
         border-radius: 2px; transition: width 0.1s linear; }
@@ -447,6 +456,11 @@
           <div class="es-title">No run loaded</div>
           <div>Open a run to begin - use <b>Open</b> in the left rail.</div>
           <div id="ingest-progress" class="hidden"><div id="ingest-bar"></div><span id="ingest-pct"></span></div>
+        </div>
+        <div id="graph-empty" class="hidden">
+          <div class="ge-ring"><svg viewBox="0 0 24 24"><use href="#i-graph"/></svg></div>
+          <div class="ge-title">Pick a row to trace its call chain</div>
+          <div class="ge-sub">select any event on the left - its java &rarr; native &rarr; syscall path draws here</div>
         </div>
       </div>
       <div class="resize-handle hidden" id="side-resize" data-resize="side" title="drag to resize"></div>
