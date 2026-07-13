@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sliceToElements, sliceToElkGraph, elkResultToPositions, filterForRow, truncateLabel } from '../src/renderer/graph-view'
+import { sliceToElements, sliceToElkGraph, elkResultToPositions, filterForRow, truncateLabel, kindGlyph } from '../src/renderer/graph-view'
 import type { GraphSlice } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
 
@@ -22,7 +22,7 @@ describe('sliceToElements', () => {
   it('maps nodes and edges to cytoscape element defs', () => {
     const els = sliceToElements(slice)
     expect(els.nodes).toHaveLength(2)
-    expect(els.nodes[0].data).toMatchObject({ id: 'sys:openat', kind: 'syscall', label: 'openat', count: 1 })
+    expect(els.nodes[0].data).toMatchObject({ id: 'sys:openat', kind: 'syscall', label: '■ openat', count: 1 })
     expect(els.edges).toHaveLength(1)
     expect(els.edges[0].data).toMatchObject({ source: 'nat:libexample.so!check', target: 'sys:openat', count: 3 })
   })
@@ -83,5 +83,21 @@ describe('truncateLabel', () => {
   })
   it('defaults the cap to 22', () => {
     expect(truncateLabel('x'.repeat(30)).length).toBe(22)
+  })
+})
+
+describe('kindGlyph', () => {
+  it('maps each kind to its legend shape char', () => {
+    expect(kindGlyph('java')).toBe('◆')
+    expect(kindGlyph('native')).toBe('●')
+    expect(kindGlyph('syscall')).toBe('■')
+    expect(kindGlyph('func')).toBe('■')
+  })
+})
+
+describe('sliceToElements glyph', () => {
+  it('prefixes the node label with its kind glyph', () => {
+    const slice = { nodes: [{ id: 'sys:read', label: 'read', kind: 'syscall', count: 1 }], edges: [] } as any
+    expect(sliceToElements(slice).nodes[0].data.label.startsWith('■ ')).toBe(true)
   })
 })
