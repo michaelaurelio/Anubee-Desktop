@@ -1,4 +1,4 @@
-import type { SyscallEvent, FuncEvent } from './events'
+import type { SyscallEvent, FuncEvent, CfiFrame } from './events'
 import { parseFrameSymbol, type ParsedFrame } from './frame-symbol'
 
 // Trailing ART bytecode offset on a managed frame name (+0x<dexpc>). Dropped
@@ -113,6 +113,45 @@ export function chainOfFunc(e: FuncEvent, hooked: Set<string>): ChainNode[] {
       chain.push({ id: `nat:${key}`, kind: 'native', label: p.symbol ? `${p.symbol} (${p.module})` : p.module, module: p.module })
     }
   }
+  return chain
+}
+
+// One cfi_backtrace frame -> node id, or null to drop it. Managed frames and
+// interpreted methods (kind:'interp' with addr '0x0') become java: nodes (offset
+// stripped, mirroring Phase 1); the interpreter entry machinery (kind:'interp'
+// with a real addr) and bare-address frames are dropped; native and
+// jni-trampoline frames become nat:, or fn: when their cleaned module!symbol is
+// in the funcs hooked-set. Single source for both the oracle and CFI*_CHAIN_SQL.
+function cfiNodeId(f: CfiFrame, hooked?: Set<string>): string | null {
+  if (f.kind === 'managed') {
+    return `java:${f.symbol.replace(/^.*!/, '').replace(JAVA_DEXPC, '')}`
+  }
+  if (f.kind === 'interp') {
+    if (f.addr !== '0x0') return null // interpreter entry machinery, not a method
+    return `java:${f.symbol.replace(JAVA_DEXPC, '')}`
+  }
+  // native / jni-trampoline
+  const p = parseFrameSymbol(f.symbol)
+  if (p.module === null) return null // bare-address frame
+  const key = p.symbol ? `${p.module}!${p.symbol}` : p.module
+  if (hooked && p.symbol && hooked.has(key)) return `fn:${key}`
+  return `nat:${key}`
+}
+
+// The ordered outermost->leaf chain for one cfi_stack walk. cfi_backtrace is
+// innermost-first, so it is reversed. `leaf` is 'sys:<syscall>' for a syscall
+// event or null for funcs (whose leaf function is a hooked frame in the walk).
+// `hooked` is the funcs hooked-set (omitted for syscall). Superset-faithful: it
+// carries the interleaved managed<->native order and the outer-native caller the
+// FP backtrace drops.
+export function chainOfCfi(frames: CfiFrame[], leaf: string | null, hooked?: Set<string>): ChainNode[] {
+  const chain: ChainNode[] = []
+  for (const f of [...frames].reverse()) {
+    const id = cfiNodeId(f, hooked)
+    if (id === null) continue
+    chain.push({ id, ...labelForId(id) })
+  }
+  if (leaf) chain.push({ id: leaf, ...labelForId(leaf) })
   return chain
 }
 
