@@ -91,7 +91,7 @@ export async function renderRules(
     const row = document.createElement('div'); row.className = 'rule-row'
     const info = document.createElement('div'); info.className = 'rule-info'
     const line1 = document.createElement('div'); line1.className = 'rule-line1'
-    const cat = document.createElement('span'); cat.className = `sug-cat rasp-${r.category}`; cat.textContent = r.category
+    const cat = document.createElement('span'); cat.className = `cat-chip cat-${r.category}`; cat.textContent = r.category.toUpperCase()
     const src = document.createElement('span'); src.className = 'rule-src'; src.textContent = r.source
     const id = document.createElement('span'); id.className = 'rule-id'; id.textContent = r.id
     const meta = document.createElement('span'); meta.className = 'rule-meta'
