@@ -501,19 +501,29 @@ function applyGraphTheme(next: Theme): void {
     .update()
 }
 
-// Glyph shows the current theme (dark -> moon, light -> sun), matching the
-// index.html default so a light-theme reload isn't stuck on the moon.
-function syncThemeToggleGlyph(): void {
-  const btn = document.getElementById('theme-toggle')
-  if (btn) btn.textContent = theme === 'dark' ? '☾' : '☀'
+// Update theme pill to reflect current theme (dark -> moon on knob, light -> sun on knob).
+function updateThemePill(): void {
+  const pill = document.querySelector('.theme-pill')
+  const knob = document.querySelector('.theme-knob svg use')
+  if (pill && knob) {
+    if (theme === 'dark') {
+      pill.classList.remove('light')
+      pill.classList.add('dark')
+      knob.setAttribute('href', '#i-moon')
+    } else {
+      pill.classList.remove('dark')
+      pill.classList.add('light')
+      knob.setAttribute('href', '#i-sun')
+    }
+  }
 }
-syncThemeToggleGlyph() // init from the restored theme so a light-theme reload isn't stuck on the moon
+updateThemePill() // init from the restored theme
 
 document.getElementById('theme-toggle')?.addEventListener('click', () => {
   theme = theme === 'dark' ? 'light' : 'dark'
   document.documentElement.setAttribute('data-theme', theme)
   localStorage.setItem('ares.theme', serializeTheme(theme))
-  syncThemeToggleGlyph()
+  updateThemePill()
   applyGraphTheme(theme)
   styleRaspCategories(theme)
   if (currentView === 'flame') void refreshFlame()
