@@ -1,6 +1,11 @@
 import type { SyscallEvent, FuncEvent } from './events'
 import { parseFrameSymbol, type ParsedFrame } from './frame-symbol'
 
+// Trailing ART bytecode offset on a managed frame name (+0x<dexpc>). Dropped
+// from java: ids so one method is one node - the managed analogue of the
+// offset-strip parseFrameSymbol already does for native frames.
+const JAVA_DEXPC = /\+0x[0-9a-fA-F]+$/
+
 export type NodeKind = 'java' | 'native' | 'syscall' | 'func'
 
 export interface GraphNode {
@@ -64,7 +69,8 @@ export function chainOf(e: SyscallEvent): ChainNode[] {
   const chain: ChainNode[] = []
 
   for (const m of [...(e.java_stack ?? [])].reverse()) {
-    chain.push({ id: `java:${m}`, kind: 'java', label: m, module: null })
+    const clean = m.replace(JAVA_DEXPC, '')
+    chain.push({ id: `java:${clean}`, kind: 'java', label: clean, module: null })
   }
 
   for (const f of [...e.backtrace].reverse()) {
@@ -94,7 +100,8 @@ export function funcKey(e: FuncEvent): string {
 export function chainOfFunc(e: FuncEvent, hooked: Set<string>): ChainNode[] {
   const chain: ChainNode[] = []
   for (const m of [...(e.java_stack ?? [])].reverse()) {
-    chain.push({ id: `java:${m}`, kind: 'java', label: m, module: null })
+    const clean = m.replace(JAVA_DEXPC, '')
+    chain.push({ id: `java:${clean}`, kind: 'java', label: clean, module: null })
   }
   for (const f of [...e.backtrace].reverse()) {
     const p = parseFrameSymbol(f.symbol)
