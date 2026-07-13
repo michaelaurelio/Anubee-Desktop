@@ -4,11 +4,11 @@ import { javaLeaf, nativeLeaf, formatDuration } from './call-site'
 
 const LABEL = Object.fromEntries(ALL_COLUMNS.map(c => [c.key, c.label])) as Record<ColumnKey, string>
 
-function span(cls: string, text: string): HTMLElement {
+function span(cls: string, text: string, title = text): HTMLElement {
   const s = document.createElement('span')
   s.className = cls
   s.textContent = text        // trace-derived text is never innerHTML
-  s.title = text
+  s.title = title
   return s
 }
 
@@ -18,17 +18,17 @@ function span(cls: string, text: string): HTMLElement {
 function renderCallSite(td: HTMLElement, r: TableRow): void {
   td.classList.add('cs')
   if (r.engine === 'func') {
-    td.appendChild(span('cs-fn', nativeLeaf(r.fn ?? '')))
-    if (r.caller) td.appendChild(span('cs-caller', nativeLeaf(r.caller)))
+    td.appendChild(span('cs-fn', nativeLeaf(r.fn ?? ''), r.fn ?? ''))
+    if (r.caller) td.appendChild(span('cs-caller', nativeLeaf(r.caller), r.caller))
     else td.appendChild(span('cs-caller cs-top', '— top frame'))
     return
   }
   if (r.topJava && r.topNative) {
     td.classList.add('paired')
-    td.appendChild(span('cs-java', javaLeaf(r.topJava)))
-    td.appendChild(span('cs-native', nativeLeaf(r.topNative)))
+    td.appendChild(span('cs-java', javaLeaf(r.topJava), r.topJava))
+    td.appendChild(span('cs-native', nativeLeaf(r.topNative), r.topNative))
   } else if (r.topNative) {
-    td.appendChild(span('cs-native', nativeLeaf(r.topNative)))
+    td.appendChild(span('cs-native', nativeLeaf(r.topNative), r.topNative))
   } else {
     td.appendChild(span('cs-none', '— no backtrace'))
   }

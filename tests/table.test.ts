@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest'
 import { renderTable } from '../src/renderer/table'
-import { javaLeaf } from '../src/renderer/call-site'
 import type { TableRow } from '@shared/table'
 
 const row: TableRow = {
@@ -52,6 +51,21 @@ describe('call-site cell', () => {
     expect(cell.querySelector('.cs-java')?.textContent).toBe('exists')            // javaLeaf('FileCheck.exists')
     expect(cell.querySelector('.cs-native')?.textContent).toBe('libsentinel.so!chk') // nativeLeaf strips +0x40
     expect(cell.classList.contains('paired')).toBe(true)
+  })
+  it('syscall paired row shows the full original string on hover, not the leaf', () => {
+    const fullRow: TableRow = {
+      ...row, id: 10,
+      topJava: 'dev.ares.detector.ChecksKt.CHECK_REGISTRY',
+      topNative: 'libsentinel.so!maps_iterate+0x44',
+    }
+    renderTable([fullRow], ['callSite'], () => {})
+    const cell = document.querySelector('#table td.col-callSite')!
+    const javaEl = cell.querySelector('.cs-java')!
+    const nativeEl = cell.querySelector('.cs-native')!
+    expect(javaEl.textContent).toBe('CHECK_REGISTRY')
+    expect(javaEl.getAttribute('title')).toBe('dev.ares.detector.ChecksKt.CHECK_REGISTRY')
+    expect(nativeEl.textContent).toBe('libsentinel.so!maps_iterate')
+    expect(nativeEl.getAttribute('title')).toBe('libsentinel.so!maps_iterate+0x44')
   })
   it('native-only row shows a single native line, not paired', () => {
     renderTable([nativeOnly], ['callSite'], () => {})
