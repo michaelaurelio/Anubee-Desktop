@@ -382,6 +382,7 @@ function showView(view: 'graph' | 'flame' | 'libs'): void {
   document.getElementById('flame')?.classList.toggle('hidden', view !== 'flame')
   document.getElementById('libs')?.classList.toggle('hidden', view !== 'libs')
   document.getElementById('cmdbar')?.classList.toggle('hidden', view === 'libs')
+  document.getElementById('main')?.classList.toggle('no-cmdbar', view === 'libs')
   showTablePanel(view !== 'libs' && activeRunId !== undefined)
   document.getElementById('graph-empty')?.classList.toggle('hidden', view !== 'graph' || selectedRowId !== undefined)
   if (view === 'flame') void refreshFlame()
