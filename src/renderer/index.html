@@ -76,12 +76,24 @@
       /* command bar */
       #cmdbar { position:absolute; top:0; left:46px; right:0; height:44px; box-sizing:border-box;
         display:flex; align-items:center; gap:8px; padding:0 12px; background:var(--bar); border-bottom:1px solid var(--border); }
-      #cmdbar .omni { flex:1; display:flex; align-items:center; gap:8px; background:var(--input-bg);
+      #cmdbar .omni { flex:1; position:relative; display:flex; align-items:center; gap:8px; background:var(--input-bg);
         border:1px solid var(--input-bd); border-radius:6px; padding:0 10px; }
-      #cmdbar .omni .ic { width:15px; height:15px; fill:none; stroke:var(--muted); stroke-width:2; }
-      #cmdbar .omni input { flex:1; background:transparent; border:0; padding:6px 0; color:var(--text); outline:none; }
-      #cmdbar > input[type=text] { background:var(--input-bg); border:1px solid var(--input-bd); color:var(--text); padding:5px 8px; border-radius:5px; }
-      #cmdbar label { font-size:12px; color:var(--muted); }
+      #cmdbar .omni .ic { width:15px; height:15px; flex:none; fill:none; stroke:var(--muted); stroke-width:2; }
+      #cmdbar .omni input { flex:1; min-width:120px; background:transparent; border:0; padding:6px 0; color:var(--text); outline:none; }
+      #omni-chips { display:flex; align-items:center; gap:5px; }
+      #omni-chips:empty { display:none; }
+      #omni-chips .chip { display:inline-flex; align-items:center; gap:4px; white-space:nowrap;
+        background:var(--hover); border:1px solid var(--input-bd); border-radius:999px; padding:1px 4px 1px 8px; font-size:11px; color:var(--text); }
+      #omni-chips .chip b { color:var(--accent-fg); font-weight:600; }
+      #omni-chips .chip-x { background:none; border:0; padding:0 3px; cursor:pointer; color:var(--muted); font-size:12px; line-height:1; }
+      #omni-chips .chip-x:hover { color:var(--text); }
+      #omni-ac { position:absolute; top:calc(100% + 4px); left:0; min-width:320px; z-index:30;
+        background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:var(--shadow); overflow:hidden; }
+      #omni-ac.hidden { display:none; }
+      #omni-ac .ac-row { display:flex; gap:10px; align-items:baseline; padding:5px 10px; font-size:12px; cursor:pointer; }
+      #omni-ac .ac-row b { color:var(--accent-fg); font-weight:600; min-width:64px; }
+      #omni-ac .ac-row span { color:var(--muted); }
+      #omni-ac .ac-row.on, #omni-ac .ac-row:hover { background:var(--hover); }
 
       /* --- body --- */
       #main { position: absolute; top: 44px; bottom: 0; left: 46px; right: 0; display: flex;
@@ -499,13 +511,10 @@
 
     <div id="cmdbar">
       <div class="omni"><svg class="ic" viewBox="0 0 24 24"><use href="#i-search"/></svg>
-        <input id="f-text" type="text" placeholder="filter events - syscall, library, tid, free text…" />
+        <span id="omni-chips"></span>
+        <input id="f-text" type="text" placeholder="search events, args, stacks…  keys: syscall: lib: tid: java: module: symbol:" />
+        <div id="omni-ac" class="hidden"></div>
       </div>
-      <input id="f-syscall" type="text" size="8" placeholder="syscall" />
-      <input id="f-library" type="text" size="8" placeholder="library" />
-      <input id="f-tid" type="text" size="5" placeholder="tid" />
-      <label><input type="checkbox" id="f-hasjava" /> has java_stack</label>
-      <button id="apply" class="btn pri">Apply</button>
     </div>
 
     <div id="main">
