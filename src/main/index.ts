@@ -20,7 +20,7 @@ import { readFile, open } from 'node:fs/promises'
 import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
 import { startLive, dumpLibs, type LiveEvent } from './native-lib-live'
 import { loadConfig, saveConfig } from './tracer-config'
-import { capById, composeRunArg, outJsonlPath, outDumpDir, resolveSavePath } from '@shared/tracer-caps'
+import { capById, composeRunArg, outJsonlPath, resolveSavePath } from '@shared/tracer-caps'
 import { isElf, specNames, type PathCheck, type PathStatus } from './path-check'
 import { readdir, copyFile } from 'node:fs/promises'
 import { basename } from 'node:path'
@@ -197,12 +197,7 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
   if (!cap) throw new Error(`unknown capability ${capId}`)
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
   const jsonlPath = cap.outputKind === 'jsonl' ? outJsonlPath(ts) : undefined
-  // dump writes one rebuilt .so per matching library into a directory (-d DIR);
-  // create it up front (a separate su -c from the ares run - never chain) so ares
-  // has somewhere to write, then pull the whole directory afterwards.
-  const dumpDir = cap.outputKind === 'artifact' ? outDumpDir(ts) : undefined
-  if (dumpDir) await adb.run(['shell', `su -c 'mkdir -p ${dumpDir}'`])
-  const runArg = composeRunArg({ cap, vals: vals as never, timeoutSecs, jsonlPath, dumpDir })
+  const runArg = composeRunArg({ cap, vals: vals as never, timeoutSecs, jsonlPath })
   activeRun = startRun(spawner, adb, runArg, line => win.webContents.send('tracer:line', line))
   const { code } = await activeRun.done
   activeRun = null
@@ -214,16 +209,6 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
     if (pulled.hostPath) {
       const summary = await loadPath(pulled.hostPath)
       runId = summary.runId
-    }
-  } else if (dumpDir) {
-    // Pull the whole dump directory of rebuilt .so files to the host. A pull
-    // failure (e.g. nothing matched, so the dir is empty) is surfaced to the
-    // console rather than swallowed, so the user isn't told a dump succeeded.
-    const hostDir = resolve(runsDir(), `dump-${ts}`)
-    try {
-      await pullResult(adb, 'artifact', dumpDir, hostDir)
-    } catch (e) {
-      win.webContents.send('tracer:line', `dump pull failed: ${(e as Error).message}`)
     }
   }
   return { code, kind: cap.outputKind, runId }

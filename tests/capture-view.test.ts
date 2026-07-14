@@ -48,7 +48,7 @@ describe('renderCapabilityForm', () => {
 
   it('emits no Advanced section for a cap without advanced inputs', () => {
     const host = document.createElement('div')
-    renderCapabilityForm(host, capById('lib')!, {}, () => {})
+    renderCapabilityForm(host, capById('mod')!, {}, () => {})
     expect(host.querySelector('details.cap-advanced')).toBeNull()
   })
 
