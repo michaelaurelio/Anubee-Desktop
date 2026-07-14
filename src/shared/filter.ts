@@ -51,10 +51,16 @@ export function filterToSql(f: Filter): { where: string; params: unknown[] } {
     clauses.push(
       '(syscall ILIKE ? ' +
         'OR len(list_filter(coalesce(java_stack, []), x -> x ILIKE ?)) > 0 ' +
-        'OR len(list_filter(list_transform(backtrace, b -> b.symbol), s -> s ILIKE ?)) > 0)',
+        'OR len(list_filter(list_transform(backtrace, b -> b.symbol), s -> s ILIKE ?)) > 0 ' +
+        "OR coalesce(array_to_string(args, ' '), '') ILIKE ? " +
+        "OR coalesce(array_to_string(map_values(string_args), ' '), '') ILIKE ? " +
+        "OR coalesce(array_to_string(map_values(fd_args), ' '), '') ILIKE ? " +
+        "OR coalesce(array_to_string(map_values(decoded_args), ' '), '') ILIKE ? " +
+        "OR coalesce(array_to_string(map_values(sock_args), ' '), '') ILIKE ? " +
+        "OR coalesce(array_to_string(map_values(out_args), ' '), '') ILIKE ?)",
     )
     const like = `%${f.text}%`
-    params.push(like, like, like)
+    params.push(like, like, like, like, like, like, like, like, like)
   }
 
   return { where: clauses.length ? clauses.join(' AND ') : 'TRUE', params }
