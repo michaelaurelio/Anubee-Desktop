@@ -288,20 +288,84 @@ if (!capOk) throw new Error('Capture modal capability dropdown is empty (wireCap
 await shot('06-capture-modal.png')
 await win.keyboard.press('Escape')
 
-// 7. Light theme via the toggle. Round-2: the toggle is a sliding
-// `.theme-pill` (no emoji glyph text to assert on) - check the pill exists
-// and that it actually flips the applied theme.
-const pillOk = await win.evaluate(() => !!document.querySelector('#theme-toggle .theme-pill'))
-if (!pillOk) throw new Error('#theme-toggle has no .theme-pill')
+// 6d. Open modal (round-3): two full-width `.modal-menu-item` icon rows.
+await win.click('#file-open')
+await win.waitForSelector('.modal-backdrop .modal-menu-item', { timeout: 5000 })
+const openRows = await win.evaluate(() => {
+  const rows = [...document.querySelectorAll('.modal-body .modal-menu-item')]
+  return rows.length === 2 && !!document.getElementById('open-run') && !!document.getElementById('open-project') &&
+    rows.every(r => !!r.querySelector('svg use'))
+})
+if (!openRows) throw new Error('Open modal did not render two icon rows (open-run / open-project)')
+await shot('06d-open-modal.png')
+await win.keyboard.press('Escape')
+
+// 6e. Export modal (round-3): three icon rows (Markdown / JSON / Save project).
+await win.click('#export-btn')
+await win.waitForSelector('.modal-backdrop .modal-menu-item', { timeout: 5000 })
+const exportRows = await win.evaluate(() => {
+  const rows = [...document.querySelectorAll('.modal-body .modal-menu-item')]
+  return rows.length === 3 && !!document.getElementById('export-md') &&
+    !!document.getElementById('export-json') && !!document.getElementById('save-project')
+})
+if (!exportRows) throw new Error('Export modal did not render three icon rows')
+await shot('06e-export-modal.png')
+await win.keyboard.press('Escape')
+
+// 6f. Diff modal (round-3): a single Load-run-B icon row, and - crucially - the
+// Mode filter is NOT present before run B loads (post-load-only deferral).
+await win.click('#diff-btn')
+await win.waitForSelector('.modal-backdrop .modal-menu-item', { timeout: 5000 })
+const diffPreload = await win.evaluate(() => {
+  const rows = document.querySelectorAll('.modal-body .modal-menu-item')
+  return rows.length === 1 && !!document.getElementById('load-run-b') &&
+    document.getElementById('diff-mode') === null // Mode hidden until run B loads
+})
+if (!diffPreload) throw new Error('Diff modal pre-load state wrong (expected only Load run B, no Mode select)')
+await shot('06f-diff-modal.png')
+await win.keyboard.press('Escape')
+
+// 7. Theme toggle. Round-3: rail-aware - collapsed rail shows a single
+// `.theme-mini` glyph of the current theme; hovering the rail expands it and
+// reveals the full `.theme-pill`. Verify the DOM has both, the mini tracks the
+// theme, and the toggle flips the applied theme.
+const pillOk = await win.evaluate(() =>
+  !!document.querySelector('#theme-toggle .theme-pill') && !!document.querySelector('#theme-toggle .theme-mini use'))
+if (!pillOk) throw new Error('#theme-toggle missing .theme-pill or .theme-mini glyph')
 await win.click('#tab-graph')
+// Collapsed rail: mini glyph visible, pill hidden. Move the mouse off the rail
+// so it stays at its 46px collapsed width for the shot.
+await win.mouse.move(700, 400)
+await win.waitForTimeout(200)
+const collapsedThemeOk = await win.evaluate(() => {
+  const mini = document.querySelector('#theme-toggle .theme-mini')
+  const pill = document.querySelector('#theme-toggle .theme-pill')
+  return getComputedStyle(mini).display !== 'none' && getComputedStyle(pill).display === 'none' &&
+    document.querySelector('#theme-toggle .theme-mini use')?.getAttribute('href') === '#i-moon' // dark
+})
+if (!collapsedThemeOk) throw new Error('collapsed theme toggle should show the mini moon glyph, not the pill')
+await shot('07a-theme-collapsed.png')
+// Expanded rail (hover): pill visible, mini hidden.
+await win.hover('#rail')
+await win.waitForTimeout(250)
+const expandedThemeOk = await win.evaluate(() => {
+  const mini = document.querySelector('#theme-toggle .theme-mini')
+  const pill = document.querySelector('#theme-toggle .theme-pill')
+  return getComputedStyle(pill).display === 'flex' && getComputedStyle(mini).display === 'none'
+})
+if (!expandedThemeOk) throw new Error('expanded (rail-hover) theme toggle should show the pill, not the mini glyph')
+await shot('07b-theme-expanded.png')
+// Flip to light and confirm the pill state + mini glyph both follow.
 await win.click('#theme-toggle')
 await win.waitForTimeout(300)
 const lightOk = await win.evaluate(() =>
   document.documentElement.getAttribute('data-theme') === 'light' &&
-  document.querySelector('#theme-toggle .theme-pill')?.classList.contains('light'))
-if (!lightOk) throw new Error('theme toggle did not apply the light theme / pill state')
+  document.querySelector('#theme-toggle .theme-pill')?.classList.contains('light') &&
+  document.querySelector('#theme-toggle .theme-mini use')?.getAttribute('href') === '#i-sun')
+if (!lightOk) throw new Error('theme toggle did not apply light theme to pill + mini glyph')
 await shot('07-light-theme.png')
 await win.click('#theme-toggle') // back to dark
+await win.mouse.move(700, 400)   // un-hover the rail
 
 // 8. Dismiss the detail panel (its X), then collapse the table via the floating tab.
 await win.click('#side-close')          // hide the right detail panel
