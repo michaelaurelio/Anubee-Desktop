@@ -2,6 +2,10 @@
 // dock. Pure DOM controller, no framework - mirrors flame-view/table's style.
 
 import { NEW_LIB_SETTLE_MS, type LibRow, type LibLine, type Artifact } from '@shared/native-lib'
+import { showModal, closeModal } from './modal'
+import { isSafeToken } from '@shared/tracer-caps'
+import { makeEpoch } from './selection-epoch'
+import { renderPreflightRow, type PreflightCheck } from './capture-view'
 
 type Source = 'loaded' | 'live'
 const key = (pid: number, base: string): string => `${pid}|${base}`
@@ -18,6 +22,7 @@ export interface LibViewApi {
   setSource(s: Source): void
   applyMapped(l: LibLine & { atMs: number }): void
   applyUnmapped(l: LibLine & { atMs: number }): void
+  applyPreflightCheck(c: PreflightCheck): void
   addArtifacts(a: Artifact[]): void
   streamEnded(): void
 }
@@ -29,6 +34,7 @@ export interface LibViewDeps {
   dumpLib: (pid: number, pattern: string) => Promise<Artifact[]>
   reveal: (path: string) => void
   exportArtifact: (path: string) => void
+  preflight: (pkg: string) => Promise<PreflightCheck[]>
 }
 
 export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi {
@@ -37,6 +43,9 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   const rows = new Map<string, LibRow>()
   const selected = new Set<string>()
   const artifacts: Artifact[] = []
+  let livePkg = ''
+  let checkHost: HTMLElement | null = null // the open modal's check list, else null
+  const preflightEpoch = makeEpoch()
 
   host.innerHTML = `
     <div class="lib-hdr">
@@ -44,9 +53,11 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
         <strong>Native Libraries</strong>
         <div class="lib-seg"><button data-src="loaded" class="on">Loaded run</button><button data-src="live">Live device</button></div>
         <div class="lib-ctl" data-live hidden>
-          <input data-pkg placeholder="package (e.g. dev.ares.detector)" size="26">
-          <button class="btn" data-start>Start</button>
-          <button class="btn" data-stop hidden>Stop</button>
+          <button class="btn pri" data-live-open>Start live capture&hellip;</button>
+          <span class="lib-live-on" data-live-on hidden>
+            <span class="lib-dot"></span><span data-live-pkg></span>
+            <button class="btn" data-stop>Stop</button>
+          </span>
         </div>
       </div>
       <div class="lib-row1">
@@ -137,13 +148,70 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   host.querySelectorAll<HTMLButtonElement>('.lib-seg button').forEach(b =>
     b.onclick = () => { void setSource(b.dataset.src as Source) })
   $('[data-dock-toggle]').onclick = () => $('.lib-dock').classList.toggle('collapsed')
-  $<HTMLButtonElement>('[data-start]').onclick = async () => {
-    const pkg = $<HTMLInputElement>('[data-pkg]').value.trim(); if (!pkg) return
-    rows.clear(); selected.clear(); streaming = true
-    $<HTMLButtonElement>('[data-start]').hidden = true; $<HTMLButtonElement>('[data-stop]').hidden = false
-    renderRows(); renderStat(); await deps.startLive(pkg)
+
+  // --- live source: modal-driven preflight + streaming state ---
+  function renderLiveHeader(): void {
+    $<HTMLButtonElement>('[data-live-open]').hidden = streaming
+    $('[data-live-on]').hidden = !streaming
+    $('[data-live-pkg]').textContent = livePkg ? `streaming ${livePkg}` : 'streaming'
   }
-  $<HTMLButtonElement>('[data-stop]').onclick = async () => { await deps.stopLive() }
+
+  function beginLive(pkg: string): void {
+    livePkg = pkg; rows.clear(); selected.clear(); streaming = true
+    renderLiveHeader(); renderRows(); renderStat(); syncDump()
+    void deps.startLive(pkg)
+  }
+
+  function openLiveModal(): void {
+    showModal({
+      title: 'Live library capture', width: 460,
+      onClose: () => { checkHost = null },
+      render: host => {
+        host.innerHTML = `
+          <div class="lib-modal">
+            <label class="lib-modal-row">Package
+              <input data-modal-pkg placeholder="e.g. dev.ares.detector" value="${esc(livePkg)}">
+            </label>
+            <div class="lib-modal-actions"><button class="btn" data-modal-refresh>Refresh device</button></div>
+            <div class="lib-checks" data-modal-checks></div>
+            <div class="lib-modal-foot"><button class="btn pri" data-modal-begin disabled>Begin</button></div>
+          </div>`
+        checkHost = host.querySelector('[data-modal-checks]')
+        const pkgIn = host.querySelector('[data-modal-pkg]') as HTMLInputElement
+        const beginBtn = host.querySelector('[data-modal-begin]') as HTMLButtonElement
+        const refreshBtn = host.querySelector('[data-modal-refresh]') as HTMLButtonElement
+        // Any edit invalidates a prior green preflight (epoch guard).
+        pkgIn.oninput = () => { preflightEpoch.bump(); beginBtn.disabled = true; if (checkHost) checkHost.innerHTML = '' }
+        refreshBtn.onclick = async () => {
+          const pkg = pkgIn.value.trim()
+          if (!pkg) { if (checkHost) checkHost.textContent = 'enter a package first'; return }
+          if (!isSafeToken(pkg)) { if (checkHost) checkHost.textContent = 'package has unsupported characters'; return }
+          const token = preflightEpoch.bump()
+          if (checkHost) checkHost.innerHTML = ''
+          beginBtn.disabled = true; refreshBtn.disabled = true
+          try {
+            const checks = await deps.preflight(pkg)
+            if (!preflightEpoch.isCurrent(token)) return // superseded by an edit / newer run
+            beginBtn.disabled = !(checks.length > 0 && checks.every(c => c.ok))
+          } catch (e) {
+            if (!preflightEpoch.isCurrent(token)) return
+            if (checkHost) {
+              const r = document.createElement('div'); r.className = 'preflight-bad'
+              r.textContent = `preflight failed: ${e instanceof Error ? e.message : String(e)}`
+              checkHost.appendChild(r)
+            }
+          } finally { refreshBtn.disabled = false }
+        }
+        beginBtn.onclick = () => {
+          const pkg = pkgIn.value.trim(); if (!pkg) return
+          closeModal(); beginLive(pkg)
+        }
+      },
+    })
+  }
+
+  $<HTMLButtonElement>('[data-live-open]').onclick = () => openLiveModal()
+  $<HTMLButtonElement>('[data-stop]').onclick = () => { void deps.stopLive() }
   dumpBtn.onclick = async () => {
     const jobs = [...selected].map(k => {
       const r = rows.get(k)
@@ -161,7 +229,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     host.querySelectorAll<HTMLButtonElement>('.lib-seg button').forEach(b => b.classList.toggle('on', b.dataset.src === s))
     $('[data-live]').hidden = s !== 'live'
     if (s === 'loaded') { streaming = false; await loadLoaded() }
-    else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); syncDump() }
+    else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); syncDump(); renderLiveHeader() }
   }
 
   function addArtifacts(a: Artifact[]): void { artifacts.push(...a); renderArtifacts() }
@@ -183,7 +251,11 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     applyUnmapped: l => {
       const r = rows.get(key(l.pid, l.start)); if (r) { r.unmapped = true; renderRows(); renderStat() }
     },
+    applyPreflightCheck: c => {
+      if (!checkHost) return // no modal open: nothing to render into (a Capture preflight also lands here)
+      renderPreflightRow(checkHost, c)
+    },
     addArtifacts,
-    streamEnded: () => { streaming = false; renderStat() },
+    streamEnded: () => { streaming = false; renderLiveHeader(); renderStat() },
   }
 }

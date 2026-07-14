@@ -24,7 +24,7 @@ import { renderFlame } from './flame-view'
 import { buildFlame } from '@shared/flame-shape'
 import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
 import type { GraphSlice } from '@shared/graph-shape'
-import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices } from './capture-view'
+import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices, renderPreflightRow } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
 import { showModal, closeModal, isModalOpen } from './modal'
 import { renderLogModal } from './log-view'
@@ -556,10 +556,12 @@ const libView: LibViewApi = createLibView(document.getElementById('libs')!, {
   dumpLib: (pid, pattern) => window.ares.dumpLib(pid, pattern),
   reveal: path => window.ares.revealArtifact(path),
   exportArtifact: path => void window.ares.exportArtifact(path),
+  preflight: pkg => window.ares.tracerPreflight(pkg),
 })
 window.ares.onLibMapped(l => libView.applyMapped(l))
 window.ares.onLibUnmapped(l => libView.applyUnmapped(l))
 window.ares.onLibStreamEnd(() => libView.streamEnded())
+window.ares.onPreflightCheck(c => libView.applyPreflightCheck(c))
 
 async function refreshDiff(): Promise<void> {
   const host = document.getElementById('diff-table')
@@ -1036,10 +1038,7 @@ window.ares.onTracerLine(line => {
 window.ares.onPreflightCheck(c => {
   const host = document.getElementById('cap-preflight-status')
   if (!host) return
-  const row = document.createElement('div')
-  row.className = c.ok ? 'preflight-ok' : 'preflight-bad'
-  row.textContent = `${c.ok ? 'OK' : 'FAIL'}  ${c.label} - ${c.detail}`
-  host.appendChild(row)
+  renderPreflightRow(host, c)
 })
 
 // Ctrl/Cmd+O opens a run (replaces the removed native-menu accelerator).
