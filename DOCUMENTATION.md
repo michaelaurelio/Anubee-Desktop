@@ -155,6 +155,16 @@ chrome-bar + File-dropdown + segmented switch + separate filter bar.
   modal, dismissed by an explicit Close button or by clicking outside. An empty
   state is shown in place of the body until a run is loaded.
 
+  The action modals (**Open**, **Export**, **Diff**) present their choices as a
+  shared **`.modal-menu`** of full-width icon rows - a leading inline-SVG glyph
+  plus a left-aligned label - built by the `modalMenuItem(id, iconId, label)`
+  helper, so all three read as one consistent menu rather than a loose cluster
+  of buttons. The **Diff** modal's **Mode** filter (`all` / only-in-A /
+  only-in-B / tagged) is a *post-load* view filter over the comparison result:
+  it has no meaning until a run B is loaded, so it is not rendered until the
+  compare-load succeeds (`addDiffModeField`), and re-opening Diff while a run B
+  is still loaded shows it immediately.
+
 ### Activity log (rail Log button)
 
 Every user **action** is recorded to an in-memory activity log - run load, export,
@@ -295,6 +305,13 @@ the flame view's `kindFill`, replacing the previously triplicated color
 constants that had drifted across those three call sites. The graph's label
 backing color switches with the theme so node labels stay legible against
 both the dark and light canvas.
+
+The bottom-pinned toggle (`#theme-toggle`) is **rail-aware**: while the left
+rail is collapsed it shows a single `.theme-mini` glyph of the *current* theme
+(moon in dark, sun in light), aligned with the other rail icons; hovering the
+rail expands it and reveals the full sliding `.theme-pill` (moon + sun + knob)
+and its label. `updateThemePill()` keeps both the pill's knob and the collapsed
+mini glyph pointing at the active theme.
 
 ### Graph zoom
 
