@@ -74,6 +74,18 @@ describe('triageDir', () => {
   })
 })
 
+describe('input validation', () => {
+  it('startLive rejects an unsafe package token', () => {
+    const { sp } = fakeSpawner([])
+    expect(() => startLive(sp, noAdb, "com.x'; rm -rf /", () => {})).toThrow(/unsafe package/)
+  })
+  it('dumpLibs rejects an unsafe dump pattern', async () => {
+    const { sp } = fakeSpawner([])
+    await expect(dumpLibs(sp, noAdb, 7, "a'; id", '/data/local/tmp/d', '/tmp/x', () => {}))
+      .rejects.toThrow(/unsafe dump pattern/)
+  })
+})
+
 describe('dumpLibs', () => {
   it('throws when the ares dump run exits non-zero', async () => {
     const d = mkdtempSync(join(tmpdir(), 'ares-dump-'))

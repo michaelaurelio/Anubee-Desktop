@@ -37,7 +37,6 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   const rows = new Map<string, LibRow>()
   const selected = new Set<string>()
   const artifacts: Artifact[] = []
-  let firstAtMs: number | null = null
 
   host.innerHTML = `
     <div class="lib-hdr">
@@ -71,9 +70,9 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   }
 
   function isNew(r: LibRow): boolean {
-    if (source !== 'live' || firstAtMs === null) return false
-    return (r as LibRow & { atMs?: number }).atMs !== undefined &&
-      ((r as LibRow & { atMs: number }).atMs - firstAtMs) > NEW_LIB_SETTLE_MS
+    if (source !== 'live') return false
+    const atMs = (r as LibRow & { atMs?: number }).atMs
+    return atMs !== undefined && atMs > NEW_LIB_SETTLE_MS
   }
 
   function rowHtml(r: LibRow): string {
@@ -99,9 +98,6 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
         cb.onchange = () => { cb.checked ? selected.add(cb.dataset.k!) : selected.delete(cb.dataset.k!); syncDump() }
       })
     }
-    tbody.querySelectorAll<HTMLElement>('tr[data-k]').forEach(tr => {
-      tr.onclick = e => { if ((e.target as HTMLElement).tagName !== 'INPUT') tr.classList.toggle('sel') }
-    })
   }
 
   function renderStat(): void {
@@ -143,16 +139,21 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   $('[data-dock-toggle]').onclick = () => $('.lib-dock').classList.toggle('collapsed')
   $<HTMLButtonElement>('[data-start]').onclick = async () => {
     const pkg = $<HTMLInputElement>('[data-pkg]').value.trim(); if (!pkg) return
-    rows.clear(); selected.clear(); firstAtMs = null; streaming = true
+    rows.clear(); selected.clear(); streaming = true
     $<HTMLButtonElement>('[data-start]').hidden = true; $<HTMLButtonElement>('[data-stop]').hidden = false
     renderRows(); renderStat(); await deps.startLive(pkg)
   }
   $<HTMLButtonElement>('[data-stop]').onclick = async () => { await deps.stopLive() }
   dumpBtn.onclick = async () => {
-    const jobs = [...selected].map(k => { const [pid, base] = k.split('|'); return { pid: Number(pid), pattern: base.split('/').pop() as string } })
+    const jobs = [...selected].map(k => {
+      const r = rows.get(k)
+      const pid = Number(k.split('|')[0])
+      const pattern = (r?.library.split('/').pop() || r?.soname || '') as string
+      return { pid, pattern }
+    }).filter(j => j.pattern)
     dumpBtn.disabled = true
-    for (const j of jobs) addArtifacts(await deps.dumpLib(j.pid, j.pattern))
-    dumpBtn.disabled = false
+    try { for (const j of jobs) addArtifacts(await deps.dumpLib(j.pid, j.pattern)) }
+    finally { dumpBtn.disabled = false }
   }
 
   async function setSource(s: Source): Promise<void> {
@@ -171,7 +172,6 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   return {
     setSource: s => { void setSource(s) },
     applyMapped: l => {
-      if (firstAtMs === null) firstAtMs = l.atMs
       const base = l.start
       const r: LibRow & { atMs: number } = {
         library: l.library ?? '', soname: l.soname ?? null, base, end: l.end,

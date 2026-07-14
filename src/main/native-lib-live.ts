@@ -1,7 +1,7 @@
 import { readFileSync, statSync, existsSync, readdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
-import { DEVICE_BIN } from '@shared/tracer-caps'
+import { DEVICE_BIN, isSafeToken } from '@shared/tracer-caps'
 import { parseLibLine } from '@shared/lib-line'
 import { parseElfHeader } from '@shared/elf-triage'
 import type { LibLine, Artifact, DumpManifest } from '@shared/native-lib'
@@ -25,6 +25,7 @@ export function dumpArg(pid: number, pattern: string, dir: string): string {
 // Start the live stream. Reuses tracer-control's spawn/line plumbing; parses
 // each line and stamps a host-side arrival time (the JSONL carries no clock).
 export function startLive(sp: Spawner, adb: Adb, pkg: string, onEvent: (e: LiveEvent) => void): RunHandle {
+  if (!isSafeToken(pkg)) throw new Error(`unsafe package token: ${pkg}`)
   const t0 = Date.now()
   return startRun(sp, adb, liveLibArg(pkg), line => {
     const parsed = parseLibLine(line)
@@ -39,6 +40,7 @@ export async function dumpLibs(
   sp: Spawner, adb: Adb, pid: number, pattern: string,
   deviceDir: string, hostDir: string, onLine: (l: string) => void,
 ): Promise<Artifact[]> {
+  if (!isSafeToken(pattern)) throw new Error(`unsafe dump pattern: ${pattern}`)
   await adb.run(['shell', `su -c 'mkdir -p ${deviceDir}'`])
   const run = startRun(sp, adb, dumpArg(pid, pattern, deviceDir), onLine)
   const { code } = await run.done
