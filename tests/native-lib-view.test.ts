@@ -123,3 +123,34 @@ describe('native-lib-view device log', () => {
     expect(host.querySelector('[data-log-body]')?.textContent).toContain('stream ended')
   })
 })
+
+describe('native-lib-view empty states', () => {
+  it('shows the loaded empty-state when a run has no libraries', async () => {
+    const { host, deps } = make({ loadedRows: vi.fn(async () => []) })
+    const api = createLibView(host, deps)
+    api.setSource('loaded')
+    await vi.waitFor(() =>
+      expect(host.querySelector('.lib-empty')?.textContent).toContain('No library records'))
+  })
+
+  it('shows the live waiting empty-state after Begin with no rows yet', async () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
+    await vi.waitFor(() =>
+      expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
+    ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
+    expect(host.querySelector('.lib-empty')?.textContent).toContain('Waiting for')
+  })
+
+  it('hides the empty-state once rows are present', async () => {
+    const { host, deps } = make({ loadedRows: vi.fn(async () => [row()]) })
+    const api = createLibView(host, deps)
+    api.setSource('loaded')
+    await vi.waitFor(() => expect(host.querySelector('.lib-tbl tbody tr')).not.toBeNull())
+    expect(host.querySelector('.lib-empty')).toBeNull()
+  })
+})

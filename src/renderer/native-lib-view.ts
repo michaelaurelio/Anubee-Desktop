@@ -114,6 +114,19 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
         cb.onchange = () => { cb.checked ? selected.add(cb.dataset.k!) : selected.delete(cb.dataset.k!); syncDump() }
       })
     }
+    renderEmpty()
+  }
+
+  function renderEmpty(): void {
+    const existing = host.querySelector('.lib-empty'); if (existing) existing.remove()
+    if (rows.size > 0) return
+    const msg = source === 'live'
+      ? (streaming
+          ? `Waiting for [lib] events from ${esc(livePkg || 'the target')}&hellip; trigger activity in the app on the device.`
+          : 'Start a live capture to stream mapped libraries from the device.')
+      : 'No library records in this run. Capture with a current ares build (the syscall, lib and funcs engines all emit them), or stream live under Live device.'
+    const div = document.createElement('div'); div.className = 'lib-empty'; div.innerHTML = msg
+    $('.lib-tbl').appendChild(div)
   }
 
   function renderStat(): void {
