@@ -510,19 +510,23 @@ function applyGraphTheme(next: Theme): void {
     .update()
 }
 
-// Update theme pill to reflect current theme (dark -> moon on knob, light -> sun on knob).
+// Update theme pill + collapsed mini glyph to reflect current theme
+// (dark -> moon, light -> sun on both the knob and the collapsed mini icon).
 function updateThemePill(): void {
   const pill = document.querySelector('.theme-pill')
   const knob = document.querySelector('.theme-knob svg use')
+  const mini = document.querySelector('.theme-mini use')
   if (pill && knob) {
     if (theme === 'dark') {
       pill.classList.remove('light')
       pill.classList.add('dark')
       knob.setAttribute('href', '#i-moon')
+      mini?.setAttribute('href', '#i-moon')
     } else {
       pill.classList.remove('dark')
       pill.classList.add('light')
       knob.setAttribute('href', '#i-sun')
+      mini?.setAttribute('href', '#i-sun')
     }
   }
 }

@@ -435,11 +435,14 @@
       .col-grip { position:absolute; top:0; right:-3px; width:6px; height:100%; cursor:col-resize; }
       .col-grip:hover::after { content:''; position:absolute; right:2px; top:0; width:2px; height:100%; background:var(--accent-fg); }
       /* theme pill toggle */
-      .theme-pill { width:40px; height:26px; border-radius:14px; background:var(--stripe); border:1px solid var(--border); position:relative; display:flex; align-items:center; justify-content:space-between; padding:0 5px; box-sizing:border-box; }
-      .theme-pill svg { width:13px; height:13px; color:var(--muted); z-index:1; }
-      .theme-knob { position:absolute; top:2px; width:20px; height:20px; border-radius:50%; background:var(--accent-fg); transition:left .15s; display:flex; align-items:center; justify-content:center; }
-      .theme-knob svg { width:12px; height:12px; color:#0d1117; }
-      .theme-pill.dark .theme-knob { left:2px; } .theme-pill.light .theme-knob { left:18px; }
+      .theme-mini { width:19px; height:19px; margin-left:10px; } /* +3px pad = 13, aligns with other rail icons */
+      #rail:hover #theme-toggle .theme-mini { display:none; }
+      .theme-pill { display:none; width:48px; height:26px; border-radius:14px; background:var(--stripe); border:1px solid var(--border); position:relative; align-items:center; justify-content:space-between; gap:8px; padding:0 7px; box-sizing:border-box; }
+      #rail:hover #theme-toggle .theme-pill { display:flex; }
+      .theme-pill svg { width:12px; height:12px; color:var(--muted); z-index:1; }
+      .theme-knob { position:absolute; top:2px; width:22px; height:22px; border-radius:50%; background:var(--accent-fg); transition:left .15s; display:flex; align-items:center; justify-content:center; }
+      .theme-knob svg { width:11px; height:11px; color:#0d1117; }
+      .theme-pill.dark .theme-knob { left:2px; } .theme-pill.light .theme-knob { left:24px; }
       #theme-toggle { padding-left:3px; }
       #rail:hover #theme-toggle { padding-left:13px; }
     </style>
@@ -489,7 +492,7 @@
       <button id="file-log" class="rail-item" title="Log"><svg class="ic" viewBox="0 0 24 24"><use href="#i-log"/></svg><span class="lbl">Log</span></button>
       <span class="rail-grow"></span>
       <button id="app-quit" class="rail-item" title="Quit"><svg class="ic" viewBox="0 0 24 24"><use href="#i-logout"/></svg><span class="lbl">Quit</span></button>
-      <button id="theme-toggle" class="rail-item" title="Toggle light / dark"><span class="theme-pill dark"><svg class="ic" viewBox="0 0 24 24"><use href="#i-moon"/></svg><svg class="ic" viewBox="0 0 24 24"><use href="#i-sun"/></svg><span class="theme-knob"><svg class="ic" viewBox="0 0 24 24"><use href="#i-moon"/></svg></span></span><span class="lbl">Theme</span></button>
+      <button id="theme-toggle" class="rail-item" title="Toggle light / dark"><svg class="theme-mini ic" viewBox="0 0 24 24"><use href="#i-moon"/></svg><span class="theme-pill dark"><svg class="ic" viewBox="0 0 24 24"><use href="#i-moon"/></svg><svg class="ic" viewBox="0 0 24 24"><use href="#i-sun"/></svg><span class="theme-knob"><svg class="ic" viewBox="0 0 24 24"><use href="#i-moon"/></svg></span></span><span class="lbl">Theme</span></button>
     </nav>
 
     <div id="cmdbar">
