@@ -22,11 +22,13 @@ selectable engines in the Capture modal.
 - Packer-proof hash-vs-on-disk compare is deferred (needs also pulling `/data/app/.../lib/<abi>/<name>.so`).
 - Live stream + dump use the default adb device; multi-device `-s` selection is deferred (matches the rest of the app).
 - Two concurrent ares processes (lib stream + `dump -p`) are unverified on device; if they conflict, stop the stream for the dump then resume. `dump -p` acceptance by ares' argp is a device-verify item.
-- `startLive` has no double-start guard: invoking it while a stream is live orphans the previous RunHandle (the renderer hides Start after click, so low risk today).
+- `startLive` has no double-start guard: invoking it while a stream is live orphans the previous RunHandle (the live header hides "Start live capture" while streaming, so low risk today).
 - Live-stream and dump stdout share the single `nativelib:line` IPC channel; lines interleave if a dump is fired mid-stream.
-- The Libraries view re-fetches `libTable` on every tab click (cheap - lib records are sparse); the omni filter bar still renders in the Libraries view though it only drives the (hidden) syscall master table.
+- The Libraries view re-fetches `libTable` on every tab click (cheap - lib records are sparse).
 - Pre-existing (not introduced by this feature): the `#tab-left` collapse float button clips the leading text of the Flame view's truncation banner, the same overlap the Libraries header fix resolved for its own view.
 - GUI smoke was via `npm run shots` against the loaded fixture (`10-libraries.png`); the live-stream + dump path needs an on-device pass.
+- The Libraries preflight modal shares the `tracer:preflight-check` IPC channel with the Capture modal; both listeners fire on any preflight and each no-ops when its own surface is closed. Harmless today, but a per-caller channel would be cleaner if a third caller appears.
+- The live preflight modal's shape is asserted by `npm run shots`, but a green preflight + streaming run still needs an on-device pass (no device in the harness).
 
 ## Shipped (2026-07-14) - omni filter bar
 

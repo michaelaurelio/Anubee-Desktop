@@ -604,9 +604,26 @@ The `lib` and `dump` capability outputs are no longer selectable engines in the
 Capture modal (feature 9) - they are now integrated as exclusive features of the
 Libraries view.
 
+### Live device capture (preflight modal)
+
+The Live device source does not stream from an inline package field. Choosing
+"Start live capture..." opens a modal that runs the device preflight (device
+reachable, root via `su`, kernel BTF, package installed, on-device binary up to
+date) over the same `tracer:preflight` path the Capture modal uses. "Begin" is
+enabled only when every check passes, and any edit to the package re-gates it
+until Refresh runs again. Begin then streams `[lib]`/`[unlib]` events into the
+table.
+
+Raw device stdout and errors (a missing binary, a denied `su`, a stream that
+exits) appear in a collapsible **Device log** strip below the table, which
+auto-expands on the first error line - a failed start is never silent. A run with
+no library records shows an explanatory empty-state rather than a blank table.
+The global command bar is hidden on this view; it only drives the syscall master
+table.
+
 ```mermaid
 flowchart LR
-  A[Load JSONL] -->|type:lib records| B[Libraries view: Loaded]
+  A[Load JSONL: syscall / lib / funcs engine] -->|type:lib records| B[Libraries view: Loaded]
   C[Live device: ares lib -P pkg] -->|[lib]/[unlib] stream| D[Libraries view: Live]
   D -->|tick + Dump| E[ares dump -p pid pattern]
   E -->|pull dir + manifest| F[Artifacts dock: ELF / arch / sha-256]
