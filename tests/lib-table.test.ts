@@ -25,4 +25,9 @@ describe('GraphStore.libTable', () => {
     expect(rows.find(r => r.library.endsWith('libunmapped.so'))!.unmapped).toBe(true)
     expect(rows.find(r => r.library.endsWith('libsentinel.so'))!.unmapped).toBe(false)
   })
+
+  it('returns [] when no run is loaded', async () => {
+    const empty = new GraphStore()
+    expect(await empty.libTable()).toEqual([])
+  })
 })

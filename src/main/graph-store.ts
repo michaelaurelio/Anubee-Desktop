@@ -520,7 +520,8 @@ export class GraphStore {
   // unmapped. `start`/`end` are quoted hex; size is computed in JS (DuckDB can't
   // cleanly cast the 0x-strings). Off-heap: lib records are sparse (hundreds).
   async libTable(runId?: number): Promise<LibRow[]> {
-    const rid = this.resolveRun(runId)
+    const rid = runId ?? this.activeRunId ?? this.runs().at(-1)?.runId
+    if (rid === undefined) return []
     const rows = await this.rows(
       `WITH unm AS (SELECT DISTINCT pid, start FROM ev WHERE run_id = ${rid} AND type = 'unlib')
        SELECT e.library, e.soname, e.start, e.end, e.pgoff, e.inode, e.pid, e.tid, e.ppid,
