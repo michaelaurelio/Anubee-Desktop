@@ -360,6 +360,19 @@
                     padding: 11px 14px; border-bottom: 1px solid var(--border); }
       .modal-title { font-weight: 600; }
       .modal-body { padding: 14px; }
+      .modal-menu { display: flex; flex-direction: column; gap: 6px; }
+      .modal-menu-item { display: flex; align-items: center; gap: 11px; width: 100%;
+        text-align: left; background: var(--panel-2); border: 1px solid var(--border);
+        color: var(--text); padding: 8px 11px; border-radius: 5px; cursor: pointer; font: inherit; }
+      .modal-menu-item:hover { background: var(--hover); border-color: var(--accent-bd); }
+      .modal-menu-item .ic { width: 18px; height: 18px; fill: none; stroke: currentColor;
+        stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; color: var(--muted); }
+      .modal-menu-item:hover .ic { color: var(--accent-fg); }
+      .modal-field { display: flex; align-items: center; gap: 10px; margin-top: 12px;
+        padding-top: 12px; border-top: 1px solid var(--border-soft); }
+      .modal-field label { font-size: 12px; color: var(--muted); min-width: 38px; }
+      .modal-field select { flex: 1; background: var(--input-bg); border: 1px solid var(--input-bd);
+        color: var(--text); border-radius: 5px; padding: 4px 8px; font: inherit; }
 
       /* --- redesign: visibility, collapse, pager, columns, selection --- */
       .hidden { display: none !important; }
@@ -422,11 +435,15 @@
       .col-grip { position:absolute; top:0; right:-3px; width:6px; height:100%; cursor:col-resize; }
       .col-grip:hover::after { content:''; position:absolute; right:2px; top:0; width:2px; height:100%; background:var(--accent-fg); }
       /* theme pill toggle */
-      .theme-pill { width:40px; height:26px; border-radius:14px; background:var(--stripe); border:1px solid var(--border); position:relative; display:flex; align-items:center; justify-content:space-between; padding:0 5px; box-sizing:border-box; }
-      .theme-pill svg { width:13px; height:13px; color:var(--muted); z-index:1; }
+      .theme-mini { width:19px; height:19px; margin-left:10px; } /* +3px pad = 13, aligns with other rail icons */
+      #rail:hover #theme-toggle .theme-mini { display:none; }
+      .theme-pill { display:none; width:56px; height:26px; border-radius:13px; background:var(--stripe); border:1px solid var(--border); position:relative; align-items:center; justify-content:space-between; padding:0 7px; box-sizing:border-box; }
+      #rail:hover #theme-toggle .theme-pill { display:flex; }
+      .theme-pill svg { width:12px; height:12px; color:var(--muted); z-index:1; }
+      /* 20px knob in the 24px inner height -> 2px inset all round (vertically centered); slides between the two glyphs */
       .theme-knob { position:absolute; top:2px; width:20px; height:20px; border-radius:50%; background:var(--accent-fg); transition:left .15s; display:flex; align-items:center; justify-content:center; }
-      .theme-knob svg { width:12px; height:12px; color:#0d1117; }
-      .theme-pill.dark .theme-knob { left:2px; } .theme-pill.light .theme-knob { left:18px; }
+      .theme-knob svg { width:11px; height:11px; color:#0d1117; }
+      .theme-pill.dark .theme-knob { left:2px; } .theme-pill.light .theme-knob { left:32px; }
       #theme-toggle { padding-left:3px; }
       #rail:hover #theme-toggle { padding-left:13px; }
     </style>
@@ -443,6 +460,9 @@
       <g id="i-folder"><path d="M6 14l1.5-3A2 2 0 0 1 9.2 10H20a2 2 0 0 1 1.9 2.5l-1.5 6A2 2 0 0 1 18.5 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.7.9l.8 1.2a2 2 0 0 0 1.7.9H18a2 2 0 0 1 2 2v2"/></g>
       <g id="i-export"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M12 12v6M9 15l3 3 3-3"/></g>
       <g id="i-log"><path d="m4 17 6-6-6-6M12 19h8"/></g>
+      <g id="i-file"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M9 13h6M9 17h4"/></g>
+      <g id="i-package"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></g>
+      <g id="i-braces"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1"/></g>
       <g id="i-moon"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></g>
       <g id="i-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></g>
       <g id="i-search"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></g>
@@ -473,7 +493,7 @@
       <button id="file-log" class="rail-item" title="Log"><svg class="ic" viewBox="0 0 24 24"><use href="#i-log"/></svg><span class="lbl">Log</span></button>
       <span class="rail-grow"></span>
       <button id="app-quit" class="rail-item" title="Quit"><svg class="ic" viewBox="0 0 24 24"><use href="#i-logout"/></svg><span class="lbl">Quit</span></button>
-      <button id="theme-toggle" class="rail-item" title="Toggle light / dark"><span class="theme-pill dark"><svg class="ic" viewBox="0 0 24 24"><use href="#i-moon"/></svg><svg class="ic" viewBox="0 0 24 24"><use href="#i-sun"/></svg><span class="theme-knob"><svg class="ic" viewBox="0 0 24 24"><use href="#i-moon"/></svg></span></span><span class="lbl">Theme</span></button>
+      <button id="theme-toggle" class="rail-item" title="Toggle light / dark"><svg class="theme-mini ic" viewBox="0 0 24 24"><use href="#i-moon"/></svg><span class="theme-pill dark"><svg class="ic" viewBox="0 0 24 24"><use href="#i-moon"/></svg><svg class="ic" viewBox="0 0 24 24"><use href="#i-sun"/></svg><span class="theme-knob"><svg class="ic" viewBox="0 0 24 24"><use href="#i-moon"/></svg></span></span><span class="lbl">Theme</span></button>
     </nav>
 
     <div id="cmdbar">

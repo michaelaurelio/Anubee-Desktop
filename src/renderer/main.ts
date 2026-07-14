@@ -510,19 +510,23 @@ function applyGraphTheme(next: Theme): void {
     .update()
 }
 
-// Update theme pill to reflect current theme (dark -> moon on knob, light -> sun on knob).
+// Update theme pill + collapsed mini glyph to reflect current theme
+// (dark -> moon, light -> sun on both the knob and the collapsed mini icon).
 function updateThemePill(): void {
   const pill = document.querySelector('.theme-pill')
   const knob = document.querySelector('.theme-knob svg use')
+  const mini = document.querySelector('.theme-mini use')
   if (pill && knob) {
     if (theme === 'dark') {
       pill.classList.remove('light')
       pill.classList.add('dark')
       knob.setAttribute('href', '#i-moon')
+      mini?.setAttribute('href', '#i-moon')
     } else {
       pill.classList.remove('dark')
       pill.classList.add('light')
       knob.setAttribute('href', '#i-sun')
+      mini?.setAttribute('href', '#i-sun')
     }
   }
 }
@@ -564,7 +568,27 @@ async function refreshDiff(): Promise<void> {
     })
 }
 
-function wireDiff(): void {
+// Builds the post-load Mode filter row (idempotent). Mode is meaningless before a
+// run B exists (refreshDiff no-ops without it), so it is only added once B loads.
+function addDiffModeField(host: HTMLElement): void {
+  if (host.querySelector('#diff-mode')) return
+  const field = document.createElement('div'); field.className = 'modal-field'
+  const label = document.createElement('label'); label.textContent = 'Mode'
+  const sel = document.createElement('select'); sel.id = 'diff-mode'
+  for (const [value, text] of [['all', 'all'], ['only-in-A', 'only in A'], ['only-in-B', 'only in B'], ['tagged', 'tagged']] as const) {
+    const opt = document.createElement('option'); opt.value = value; opt.textContent = text
+    if (value === diffMode) opt.selected = true
+    sel.appendChild(opt)
+  }
+  sel.addEventListener('change', e => {
+    diffMode = (e.target as HTMLSelectElement).value as DiffMode
+    void refreshDiff()
+  })
+  field.append(label, sel)
+  host.appendChild(field)
+}
+
+function wireLoadRunB(host: HTMLElement): void {
   document.getElementById('load-run-b')?.addEventListener('click', async () => {
     // Compare-load: ingests run B without the trace:loaded broadcast, so it never
     // steals activeRunId or repaints the primary panels with B's data.
@@ -572,13 +596,10 @@ function wireDiff(): void {
       s => (s ? { level: s.errors > 0 ? 'warn' : 'success', message: `Compare loaded ${s.eventCount} events (${s.errors} parse errors)` } : null))
     if (summary) {
       runB = summary.runId
+      addDiffModeField(host) // reveal the Mode filter now that a comparison exists
       await refreshTags()
       void refreshDiff()
     }
-  })
-  document.getElementById('diff-mode')?.addEventListener('change', e => {
-    diffMode = (e.target as HTMLSelectElement).value as DiffMode
-    void refreshDiff()
   })
 }
 
@@ -850,7 +871,6 @@ document.getElementById('pager-next')?.addEventListener('click', () => {
 })
 wireFilterControls(() => { tableOffset = 0; void refreshTable(); refreshMiddle() })
 wireExport()
-wireDiff()
 
 function openColumnsModal(): void {
   showModal({ title: 'Columns', width: 300, render: host => buildColumnsBody(host) })
@@ -924,48 +944,55 @@ window.addEventListener('keydown', e => {
   else if (e.key === '-' || e.code === 'NumpadSubtract') { e.preventDefault(); zoomBy(1 / 1.2) }
 })
 
+// Builds one full-width icon+label row for the shared .modal-menu layout used by
+// the Open / Export / Diff modals. Caller wires .onclick and appends it.
+function modalMenuItem(id: string, iconId: string, label: string): HTMLButtonElement {
+  const b = document.createElement('button')
+  b.className = 'modal-menu-item'; b.id = id
+  b.innerHTML = `<svg class="ic" viewBox="0 0 24 24"><use href="#${iconId}"/></svg>`
+  b.append(label)
+  return b
+}
+
 document.getElementById('file-open')?.addEventListener('click', () => {
   showModal({ title: 'Open', width: 260, render: host => {
-    const runBtn = document.createElement('button'); runBtn.className = 'btn'; runBtn.id = 'open-run'
-    runBtn.textContent = 'Open run (JSONL)…'
+    const menu = document.createElement('div'); menu.className = 'modal-menu'
+    const runBtn = modalMenuItem('open-run', 'i-file', 'Open run (JSONL)…')
     runBtn.onclick = () => void runLogged('open', () => window.ares.openFile(), () => null)
-    const projBtn = document.createElement('button'); projBtn.className = 'btn'; projBtn.id = 'open-project'
-    projBtn.textContent = 'Open project…'
+    const projBtn = modalMenuItem('open-project', 'i-package', 'Open project…')
     projBtn.onclick = () => void runLogged('open-project', () => window.ares.openProject(), () => null)
-    host.append(runBtn, projBtn)
+    menu.append(runBtn, projBtn)
+    host.appendChild(menu)
   }})
 })
 document.getElementById('file-capture')?.addEventListener('click', () => openCaptureModal())
 document.getElementById('export-btn')?.addEventListener('click', () => {
   showModal({ title: 'Export', width: 260, render: host => {
-    for (const id of ['export-md', 'export-json'] as const) {
-      const b = document.createElement('button'); b.className = 'btn'; b.id = id
-      b.textContent = id === 'export-md' ? 'Export Markdown' : 'Export JSON'
-      host.appendChild(b)
-    }
-    wireExport() // re-bind against the freshly created buttons
-    const saveProj = document.createElement('button'); saveProj.className = 'btn'; saveProj.id = 'save-project'
-    saveProj.textContent = 'Save project…'
+    const menu = document.createElement('div'); menu.className = 'modal-menu'
+    menu.append(
+      modalMenuItem('export-md', 'i-file', 'Export Markdown'),
+      modalMenuItem('export-json', 'i-braces', 'Export JSON'),
+    )
+    const saveProj = modalMenuItem('save-project', 'i-package', 'Save project…')
     saveProj.onclick = () => {
       if (activeRunId !== undefined) void runLogged('save-project', () => window.ares.saveProject(activeRunId!, currentLayout), r => {
         if ('path' in r && r.path) dirty = false
         return null
       })
     }
-    host.appendChild(saveProj)
+    menu.appendChild(saveProj)
+    host.appendChild(menu)
+    wireExport() // re-bind export-md / export-json by id against the fresh rows
   }})
 })
 document.getElementById('diff-btn')?.addEventListener('click', () => {
   showModal({ title: 'Diff', width: 260, render: host => {
-    const loadB = document.createElement('button'); loadB.className = 'btn'; loadB.id = 'load-run-b'
-    loadB.textContent = 'Load run B'
-    const sel = document.createElement('select'); sel.id = 'diff-mode'
-    for (const [value, label] of [['all', 'all'], ['only-in-A', 'only in A'], ['only-in-B', 'only in B'], ['tagged', 'tagged']] as const) {
-      const opt = document.createElement('option'); opt.value = value; opt.textContent = label
-      sel.appendChild(opt)
-    }
-    host.append(loadB, sel)
-    wireDiff() // re-bind against the freshly created controls
+    const menu = document.createElement('div'); menu.className = 'modal-menu'
+    const loadB = modalMenuItem('load-run-b', 'i-diff', 'Load run B')
+    menu.appendChild(loadB)
+    host.appendChild(menu)
+    wireLoadRunB(host)
+    if (runB !== undefined) addDiffModeField(host) // re-open with B already loaded
   }})
 })
 document.getElementById('file-log')?.addEventListener('click', () => {
