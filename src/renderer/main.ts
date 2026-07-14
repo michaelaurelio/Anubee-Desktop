@@ -924,15 +924,25 @@ window.addEventListener('keydown', e => {
   else if (e.key === '-' || e.code === 'NumpadSubtract') { e.preventDefault(); zoomBy(1 / 1.2) }
 })
 
+// Builds one full-width icon+label row for the shared .modal-menu layout used by
+// the Open / Export / Diff modals. Caller wires .onclick and appends it.
+function modalMenuItem(id: string, iconId: string, label: string): HTMLButtonElement {
+  const b = document.createElement('button')
+  b.className = 'modal-menu-item'; b.id = id
+  b.innerHTML = `<svg class="ic" viewBox="0 0 24 24"><use href="#${iconId}"/></svg>`
+  b.append(label)
+  return b
+}
+
 document.getElementById('file-open')?.addEventListener('click', () => {
   showModal({ title: 'Open', width: 260, render: host => {
-    const runBtn = document.createElement('button'); runBtn.className = 'btn'; runBtn.id = 'open-run'
-    runBtn.textContent = 'Open run (JSONL)…'
+    const menu = document.createElement('div'); menu.className = 'modal-menu'
+    const runBtn = modalMenuItem('open-run', 'i-file', 'Open run (JSONL)…')
     runBtn.onclick = () => void runLogged('open', () => window.ares.openFile(), () => null)
-    const projBtn = document.createElement('button'); projBtn.className = 'btn'; projBtn.id = 'open-project'
-    projBtn.textContent = 'Open project…'
+    const projBtn = modalMenuItem('open-project', 'i-package', 'Open project…')
     projBtn.onclick = () => void runLogged('open-project', () => window.ares.openProject(), () => null)
-    host.append(runBtn, projBtn)
+    menu.append(runBtn, projBtn)
+    host.appendChild(menu)
   }})
 })
 document.getElementById('file-capture')?.addEventListener('click', () => openCaptureModal())
