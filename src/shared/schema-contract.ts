@@ -49,3 +49,11 @@ export const CFI_STACK_KEYS = ['type', 'pid', 'tid', 'stack_id', 'cfi_backtrace'
 // Keys on each object in the `cfi_backtrace` array. `kind` is the interleaving
 // discriminator (native / managed / interp / jni-trampoline).
 export const CFI_BACKTRACE_KEYS = ['frame', 'addr', 'symbol', 'kind'] as const
+
+// `lib` / `unlib` records - ares_libtrace_emit_lib / _emit_unlib in
+// ../ARES/src/common/lib_trace.c. Consumed by GraphStore.libTable + the live
+// [lib] line parser.
+export const LIB_KEYS = ['type', 'pid', 'tid', 'ppid', 'library', 'start', 'end', 'pgoff', 'inode', 'soname'] as const
+export const UNLIB_KEYS = ['type', 'pid', 'tid', 'start', 'end'] as const
+// `dump` manifest record - dump_emit_module in ../ARES/src/dump/dump_emit.c.
+export const DUMP_KEYS = ['type', 'module', 'path', 'base', 'pid', 'raw'] as const

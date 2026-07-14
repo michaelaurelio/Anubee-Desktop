@@ -28,6 +28,7 @@ const COLS =
   "'decoded_args':'MAP(VARCHAR,VARCHAR)','sock_addr':'VARCHAR','stack_id':'VARCHAR'," +
   "'java_stack':'VARCHAR[]'," +
   "'library':'VARCHAR','start':'VARCHAR','end':'VARCHAR','pgoff':'BIGINT'," +
+  "'inode':'BIGINT','soname':'VARCHAR'," +
   "'backtrace':'STRUCT(frame INTEGER, addr VARCHAR, symbol VARCHAR)[]'," +
   "'cfi_backtrace':'STRUCT(frame INTEGER, addr VARCHAR, symbol VARCHAR, kind VARCHAR)[]'," +
   // 'engine' is CoverageEvent's own field (e.g. "type":"coverage","engine":"funcs");
