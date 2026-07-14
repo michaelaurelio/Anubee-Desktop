@@ -948,21 +948,21 @@ document.getElementById('file-open')?.addEventListener('click', () => {
 document.getElementById('file-capture')?.addEventListener('click', () => openCaptureModal())
 document.getElementById('export-btn')?.addEventListener('click', () => {
   showModal({ title: 'Export', width: 260, render: host => {
-    for (const id of ['export-md', 'export-json'] as const) {
-      const b = document.createElement('button'); b.className = 'btn'; b.id = id
-      b.textContent = id === 'export-md' ? 'Export Markdown' : 'Export JSON'
-      host.appendChild(b)
-    }
-    wireExport() // re-bind against the freshly created buttons
-    const saveProj = document.createElement('button'); saveProj.className = 'btn'; saveProj.id = 'save-project'
-    saveProj.textContent = 'Save project…'
+    const menu = document.createElement('div'); menu.className = 'modal-menu'
+    menu.append(
+      modalMenuItem('export-md', 'i-file', 'Export Markdown'),
+      modalMenuItem('export-json', 'i-braces', 'Export JSON'),
+    )
+    const saveProj = modalMenuItem('save-project', 'i-package', 'Save project…')
     saveProj.onclick = () => {
       if (activeRunId !== undefined) void runLogged('save-project', () => window.ares.saveProject(activeRunId!, currentLayout), r => {
         if ('path' in r && r.path) dirty = false
         return null
       })
     }
-    host.appendChild(saveProj)
+    menu.appendChild(saveProj)
+    host.appendChild(menu)
+    wireExport() // re-bind export-md / export-json by id against the fresh rows
   }})
 })
 document.getElementById('diff-btn')?.addEventListener('click', () => {
