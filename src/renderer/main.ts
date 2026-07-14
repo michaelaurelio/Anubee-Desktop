@@ -561,6 +561,7 @@ const libView: LibViewApi = createLibView(document.getElementById('libs')!, {
 window.ares.onLibMapped(l => libView.applyMapped(l))
 window.ares.onLibUnmapped(l => libView.applyUnmapped(l))
 window.ares.onLibStreamEnd(() => libView.streamEnded())
+window.ares.onLibLine(l => libView.appendLog(l))
 window.ares.onPreflightCheck(c => libView.applyPreflightCheck(c))
 
 async function refreshDiff(): Promise<void> {

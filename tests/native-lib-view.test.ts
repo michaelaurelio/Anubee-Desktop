@@ -96,3 +96,30 @@ describe('native-lib-view live modal', () => {
     expect((host.querySelector('[data-live-on]') as HTMLElement).hidden).toBe(false)
   })
 })
+
+describe('native-lib-view device log', () => {
+  it('appends device lines and shows the strip', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps)
+    api.appendLog('su: ares: not found')
+    const wrap = host.querySelector('[data-log]') as HTMLElement
+    expect(wrap.hidden).toBe(false)
+    expect(host.querySelector('[data-log-body]')?.textContent).toContain('su: ares: not found')
+  })
+
+  it('auto-expands the strip on an error-like line', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps)
+    api.appendLog('some benign line')
+    expect((host.querySelector('[data-log]') as HTMLElement).classList.contains('collapsed')).toBe(true)
+    api.appendLog('error: permission denied')
+    expect((host.querySelector('[data-log]') as HTMLElement).classList.contains('collapsed')).toBe(false)
+  })
+
+  it('logs stream end', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps)
+    api.streamEnded()
+    expect(host.querySelector('[data-log-body]')?.textContent).toContain('stream ended')
+  })
+})

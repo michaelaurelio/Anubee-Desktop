@@ -24,6 +24,7 @@ export interface LibViewApi {
   applyUnmapped(l: LibLine & { atMs: number }): void
   applyPreflightCheck(c: PreflightCheck): void
   addArtifacts(a: Artifact[]): void
+  appendLog(line: string): void
   streamEnded(): void
 }
 
@@ -69,6 +70,10 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     <div class="lib-dock collapsed">
       <div class="lib-dock-hd" data-dock-toggle>Dumped artifacts <span class="c" data-dock-count>none yet</span></div>
       <div class="lib-dock-body"><table><thead><tr><th>module</th><th>base</th><th>pid</th><th>size</th><th>arch</th><th>ELF</th><th>sha-256</th><th>raw</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="lib-log collapsed" data-log hidden>
+      <div class="lib-log-hd" data-log-toggle>Device log <span class="c" data-log-count></span></div>
+      <div class="lib-log-body" data-log-body></div>
     </div>`
 
   const $ = <T extends HTMLElement>(sel: string): T => host.querySelector(sel) as T
@@ -148,6 +153,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   host.querySelectorAll<HTMLButtonElement>('.lib-seg button').forEach(b =>
     b.onclick = () => { void setSource(b.dataset.src as Source) })
   $('[data-dock-toggle]').onclick = () => $('.lib-dock').classList.toggle('collapsed')
+  $('[data-log-toggle]').onclick = () => $('[data-log]').classList.toggle('collapsed')
 
   // --- live source: modal-driven preflight + streaming state ---
   function renderLiveHeader(): void {
@@ -232,6 +238,17 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); syncDump(); renderLiveHeader() }
   }
 
+  function appendLog(line: string): void {
+    $('[data-log]').hidden = false
+    const div = document.createElement('div'); div.textContent = line
+    if (/error|fail|not found|denied|no such|cannot|permission/i.test(line)) {
+      div.className = 'log-err'
+      $('[data-log]').classList.remove('collapsed') // never hide a failure
+    }
+    const body = $('[data-log-body]'); body.appendChild(div)
+    $('[data-log-count]').textContent = `${body.childElementCount} lines`
+  }
+
   function addArtifacts(a: Artifact[]): void { artifacts.push(...a); renderArtifacts() }
 
   // initial paint (loaded source)
@@ -256,6 +273,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       renderPreflightRow(checkHost, c)
     },
     addArtifacts,
-    streamEnded: () => { streaming = false; renderLiveHeader(); renderStat() },
+    appendLog,
+    streamEnded: () => { streaming = false; renderLiveHeader(); renderStat(); appendLog('stream ended') },
   }
 }
