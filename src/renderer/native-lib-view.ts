@@ -127,7 +127,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     const body = $('.lib-dock-body tbody')
     body.innerHTML = artifacts.map((a, i) => `<tr>
       <td class="lib-name">${esc(a.module.split('/').pop() ?? a.module)}</td><td>${esc(a.base)}</td><td>${a.pid}</td>
-      <td>${humanBytes(a.size)}</td><td>${a.arch ?? '-'}</td><td>${a.elfValid ? 'valid' : 'invalid'}</td>
+      <td>${humanBytes(a.size)}</td><td>${a.arch ? esc(a.arch) : '-'}</td><td>${a.elfValid ? 'valid' : 'invalid'}</td>
       <td>${a.sha256.slice(0, 6)}...</td><td>${a.raw ? 'raw' : 'no'}</td>
       <td><span class="lib-act" data-reveal="${i}">reveal</span> · <span class="lib-act" data-export="${i}">export</span></td></tr>`).join('')
     $('[data-dock-count]').textContent = artifacts.length ? `${artifacts.length} pulled` : 'none yet'

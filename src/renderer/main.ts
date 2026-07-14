@@ -381,6 +381,8 @@ function showView(view: 'graph' | 'flame' | 'libs'): void {
   document.getElementById('flame')?.classList.toggle('active', view === 'flame')
   document.getElementById('flame')?.classList.toggle('hidden', view !== 'flame')
   document.getElementById('libs')?.classList.toggle('hidden', view !== 'libs')
+  showTablePanel(view !== 'libs' && activeRunId !== undefined)
+  document.getElementById('graph-empty')?.classList.toggle('hidden', view !== 'graph' || selectedRowId !== undefined)
   if (view === 'flame') void refreshFlame()
   if (view === 'libs') libView.setSource('loaded')
   for (const [id, v] of [['tab-graph', 'graph'], ['tab-flame', 'flame'], ['tab-libs', 'libs']] as const) {
