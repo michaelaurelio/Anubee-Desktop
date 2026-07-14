@@ -143,10 +143,27 @@ chrome-bar + File-dropdown + segmented switch + separate filter bar.
   renderer calls it) - closing the window, or Ctrl+Q, still quits.
 
 - **Command bar.** `#cmdbar` sits to the right of the rail and holds a single
-  **omni filter** input (free-text, searches syscall/library/tid/args in one
-  field) plus the explicit `syscall` / `library` / `tid` fields, a
-  `has-java_stack` checkbox, and an **Apply** button. This replaces the old
-  two-tier chrome-bar-plus-filter-bar layout with one row.
+  **omni filter** input (`#f-text`, `src/renderer/index.html`) - no separate
+  syscall/library/tid fields, checkbox, or Apply button. Typing a `key:value`
+  word (`syscall:`, `lib:`, `tid:`, `java:yes|no`, `module:`, `symbol:`; a
+  quoted value like `syscall:"open at"` keeps spaces intact) turns it into a
+  removable chip on space or Enter; Enter also applies the current chips plus
+  whatever free text remains. A chip's `×` removes it and re-applies. Backspace
+  in an empty input pops the last chip back into editable `key:value` text. A
+  key-name autocomplete dropdown opens on a partial key prefix (`ArrowUp`/
+  `ArrowDown` to move, `Enter`/`Tab` to accept, `Escape` to dismiss) - it
+  suggests key names only, never values. Grammar and chip-folding live in
+  `src/shared/omni-parse.ts` (`splitWords`, `matchToken`, `filterFromParts`);
+  the DOM wiring is `src/renderer/filter-controls.ts`. Free text (anything
+  left after chips are pulled out) searches the syscall name, java and native
+  stack frames, and every arg field - `args`, `string_args`, `fd_args`,
+  `decoded_args`, `sock_args`, `out_args` - via the `ILIKE` fragment in
+  `filterToSql` (`src/shared/filter.ts`). Limits: one value per key (a second
+  `tid:` chip replaces the first, not OR's with it), key-name autocomplete
+  only (no value suggestions from the loaded run's data), and no negation or
+  regex grammar. This replaces the old two-tier chrome-bar-plus-filter-bar
+  layout, and the earlier explicit-fields-plus-Apply-button command bar, with
+  one row.
 
 - **Modals.** Export and Diff now open as modals from their rail buttons
   (`#export-btn`, `#diff-btn`), joining Capture, Rules, and Suggestions as

@@ -3,6 +3,20 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-14) - omni filter bar
+
+The command bar's filter is now a single free-text input with a `key:value`
+grammar (`syscall:`, `lib:`, `tid:`, `java:yes|no`, `module:`, `symbol:`)
+that turns into removable chips, plus key-name autocomplete. Free text now
+also searches all arg fields (`args`, `string_args`, `fd_args`,
+`decoded_args`, `sock_args`, `out_args`), not just syscall name and stacks.
+Full detail in `DOCUMENTATION.md`'s "UI shell" section.
+
+### Known drawbacks / follow-ups
+- Omni filter bar shipped with known limits: single value per key (no OR
+  within one key - needs Filter/SQL changes), key-name autocomplete only (no
+  value suggestions from the loaded run), and no negation/regex grammar.
+
 ## Shipped (2026-07-14) - UI/UX round 2: chips, detail panel, fonts, theme toggle, project bundle
 
 A visual-consistency + portability pass over the round-1 shell. One unified
