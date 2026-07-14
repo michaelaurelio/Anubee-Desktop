@@ -84,6 +84,10 @@ const cy = cytoscape({
     { selector: 'edge[presence = "A-only"]', style: { 'line-color': '#c0392b', 'target-arrow-color': '#c0392b' } },
     { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
     { selector: '.dimmed', style: { 'opacity': 0.12 } },
+    // Off-path (dimmed) edges carry no arrowhead and go hair-thin: a de-emphasized
+    // edge should recede, and its triangle arrowhead - which scales with edge width
+    // and the (high) zoom of a small subgraph - was rendering as a large grey blob.
+    { selector: 'edge.dimmed', style: { 'target-arrow-shape': 'none', 'width': 1 } },
     // Edges read grey by default; the selected node's fan-in/out lights them
     // brightly so a single click clearly connects the chain.
     { selector: 'edge.highlighted', style: {
