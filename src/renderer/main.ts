@@ -564,7 +564,27 @@ async function refreshDiff(): Promise<void> {
     })
 }
 
-function wireDiff(): void {
+// Builds the post-load Mode filter row (idempotent). Mode is meaningless before a
+// run B exists (refreshDiff no-ops without it), so it is only added once B loads.
+function addDiffModeField(host: HTMLElement): void {
+  if (host.querySelector('#diff-mode')) return
+  const field = document.createElement('div'); field.className = 'modal-field'
+  const label = document.createElement('label'); label.textContent = 'Mode'
+  const sel = document.createElement('select'); sel.id = 'diff-mode'
+  for (const [value, text] of [['all', 'all'], ['only-in-A', 'only in A'], ['only-in-B', 'only in B'], ['tagged', 'tagged']] as const) {
+    const opt = document.createElement('option'); opt.value = value; opt.textContent = text
+    if (value === diffMode) opt.selected = true
+    sel.appendChild(opt)
+  }
+  sel.addEventListener('change', e => {
+    diffMode = (e.target as HTMLSelectElement).value as DiffMode
+    void refreshDiff()
+  })
+  field.append(label, sel)
+  host.appendChild(field)
+}
+
+function wireLoadRunB(host: HTMLElement): void {
   document.getElementById('load-run-b')?.addEventListener('click', async () => {
     // Compare-load: ingests run B without the trace:loaded broadcast, so it never
     // steals activeRunId or repaints the primary panels with B's data.
@@ -572,13 +592,10 @@ function wireDiff(): void {
       s => (s ? { level: s.errors > 0 ? 'warn' : 'success', message: `Compare loaded ${s.eventCount} events (${s.errors} parse errors)` } : null))
     if (summary) {
       runB = summary.runId
+      addDiffModeField(host) // reveal the Mode filter now that a comparison exists
       await refreshTags()
       void refreshDiff()
     }
-  })
-  document.getElementById('diff-mode')?.addEventListener('change', e => {
-    diffMode = (e.target as HTMLSelectElement).value as DiffMode
-    void refreshDiff()
   })
 }
 
@@ -850,7 +867,6 @@ document.getElementById('pager-next')?.addEventListener('click', () => {
 })
 wireFilterControls(() => { tableOffset = 0; void refreshTable(); refreshMiddle() })
 wireExport()
-wireDiff()
 
 function openColumnsModal(): void {
   showModal({ title: 'Columns', width: 300, render: host => buildColumnsBody(host) })
@@ -967,15 +983,12 @@ document.getElementById('export-btn')?.addEventListener('click', () => {
 })
 document.getElementById('diff-btn')?.addEventListener('click', () => {
   showModal({ title: 'Diff', width: 260, render: host => {
-    const loadB = document.createElement('button'); loadB.className = 'btn'; loadB.id = 'load-run-b'
-    loadB.textContent = 'Load run B'
-    const sel = document.createElement('select'); sel.id = 'diff-mode'
-    for (const [value, label] of [['all', 'all'], ['only-in-A', 'only in A'], ['only-in-B', 'only in B'], ['tagged', 'tagged']] as const) {
-      const opt = document.createElement('option'); opt.value = value; opt.textContent = label
-      sel.appendChild(opt)
-    }
-    host.append(loadB, sel)
-    wireDiff() // re-bind against the freshly created controls
+    const menu = document.createElement('div'); menu.className = 'modal-menu'
+    const loadB = modalMenuItem('load-run-b', 'i-diff', 'Load run B')
+    menu.appendChild(loadB)
+    host.appendChild(menu)
+    wireLoadRunB(host)
+    if (runB !== undefined) addDiffModeField(host) // re-open with B already loaded
   }})
 })
 document.getElementById('file-log')?.addEventListener('click', () => {
