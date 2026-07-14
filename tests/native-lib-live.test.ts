@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
-import { liveLibArg, dumpArg, startLive } from '../src/main/native-lib-live'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { liveLibArg, dumpArg, startLive, triageDir, dumpLibs } from '../src/main/native-lib-live'
 import type { Adb, Spawner } from '../src/main/tracer-control'
 import type { LibLine } from '@shared/native-lib'
 
@@ -39,5 +42,55 @@ describe('startLive', () => {
     expect(events[0]).toEqual({ raw: 'libbpf: loading' })
     expect(events[1].line?.kind).toBe('lib')
     expect(typeof events[1].atMs).toBe('number')
+  })
+})
+
+// A spawner whose run exits with a fixed code on the next microtask, so
+// `await run.done` inside dumpLibs resolves without a manual fire().
+function autoSpawner(exitCode: number): Spawner {
+  return { spawn: () => ({ onLine: () => {}, onExit: cb => { queueMicrotask(() => cb(exitCode)) }, kill: () => {} }) }
+}
+const okAdb: Adb = { run: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })) }
+
+describe('triageDir', () => {
+  it('returns [] when the manifest is absent', () => {
+    const d = mkdtempSync(join(tmpdir(), 'ares-triage-'))
+    expect(triageDir(d)).toEqual([])
+    rmSync(d, { recursive: true, force: true })
+  })
+  it('triages listed modules from real bytes and skips a malformed manifest line', () => {
+    const d = mkdtempSync(join(tmpdir(), 'ares-triage-'))
+    const elf = Buffer.alloc(64); elf.set([0x7f, 0x45, 0x4c, 0x46]); elf[4] = 2; elf[5] = 1; elf[18] = 0xb7
+    writeFileSync(join(d, 'libgood.so'), elf)
+    writeFileSync(join(d, 'manifest.jsonl'),
+      '{"type":"dump","module":"libgood.so","path":"/proc/7/libgood.so","base":"0x1000","pid":7,"raw":false}\n' +
+      '{ truncated partial line\n')
+    const arts = triageDir(d)
+    expect(arts).toHaveLength(1)
+    expect(arts[0]).toMatchObject({ module: 'libgood.so', pid: 7, arch: 'arm64', elfValid: true, raw: false })
+    expect(arts[0].sha256).toHaveLength(64)
+    expect(arts[0].size).toBe(64)
+    rmSync(d, { recursive: true, force: true })
+  })
+})
+
+describe('dumpLibs', () => {
+  it('throws when the ares dump run exits non-zero', async () => {
+    const d = mkdtempSync(join(tmpdir(), 'ares-dump-'))
+    await expect(dumpLibs(autoSpawner(1), okAdb, 7, 'libx.so', '/data/local/tmp/dev', d, () => {}))
+      .rejects.toThrow(/dump exited 1/)
+    rmSync(d, { recursive: true, force: true })
+  })
+  it('pulls and triages on a clean dump', async () => {
+    const d = mkdtempSync(join(tmpdir(), 'ares-dump-'))
+    // the fake adb "pull" is a no-op, so pre-populate hostDir as if pulled
+    const elf = Buffer.alloc(64); elf.set([0x7f, 0x45, 0x4c, 0x46]); elf[4] = 2; elf[5] = 1; elf[18] = 0xb7
+    writeFileSync(join(d, 'libz.so'), elf)
+    writeFileSync(join(d, 'manifest.jsonl'),
+      '{"type":"dump","module":"libz.so","path":"/proc/7/libz.so","base":"0x2000","pid":7,"raw":true}\n')
+    const arts = await dumpLibs(autoSpawner(0), okAdb, 7, 'libz.so', '/data/local/tmp/dev', d, () => {})
+    expect(arts).toHaveLength(1)
+    expect(arts[0]).toMatchObject({ module: 'libz.so', raw: true, arch: 'arm64' })
+    rmSync(d, { recursive: true, force: true })
   })
 })

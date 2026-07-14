@@ -41,7 +41,8 @@ export async function dumpLibs(
 ): Promise<Artifact[]> {
   await adb.run(['shell', `su -c 'mkdir -p ${deviceDir}'`])
   const run = startRun(sp, adb, dumpArg(pid, pattern, deviceDir), onLine)
-  await run.done
+  const { code } = await run.done
+  if (code !== 0) throw new Error(`ares dump exited ${code}`)
   const pull = await adb.run(['pull', deviceDir, hostDir])
   if (pull.code !== 0) throw new Error(`dump pull failed: ${pull.stderr.trim() || pull.stdout.trim()}`)
   return triageDir(hostDir)
@@ -51,9 +52,13 @@ export async function dumpLibs(
 export function triageDir(hostDir: string): Artifact[] {
   const manifestPath = resolve(hostDir, 'manifest.jsonl')
   if (!existsSync(manifestPath)) return []
-  const records: DumpManifest[] = readFileSync(manifestPath, 'utf-8')
-    .split('\n').filter(Boolean).map(l => JSON.parse(l) as DumpManifest)
-    .filter(r => r.type === 'dump')
+  const records: DumpManifest[] = []
+  for (const line of readFileSync(manifestPath, 'utf-8').split('\n')) {
+    if (!line.trim()) continue
+    let rec: DumpManifest
+    try { rec = JSON.parse(line) as DumpManifest } catch { continue } // skip a truncated/partial device-write line
+    if (rec.type === 'dump') records.push(rec)
+  }
   const out: Artifact[] = []
   for (const r of records) {
     // The manifest `path` is the device path; the pulled copy sits in hostDir
