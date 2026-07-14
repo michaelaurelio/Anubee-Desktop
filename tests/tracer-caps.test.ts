@@ -2,18 +2,22 @@ import { describe, it, expect } from 'vitest'
 import { CAPABILITIES, capById, validateInputs, fieldErrors, capNeedsSpec } from '../src/shared/tracer-caps'
 
 describe('tracer-caps registry', () => {
-  it('exposes the seven engines with correct output kinds', () => {
+  it('exposes the five engines with correct output kinds', () => {
     expect(CAPABILITIES.map(c => c.id).sort()).toEqual(
-      ['correlate', 'dump', 'funcs', 'lib', 'mod', 'syscalls', 'trace'])
+      ['correlate', 'funcs', 'mod', 'syscalls', 'trace'])
     expect(capById('syscalls')!.outputKind).toBe('jsonl')
     expect(capById('funcs')!.outputKind).toBe('jsonl')
     expect(capById('correlate')!.outputKind).toBe('jsonl')
     expect(capById('trace')!.outputKind).toBe('jsonl')
-    expect(capById('lib')!.outputKind).toBe('stdout')
-    expect(capById('dump')!.outputKind).toBe('artifact')
     expect(capById('mod')!.outputKind).toBe('stdout')
     expect(capById('correlate')!.loud).toBe(true)
     expect(capById('trace')!.loud).toBe(true)
+  })
+
+  it('no longer exposes lib or dump as capture engines', () => {
+    expect(capById('lib')).toBeUndefined()
+    expect(capById('dump')).toBeUndefined()
+    expect(CAPABILITIES.some(c => (c.outputKind as string) === 'artifact')).toBe(false)
   })
 
   it('builds syscalls argv with library filter', () => {
@@ -31,13 +35,6 @@ describe('tracer-caps registry', () => {
       .toEqual(['funcs', '-P', 'com.android.deskclock', '-F', '/data/local/tmp/specs/common-file.spec'])
   })
 
-  it('builds lib and dump positional argv', () => {
-    expect(capById('lib')!.buildArgv({ pkg: 'com.android.deskclock' }))
-      .toEqual(['lib', 'com.android.deskclock'])
-    expect(capById('dump')!.buildArgv({ pkg: 'com.android.deskclock', pattern: 'lib<example>.so' }))
-      .toEqual(['dump', 'com.android.deskclock', 'lib<example>.so'])
-  })
-
   it('builds mod argv with an analyzer name', () => {
     expect(capById('mod')!.buildArgv({ analyzer: 'getprop', pkg: 'com.android.deskclock' }))
       .toEqual(['mod', 'getprop', '-P', 'com.android.deskclock'])
@@ -45,7 +42,6 @@ describe('tracer-caps registry', () => {
 
   it('rejects missing required inputs', () => {
     expect(validateInputs(capById('syscalls')!, {})).toContain('package is required')
-    expect(validateInputs(capById('dump')!, { pkg: 'com.android.deskclock' })).toContain('pattern is required')
   })
 
   it('accepts a valid input set', () => {
@@ -83,7 +79,7 @@ describe('tracer-caps registry', () => {
       expect(keys).toEqual(expect.arrayContaining(tuningKeys))
       expect(capById(id)!.common).toBe(true)
     }
-    for (const id of ['trace', 'lib', 'dump', 'mod']) {
+    for (const id of ['trace', 'mod']) {
       const keys = capById(id)!.inputs.map(i => i.key)
       expect(keys).not.toEqual(expect.arrayContaining(tuningKeys))
       expect(capById(id)!.common).toBeFalsy()
@@ -103,7 +99,7 @@ describe('tracer-caps registry', () => {
     for (const id of ['syscalls', 'funcs']) {
       expect(capById(id)!.inputs.map(i => i.key)).toContain('snapshot')
     }
-    for (const id of ['correlate', 'trace', 'lib', 'dump', 'mod']) {
+    for (const id of ['correlate', 'trace', 'mod']) {
       expect(capById(id)!.inputs.map(i => i.key)).not.toContain('snapshot')
     }
     const snap = capById('syscalls')!.inputs.find(i => i.key === 'snapshot')!
@@ -122,11 +118,11 @@ describe('tracer-caps registry', () => {
   })
 })
 
-import { composeRunArg, outJsonlPath, outDumpDir, DEVICE_BIN, STOP_ARG, commonArgv } from '../src/shared/tracer-caps'
+import { composeRunArg, outJsonlPath, DEVICE_BIN, STOP_ARG, commonArgv } from '../src/shared/tracer-caps'
 
 describe('composeRunArg', () => {
   const syscalls = capById('syscalls')!
-  const lib = capById('lib')!
+  const mod = capById('mod')!
 
   it('wraps a jsonl run in su -c + timeout and appends -o', () => {
     const arg = composeRunArg({
@@ -139,30 +135,19 @@ describe('composeRunArg', () => {
   })
 
   it('does not append -o for a stdout capability', () => {
-    const arg = composeRunArg({ cap: lib, vals: { pkg: 'com.android.deskclock' }, timeoutSecs: 10 })
-    expect(arg).toBe("su -c 'timeout -s INT -k 3 10 /data/local/tmp/ares lib com.android.deskclock'")
+    const arg = composeRunArg({ cap: mod, vals: { analyzer: 'getprop', pkg: 'com.android.deskclock' }, timeoutSecs: 10 })
+    expect(arg).toBe("su -c 'timeout -s INT -k 3 10 /data/local/tmp/ares mod getprop -P com.android.deskclock'")
   })
 
   it('omits the timeout wrapper when timeoutSecs is unset (run until Stop)', () => {
-    const arg = composeRunArg({ cap: lib, vals: { pkg: 'com.android.deskclock' } })
-    expect(arg).toBe("su -c '/data/local/tmp/ares lib com.android.deskclock'")
+    const arg = composeRunArg({ cap: mod, vals: { analyzer: 'getprop', pkg: 'com.android.deskclock' } })
+    expect(arg).toBe("su -c '/data/local/tmp/ares mod getprop -P com.android.deskclock'")
   })
 
   it('exposes the fixed binary path and stop command', () => {
     expect(DEVICE_BIN).toBe('/data/local/tmp/ares')
     expect(STOP_ARG).toBe("su -c 'pkill -INT -f /data/local/tmp/ares'")
     expect(outJsonlPath('X')).toBe('/data/local/tmp/ares-X.jsonl')
-  })
-
-  it('appends -d <dumpDir> for an artifact (dump) capability', () => {
-    const arg = composeRunArg({
-      cap: capById('dump')!, vals: { pkg: 'com.android.deskclock', pattern: 'lib<example>.so' },
-      timeoutSecs: 20, dumpDir: outDumpDir('20260707T101500'),
-    })
-    expect(arg).toBe(
-      "su -c 'timeout -s INT -k 3 20 /data/local/tmp/ares dump com.android.deskclock " +
-      "lib<example>.so -d /data/local/tmp/ares-dump-20260707T101500'")
-    expect(outDumpDir('X')).toBe('/data/local/tmp/ares-dump-X')
   })
 
   it('splices -b/-Q/-v before -o for a common cap', () => {
@@ -176,8 +161,8 @@ describe('composeRunArg', () => {
   })
 
   it('never emits tuning flags for a non-common cap even if values are present', () => {
-    const arg = composeRunArg({ cap: lib, vals: { pkg: 'com.android.deskclock', bufmb: '8', verbose: true } })
-    expect(arg).toBe("su -c '/data/local/tmp/ares lib com.android.deskclock'")
+    const arg = composeRunArg({ cap: mod, vals: { analyzer: 'getprop', pkg: 'com.android.deskclock', bufmb: '8', verbose: true } })
+    expect(arg).toBe("su -c '/data/local/tmp/ares mod getprop -P com.android.deskclock'")
   })
 
   it('places --snapshot before the internally-managed -o', () => {
@@ -243,7 +228,7 @@ describe('capNeedsSpec', () => {
     }
   })
   it('is false for the non-spec engines', () => {
-    for (const id of ['syscalls', 'lib', 'dump', 'mod']) {
+    for (const id of ['syscalls', 'mod']) {
       expect(capNeedsSpec(capById(id)!)).toBe(false)
     }
   })

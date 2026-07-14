@@ -3,7 +3,7 @@
 // live in composeRunArg (Task 2); this module owns only the per-engine argv.
 // Verified against ../ARES src/*/*.c argp tables (see spec s2).
 
-export type OutputKind = 'jsonl' | 'stdout' | 'artifact'
+export type OutputKind = 'jsonl' | 'stdout'
 export type InputKind = 'package' | 'text' | 'bool' | 'csv' | 'pattern' | 'spec' | 'analyzer' | 'int'
 
 export interface CapInput {
@@ -140,23 +140,6 @@ export const CAPABILITIES: Capability[] = [
     },
   },
   {
-    id: 'lib', label: 'lib (list loaded .so)', engine: 'lib', outputKind: 'stdout',
-    inputs: [{ key: 'pkg', label: 'package', kind: 'package', required: true }],
-    buildArgv(v) {
-      return ['lib', s(v.pkg)]
-    },
-  },
-  {
-    id: 'dump', label: 'dump (.so from memory)', engine: 'dump', outputKind: 'artifact',
-    inputs: [
-      { key: 'pkg', label: 'package', kind: 'package', required: true },
-      { key: 'pattern', label: 'pattern', kind: 'pattern', required: true },
-    ],
-    buildArgv(v) {
-      return ['dump', s(v.pkg), s(v.pattern)]
-    },
-  },
-  {
     id: 'mod', label: 'mod (named analyzer)', engine: 'mod', outputKind: 'stdout',
     inputs: [
       { key: 'analyzer', label: 'analyzer', kind: 'analyzer', required: true },
@@ -235,12 +218,6 @@ export function outJsonlPath(ts: string): string {
   return `/data/local/tmp/ares-${ts}.jsonl`
 }
 
-// `dump` rebuilds one .so per matching library (named <lib>.<pid>.<addr>.so) into
-// a directory (`-d DIR`); the whole directory is pulled after the run.
-export function outDumpDir(ts: string): string {
-  return `/data/local/tmp/ares-dump-${ts}`
-}
-
 // The host path to pull a capture's JSONL to: the analyst's chosen path if any,
 // else the default runs-dir path. Pure so main can stay thin.
 export function resolveSavePath(chosen: string | undefined, defaultPath: string): string {
@@ -257,12 +234,10 @@ export function composeRunArg(opts: {
   vals: CapValues
   timeoutSecs?: number
   jsonlPath?: string
-  dumpDir?: string
 }): string {
   const argv = opts.cap.buildArgv(opts.vals)
   if (opts.cap.common) argv.push(...commonArgv(opts.vals))
   if (opts.cap.outputKind === 'jsonl' && opts.jsonlPath) argv.push('-o', opts.jsonlPath)
-  if (opts.cap.outputKind === 'artifact' && opts.dumpDir) argv.push('-d', opts.dumpDir)
   const inner = opts.timeoutSecs
     ? `timeout -s INT -k 3 ${opts.timeoutSecs} ${DEVICE_BIN} ${argv.join(' ')}`
     : `${DEVICE_BIN} ${argv.join(' ')}`

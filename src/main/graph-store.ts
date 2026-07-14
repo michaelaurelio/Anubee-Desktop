@@ -9,6 +9,7 @@ import { compileWhere, scoreWith, aggregate, resolveRules, BUILTIN_RULES, type R
 import { presenceOf, type DiffRow, type MergedSlice, type MergedNode } from '@shared/diff'
 import { parseHexAddr, moduleRelative, type OffsetRow } from '@shared/origins'
 import { parseFrameSymbol } from '@shared/frame-symbol'
+import type { LibRow } from '@shared/native-lib'
 
 export type { TableRow }
 
@@ -28,6 +29,7 @@ const COLS =
   "'decoded_args':'MAP(VARCHAR,VARCHAR)','sock_addr':'VARCHAR','stack_id':'VARCHAR'," +
   "'java_stack':'VARCHAR[]'," +
   "'library':'VARCHAR','start':'VARCHAR','end':'VARCHAR','pgoff':'BIGINT'," +
+  "'inode':'BIGINT','soname':'VARCHAR'," +
   "'backtrace':'STRUCT(frame INTEGER, addr VARCHAR, symbol VARCHAR)[]'," +
   "'cfi_backtrace':'STRUCT(frame INTEGER, addr VARCHAR, symbol VARCHAR, kind VARCHAR)[]'," +
   // 'engine' is CoverageEvent's own field (e.g. "type":"coverage","engine":"funcs");
@@ -511,6 +513,40 @@ export class GraphStore {
     if (rows.length === 0) return undefined
     const { run_id: _drop, ...ev } = JSON.parse(rows[0].js as string)
     return ev as CoverageEvent
+  }
+
+  // The loaded run's mapped native libraries, first-seen order. Sourced from the
+  // retained `lib` records; a matching `unlib` (same pid + start) flags a row
+  // unmapped. `start`/`end` are quoted hex; size is computed in JS (DuckDB can't
+  // cleanly cast the 0x-strings). Off-heap: lib records are sparse (hundreds).
+  async libTable(runId?: number): Promise<LibRow[]> {
+    const rid = runId ?? this.activeRunId ?? this.runs().at(-1)?.runId
+    if (rid === undefined) return []
+    const rows = await this.rows(
+      `WITH unm AS (SELECT DISTINCT pid, start FROM ev WHERE run_id = ${rid} AND type = 'unlib')
+       SELECT e.library, e.soname, e.start, e.end, e.pgoff, e.inode, e.pid, e.tid, e.ppid,
+              e.rowid AS seq, (u.pid IS NOT NULL) AS unmapped
+       FROM ev e LEFT JOIN unm u ON u.pid = e.pid AND u.start = e.start
+       WHERE e.run_id = ${rid} AND e.type = 'lib' AND e.library IS NOT NULL
+       ORDER BY e.rowid`,
+    )
+    const out: LibRow[] = []
+    for (const r of rows) {
+      const start = parseHexAddr(String(r.start))
+      const end = parseHexAddr(String(r.end))
+      if (start === null) continue
+      out.push({
+        library: String(r.library),
+        soname: r.soname == null ? null : String(r.soname),
+        base: String(r.start), end: String(r.end),
+        size: end === null ? 0 : Number(end - start),
+        pgoff: Number(r.pgoff ?? 0), inode: Number(r.inode ?? 0),
+        pid: Number(r.pid), tid: r.tid == null ? null : Number(r.tid),
+        ppid: r.ppid == null ? null : Number(r.ppid),
+        seq: Number(r.seq), unmapped: Boolean(r.unmapped),
+      })
+    }
+    return out
   }
 
   // The raw records whose reconstructed chain touches `nodeId`, honouring the

@@ -32,6 +32,7 @@ import { logAppend } from './log-store'
 import { runLogged } from './run-logged'
 import { makeEpoch } from './selection-epoch'
 import type { SyscallEvent, FuncEvent } from '@shared/events'
+import { createLibView, type LibViewApi } from './native-lib-view'
 
 let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
 document.documentElement.setAttribute('data-theme', theme)
@@ -153,7 +154,7 @@ let tags: Tag[] = []
 let dismissed: Dismissed[] = []
 let runB: number | undefined
 let diffMode: DiffMode = 'all'
-let currentView: 'graph' | 'flame' = 'graph'
+let currentView: 'graph' | 'flame' | 'libs' = 'graph'
 // Unsaved-project-changes flag: set on any tag/dismiss/rule mutation, cleared
 // once Save project completes; drives the save-on-close confirmation.
 let dirty = false
@@ -374,13 +375,17 @@ async function refreshFlame(): Promise<void> {
   renderFlame(host, tree, rollup.truncated || tree.truncated, theme)
 }
 
-function showView(view: 'graph' | 'flame'): void {
+function showView(view: 'graph' | 'flame' | 'libs'): void {
   currentView = view
   document.getElementById('cy')?.classList.toggle('hidden', view !== 'graph')
   document.getElementById('flame')?.classList.toggle('active', view === 'flame')
   document.getElementById('flame')?.classList.toggle('hidden', view !== 'flame')
+  document.getElementById('libs')?.classList.toggle('hidden', view !== 'libs')
+  showTablePanel(view !== 'libs' && activeRunId !== undefined)
+  document.getElementById('graph-empty')?.classList.toggle('hidden', view !== 'graph' || selectedRowId !== undefined)
   if (view === 'flame') void refreshFlame()
-  for (const [id, v] of [['tab-graph', 'graph'], ['tab-flame', 'flame']] as const) {
+  if (view === 'libs') libView.setSource('loaded')
+  for (const [id, v] of [['tab-graph', 'graph'], ['tab-flame', 'flame'], ['tab-libs', 'libs']] as const) {
     document.getElementById(id)?.classList.toggle('on', currentView === v)
   }
 }
@@ -543,6 +548,18 @@ document.getElementById('theme-toggle')?.addEventListener('click', () => {
 })
 
 wirePanels(document.body)
+
+const libView: LibViewApi = createLibView(document.getElementById('libs')!, {
+  loadedRows: () => window.ares.libTable(activeRunId),
+  startLive: pkg => window.ares.startLive(pkg),
+  stopLive: () => window.ares.stopLive(),
+  dumpLib: (pid, pattern) => window.ares.dumpLib(pid, pattern),
+  reveal: path => window.ares.revealArtifact(path),
+  exportArtifact: path => void window.ares.exportArtifact(path),
+})
+window.ares.onLibMapped(l => libView.applyMapped(l))
+window.ares.onLibUnmapped(l => libView.applyUnmapped(l))
+window.ares.onLibStreamEnd(() => libView.streamEnded())
 
 async function refreshDiff(): Promise<void> {
   const host = document.getElementById('diff-table')
@@ -855,6 +872,7 @@ window.ares.onLoaded(s => {
 })
 document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))
 document.getElementById('tab-flame')?.addEventListener('click', () => showView('flame'))
+document.getElementById('tab-libs')?.addEventListener('click', () => showView('libs'))
 document.getElementById('rules-btn')?.addEventListener('click', () => {
   showModal({
     title: 'Rules',

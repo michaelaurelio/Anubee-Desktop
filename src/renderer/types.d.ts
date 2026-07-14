@@ -69,6 +69,16 @@ declare global {
       tracerPickSpecsDir(): Promise<string | undefined>
       onTracerLine(cb: (line: string) => void): void
       onPreflightCheck(cb: (c: { id: string; label: string; ok: boolean; detail: string }) => void): void
+      libTable(runId?: number): Promise<import('@shared/native-lib').LibRow[]>
+      startLive(pkg: string): Promise<void>
+      stopLive(): Promise<void>
+      dumpLib(pid: number, pattern: string): Promise<import('@shared/native-lib').Artifact[]>
+      revealArtifact(path: string): Promise<void>
+      exportArtifact(path: string): Promise<{ saved: boolean; path?: string }>
+      onLibMapped(cb: (l: import('@shared/native-lib').LibLine & { atMs: number }) => void): void
+      onLibUnmapped(cb: (l: import('@shared/native-lib').LibLine & { atMs: number }) => void): void
+      onLibLine(cb: (line: string) => void): void
+      onLibStreamEnd(cb: () => void): void
     }
   }
 }

@@ -566,6 +566,52 @@ Flame buttons in the rail's view zone (`#tab-graph` / `#tab-flame`, `showView()`
   narrow the filter (has-java_stack, syscall, tid, ...) to see every path
   rather than a heaviest-first sample.
 
+## Native Libraries (lib + dump)
+
+A third view mode (alongside Graph and Flame) for inspecting library metadata and
+binary artifacts from a trace. The **Libraries** view can run in two modes: **Loaded**
+(reading from an ingested run's retained library records) and **Live** (streaming
+library observations from a connected device in real time).
+
+### Loaded mode
+
+Reads `type:lib` records from the opened run via `GraphStore.libTable`. Each row
+displays a library basename, its load address base, and flags for whether the
+library was successfully mapped (`lib`) or unmapped (`unlib` - unresolved symbol
+addresses). The view re-fetches the table on every tab click (sparse records, low
+cost). Rows display in ingest sequence; unlike the live-mode `new` badge, there
+is no wall-clock timestamp in the JSONL schema to compute `new-since-start`.
+
+### Live mode
+
+Streams the output of `ares lib -P <pkg>` from the connected device, parsing each
+`[lib]` line via `src/shared/lib-line.ts` and stamping each with the host's arrival
+time. Libraries that load later than `NEW_LIB_SETTLE_MS` (1500ms) after the stream
+starts are flagged with a `new` badge - this signals post-setup loads, including
+libraries decrypted by a packer after app startup (the packer-proof use case).
+
+### Dumping binaries
+
+From live mode, a **Dump** button triggers an on-device binary pull via `ares dump
+-p <pid> <pattern>`, attaching to the live process and extracting matched `.so`
+files. The desktop pulls the output directory and its manifest, triages each binary
+via `src/shared/elf-triage.ts` (ELF magic check, architecture, SHA-256 hash, file
+size), and displays them in a collapsible bottom **Artifacts dock**. **Reveal**
+opens the file manager at the dumped `.so`; **Export** saves a copy to the analyst's
+chosen location.
+
+The `lib` and `dump` capability outputs are no longer selectable engines in the
+Capture modal (feature 9) - they are now integrated as exclusive features of the
+Libraries view.
+
+```mermaid
+flowchart LR
+  A[Load JSONL] -->|type:lib records| B[Libraries view: Loaded]
+  C[Live device: ares lib -P pkg] -->|[lib]/[unlib] stream| D[Libraries view: Live]
+  D -->|tick + Dump| E[ares dump -p pid pattern]
+  E -->|pull dir + manifest| F[Artifacts dock: ELF / arch / sha-256]
+```
+
 ## Render caps (`src/shared/caps.ts`)
 
 The three render-tier caps live in one module - `GRAPH_SLICE_CAP` (1500),

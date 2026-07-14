@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { SYSCALL_KEYS, BACKTRACE_KEYS, FUNCS_KEYS, CFI_STACK_KEYS, CFI_BACKTRACE_KEYS } from '@shared/schema-contract'
+import { SYSCALL_KEYS, BACKTRACE_KEYS, FUNCS_KEYS, CFI_STACK_KEYS, CFI_BACKTRACE_KEYS, LIB_KEYS, UNLIB_KEYS, DUMP_KEYS } from '@shared/schema-contract'
 
 // The syscall emitter in the sibling ARES checkout. Not a build dependency -
 // only read here to guard the vendored contract. Absent → skip (CI without the
@@ -86,5 +86,34 @@ describe('schema drift: cfi_stack emitter', () => {
     const keys = cfiEmittedKeys()
     for (const k of CFI_STACK_KEYS) expect(keys, `emitter missing "${k}"`).toContain(k)
     for (const k of CFI_BACKTRACE_KEYS) expect(keys, `emitter missing frame key "${k}"`).toContain(k)
+  })
+})
+
+const LIB_EMITTER = resolve(__dirname, '../../ARES/src/common/lib_trace.c')
+const libPresent = existsSync(LIB_EMITTER)
+const DUMP_EMITTER = resolve(__dirname, '../../ARES/src/dump/dump_emit.c')
+const dumpPresent = existsSync(DUMP_EMITTER)
+
+function keysIn(path: string): Set<string> {
+  const src = readFileSync(path, 'utf-8')
+  const keys = new Set<string>()
+  for (const m of src.matchAll(/\\"([a-z_]+)\\":/g)) keys.add(m[1])
+  return keys
+}
+
+describe('schema drift: lib/unlib + dump emitters', () => {
+  it('contract has no duplicate keys (sanity, runs without ARES)', () => {
+    expect(new Set(LIB_KEYS).size).toBe(LIB_KEYS.length)
+    expect(new Set(UNLIB_KEYS).size).toBe(UNLIB_KEYS.length)
+    expect(new Set(DUMP_KEYS).size).toBe(DUMP_KEYS.length)
+  })
+  it.skipIf(!libPresent)('emits every lib/unlib key in the contract', () => {
+    const keys = keysIn(LIB_EMITTER)
+    for (const k of LIB_KEYS) expect(keys, `lib_trace.c missing "${k}"`).toContain(k)
+    for (const k of UNLIB_KEYS) expect(keys, `lib_trace.c missing "${k}"`).toContain(k)
+  })
+  it.skipIf(!dumpPresent)('emits every dump manifest key in the contract', () => {
+    const keys = keysIn(DUMP_EMITTER)
+    for (const k of DUMP_KEYS) expect(keys, `dump_emit.c missing "${k}"`).toContain(k)
   })
 })
