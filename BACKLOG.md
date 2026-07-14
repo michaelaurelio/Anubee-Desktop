@@ -3,6 +3,60 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-14) - UI/UX round 2: chips, detail panel, fonts, theme toggle, project bundle
+
+A visual-consistency + portability pass over the round-1 shell. One unified
+`.cat-chip` category-chip component (`categoryColors` in `theme.ts`, mirrored
+to `--cat-*` CSS tokens) now backs the master table's tag column, the
+Suggestions modal, the Rules modal, and the redesigned detail-panel header;
+the Rules modal's enable/disable control is a sliding toggle switch (not a
+checkbox), dimming a disabled row to 55% opacity. The detail panel
+(`inspector.ts`) got a kind-dot + kind-colored name + record-count-pill
+header, a sticky records table (kind-colored syscall cell, red negative
+retval, accent-barred selected row), accent-barred detail cards, and a
+backtrace that highlights the app's own innermost non-system frame
+(`appFrameIndex`). Inter (UI) + JetBrains Mono (data) are now vendored
+offline as woff2 under `src/renderer/assets/fonts/` and wired via
+`@font-face` - no CDN. The rail's theme button is now a sliding sun/moon
+pill (Lucide icons); the pager, columns button, table-collapse button, zoom
+cluster, and every modal/panel close X are now inline Lucide SVG on a shared
+`.icon-btn` style, replacing the old plain-glyph buttons. A new portable
+project bundle (`.aresproj.json`, `src/shared/project-file.ts`) lets Save
+project (Export menu) write the run's tags/dismissed/rule-overrides plus an
+opaque layout blob, and Open project (Open menu) re-ingest the referenced run
+(with a relocate prompt if the file moved) and re-apply the bundle via the
+run's sidecar. A `dirty` flag + a new Quit rail item + a window-close
+interception (`win.on('close', ...)`) now show a Save / Don't Save / Cancel
+prompt when there are unsaved tag/rule/dismissal changes. Also fixed the
+long-standing giant grey arrowhead on dimmed graph edges (see the FIXED entry
+below). Full detail in `DOCUMENTATION.md`'s "UI/UX round 2" section.
+
+### Screenshot-harness hygiene nuisance
+- **The shots harness's Add-Tag step writes into the tracked fixture sidecar.**
+  `npm run shots` drives an Add-Tag interaction against
+  `tests/fixtures/detector_snap.jsonl.ares-desktop.json` (the tracked example
+  sidecar), so each harness run mutates a tracked file and shows up as a
+  working-tree diff. Pre-existing, not introduced this session; address by
+  running the harness against a temp copy of the fixture (or a temp
+  `userData` dir) instead of the tracked one.
+
+### Deferred by design
+- **Project-bundle auto-save.** Save project is manual-only (Export menu or
+  the save-on-close prompt); there is no periodic or on-change auto-save of
+  the bundle.
+- **Multi-run bundles.** `ProjectBundle.run` is a single run reference; a
+  bundle spanning a diff-mode pair (run A + run B) is not supported.
+- **Bundle `layout` is round-tripped but not applied on open.** `project:open`
+  returns `{ summary, layout }` and the bundle carries whatever `layout` blob
+  was passed to `project:save`, but nothing on the open path re-applies it to
+  the renderer's panel/column layout state - it is currently write-only.
+- **`enabledOverrides` is not carried in the bundle.** `ProjectBundle` has
+  `ruleOverrides: Rule[]` but no field for the per-rule
+  `enabledOverrides` map (`RuleScope.enabledOverrides` in
+  `rasp-heuristics.ts`), so a rule that's been enabled/disabled without being
+  forked into a project-scope override does not round-trip through
+  Save/Open project.
+
 ## Shipped (2026-07-13) - UI/UX redesign: rail shell, stacked call-site table, graph empty-state
 
 Replaced the chrome-bar/File-dropdown/segmented-switch/filter-bar shell with a
@@ -47,14 +101,21 @@ overlap with the empty-state). Full detail in `DOCUMENTATION.md`'s "UI shell",
   exported and still covered by `tests/columns.test.ts`. Remove both the
   exports and their tests in a follow-up cleanup pass.
 
-### Pre-existing bug (not introduced by this redesign, needs a separate fix)
+### Pre-existing bug - FIXED 2026-07-14 (UI/UX round 2)
 - **Dimmed off-path graph edges render oversized grey arrowheads.** Visible in
   the `04-filtered` / `08-collapsed` screenshots: a long dimmed (out-of-path)
   edge's arrowhead renders disproportionately large relative to its stroke
-  width. Looks like a cytoscape edge-width/arrow-scale interaction that only
-  shows up on long dimmed edges - predates this redesign (the redesign didn't
-  touch dimmed-edge styling). Needs its own fix: cap `arrow-scale` or edge
-  `width` specifically on the dimmed-edge style rule.
+  width. Two fixes landed: (1) edge width is now clamped via `mapCount`
+  (`src/renderer/graph-view.ts`) because cytoscape's `mapData` style function
+  extrapolates past its declared domain for counts outside `1..50`, producing
+  an unbounded width on very hot edges. (2) **the real cause** turned out to
+  be that a triangle arrowhead scales with both edge width *and* the current
+  zoom level, and a small, heavily-zoomed-in focused subgraph magnifies that
+  scaling - the width clamp alone didn't kill the blob. The actual fix is
+  `edge.dimmed { target-arrow-shape: none; width: 1 }`: an off-path edge now
+  drops its arrowhead entirely and goes hair-thin instead of trying to tune
+  arrow-scale/width numbers down. See `DOCUMENTATION.md`'s "Graph edge
+  rendering fix" section.
 
 ## Shipped (2026-07-13) - java_stack graph fidelity Phase 2 (JNI interleaving)
 
