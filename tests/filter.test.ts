@@ -32,12 +32,14 @@ describe('filterToSql', () => {
     expect(r.params).toEqual(['%libexample%'])
   })
 
-  it('text is bound across syscall, java_stack, and backtrace symbols', () => {
+  it('text is bound across syscall, stacks, and all arg fields', () => {
     const r = filterToSql({ text: 'su' })
-    expect(r.params).toEqual(['%su%', '%su%', '%su%'])
+    expect(r.params).toEqual(Array(9).fill('%su%'))
     // The raw user text must be bound, never inlined into the SQL.
     expect(r.where).not.toContain('su')
-    expect(r.where).toContain('?')
+    for (const col of ['args', 'string_args', 'fd_args', 'decoded_args', 'sock_args', 'out_args']) {
+      expect(r.where).toContain(col)
+    }
   })
 
   it('ANDs all present fields, params in field order', () => {

@@ -651,3 +651,20 @@ describe('GraphStore.ingest cfi sidecar', () => {
     expect(n).toBe(0)
   })
 })
+
+describe('GraphStore.table free-text search over args', () => {
+  it('matches fd_args values (the /proc/self case)', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    const rows = await store.table({ text: '/proc/self' }, { limit: 10, offset: 0 })
+    expect(rows.map(r => r.id)).toEqual([3])
+    expect(await store.count({ text: '/proc/self' })).toBe(1)
+  })
+
+  it('matches string_args values', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    const rows = await store.table({ text: 'magisk' }, { limit: 10, offset: 0 })
+    expect(rows.map(r => r.id)).toEqual([2])
+  })
+})
