@@ -117,7 +117,7 @@ const sugTarget = await win.evaluate(async () => {
 })
 if (!sugTarget) throw new Error('heuristic engine produced no suggestions on the capture')
 await win.fill('#f-text', sugTarget)
-await win.click('#apply')
+await win.press('#f-text', 'Enter') // omni bar: Enter applies (no #apply button since the omni filter bar redesign)
 await win.waitForTimeout(400)
 await win.click('#table table tr:nth-child(2)')
 // ELK layout + the async recolorRasp round-trip settle at different rates run to
@@ -130,7 +130,7 @@ await win.waitForFunction(
 await shot('02b-rasp-colored.png')
 // Clear the filter so later steps see the full run again.
 await win.fill('#f-text', '')
-await win.click('#apply')
+await win.press('#f-text', 'Enter')
 await win.waitForTimeout(300)
 
 // 3. A node inspected: click the syscall node at its real rendered position.
@@ -241,9 +241,10 @@ await win.evaluate(() =>
 await win.waitForTimeout(300)
 await win.keyboard.press('Escape')
 
-// 4. Filtered: has-java_stack only, re-run.
-await win.check('#f-hasjava')
-await win.click('#apply')
+// 4. Filtered: has-java_stack only, re-run (omni bar: a `java:yes` chip, no
+// standalone checkbox since the omni filter bar redesign).
+await win.fill('#f-text', 'java:yes')
+await win.press('#f-text', 'Enter')
 await win.waitForTimeout(500)
 await shot('04-filtered.png')
 
@@ -428,6 +429,52 @@ await app.close()
 // Clean up the temp userData directory
 try {
   rmSync(userDataDir, { recursive: true, force: true })
+} catch (e) {
+  console.warn('Failed to clean up temp directory:', e.message)
+}
+
+// 11. Native Libraries view. The primary fixture above carries no lib/unlib
+// events, so a dedicated fixture (mapped libc + libsentinel, plus a third
+// library that unmaps) is loaded in its own short-lived instance to actually
+// exercise the populated table - a fresh app + userData dir keeps it decoupled
+// from the stateful walkthrough above.
+const libFixture = resolve(root, 'tests/fixtures/lib-sample.jsonl')
+const libUserDataDir = mkdtempSync(resolve(tmpdir(), 'ares-desktop-shots-libs-'))
+const libApp = await electron.launch({
+  args: [resolve(root, 'out/main/index.js'), '--no-sandbox', '--disable-gpu', `--user-data-dir=${libUserDataDir}`],
+  env: { ...process.env, ARES_OPEN_FILE: libFixture },
+})
+const libWin = await libApp.firstWindow()
+await libWin.setViewportSize({ width: 1400, height: 900 })
+await libWin.waitForSelector('#table table tr', { timeout: 30000 })
+await libWin.waitForTimeout(300)
+
+const libTabOk = await libWin.evaluate(() => !!document.getElementById('tab-libs')?.querySelector('svg use'))
+if (!libTabOk) throw new Error('#tab-libs rail item missing its inline svg icon')
+
+await libWin.click('#tab-libs')
+await libWin.waitForSelector('#libs table tbody tr', { timeout: 10000 })
+await libWin.waitForTimeout(300)
+
+const libRowsOk = await libWin.evaluate(() => {
+  const rows = [...document.querySelectorAll('#libs .lib-tbl tbody tr')]
+  const names = rows.map(r => r.querySelector('.lib-name')?.textContent)
+  return rows.length === 3 && names.includes('libc.so') && names.includes('libsentinel.so') &&
+    names.includes('libunmapped.so') && rows.at(-1)?.classList.contains('unmap') === true
+})
+if (!libRowsOk) throw new Error('Libraries table did not render libc/libsentinel/libunmapped with the last row struck through')
+
+const libDockOk = await libWin.evaluate(() => document.querySelector('#libs .lib-dock')?.classList.contains('collapsed') === true)
+if (!libDockOk) throw new Error('artifacts dock should start collapsed')
+
+await libWin.mouse.move(700, 400) // off #rail so the hover-expanded (172px) rail doesn't clip the shot
+await libWin.waitForTimeout(150)
+await libWin.screenshot({ path: resolve(shots, '11-libraries.png') })
+console.log('captured', '11-libraries.png')
+
+await libApp.close()
+try {
+  rmSync(libUserDataDir, { recursive: true, force: true })
 } catch (e) {
   console.warn('Failed to clean up temp directory:', e.message)
 }

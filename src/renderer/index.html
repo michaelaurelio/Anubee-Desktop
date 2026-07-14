@@ -459,6 +459,35 @@
       .theme-pill.dark .theme-knob { left:0; } .theme-pill.light .theme-knob { left:35px; }
       #theme-toggle { padding-left:3px; }
       #rail:hover #theme-toggle { padding-left:13px; }
+      /* native libraries view */
+      #libs { position:absolute; inset:0; display:flex; flex-direction:column; background:var(--surface); overflow:hidden; }
+      #libs.hidden { display:none; }
+      #libs .lib-hdr { padding:8px 12px; background:var(--bar); border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
+      #libs .lib-row1 { display:flex; align-items:center; gap:10px; }
+      #libs .lib-seg { display:flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; font-size:11px; }
+      #libs .lib-seg button { background:transparent; border:0; color:var(--muted); padding:3px 10px; cursor:pointer; }
+      #libs .lib-seg button.on { background:var(--accent); color:#fff; }
+      #libs .lib-ctl { margin-left:auto; display:flex; gap:6px; align-items:center; }
+      #libs .lib-ctl input { background:var(--input-bg); border:1px solid var(--input-bd); border-radius:5px; padding:3px 8px; color:var(--text); font-size:11px; }
+      #libs .lib-stat { display:flex; gap:14px; font-size:11px; color:var(--muted); align-items:center; }
+      #libs .lib-stat .new { color:var(--k-func); }
+      #libs .lib-dot { width:7px; height:7px; border-radius:50%; background:var(--k-java); display:inline-block; margin-right:5px; }
+      #libs .lib-tbl { flex:1; overflow:auto; }
+      #libs table { width:100%; border-collapse:collapse; font-size:11px; }
+      #libs th { position:sticky; top:0; background:var(--panel-2); color:var(--muted); text-align:left; font-weight:500;
+        font-size:9px; text-transform:uppercase; letter-spacing:.5px; padding:5px 8px; border-bottom:1px solid var(--border); }
+      #libs td { padding:5px 8px; border-bottom:1px solid var(--border-soft); white-space:nowrap; font-family:'JetBrains Mono',monospace; }
+      #libs tr:nth-child(even) td { background:var(--stripe); }
+      #libs tr.unmap td { color:var(--muted); text-decoration:line-through; }
+      #libs .lib-name { color:var(--k-native); }
+      #libs .lib-badge { font-size:9px; font-weight:700; padding:1px 5px; border-radius:999px; text-transform:uppercase; }
+      #libs .lib-badge.new { background:#3a2416; color:var(--k-func); }
+      #libs .lib-dock { border-top:1px solid var(--border); background:var(--panel-2); max-height:180px; display:flex; flex-direction:column; }
+      #libs .lib-dock-hd { padding:6px 12px; font-size:11px; font-weight:600; border-bottom:1px solid var(--border-soft); cursor:pointer; display:flex; gap:8px; }
+      #libs .lib-dock-hd .c { color:var(--muted); font-weight:400; }
+      #libs .lib-dock.collapsed .lib-dock-body { display:none; }
+      #libs .lib-dock-body { overflow:auto; }
+      #libs .lib-act { color:var(--accent-fg); cursor:pointer; }
     </style>
   </head>
   <body>
@@ -489,12 +518,14 @@
       <g id="i-fit"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></g>
       <g id="i-x"><path d="M18 6 6 18M6 6l12 12"/></g>
       <g id="i-logout"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></g>
+      <g id="i-lib"><path d="M4 5h4v14H4zM10 5h4v14h-4zM16 6l4 1-3 12-4-1z"/></g>
     </defs></svg>
 
     <nav id="rail">
       <span class="brand"><svg viewBox="0 0 24 24"><use href="#i-diamond"/></svg></span>
       <button id="tab-graph" class="rail-item on" title="Graph"><svg class="ic" viewBox="0 0 24 24"><use href="#i-graph"/></svg><span class="lbl">Graph</span></button>
       <button id="tab-flame" class="rail-item" title="Flame"><svg class="ic" viewBox="0 0 24 24"><use href="#i-flame"/></svg><span class="lbl">Flame</span></button>
+      <button id="tab-libs" class="rail-item" title="Libraries"><svg class="ic" viewBox="0 0 24 24"><use href="#i-lib"/></svg><span class="lbl">Libraries</span></button>
       <span class="rail-div"></span>
       <button id="suggest-btn" class="rail-item" title="Suggestions"><svg class="ic" viewBox="0 0 24 24"><use href="#i-bulb"/></svg><span class="lbl">Suggestions</span></button>
       <button id="rules-btn" class="rail-item" title="Rules"><svg class="ic" viewBox="0 0 24 24"><use href="#i-rules"/></svg><span class="lbl">Rules</span></button>
@@ -547,6 +578,7 @@
           </div>
         </div>
         <div id="flame"></div>
+        <div id="libs" class="hidden"></div>
         <div id="empty-state">
           <div class="es-title">No run loaded</div>
           <div>Open a run to begin - use <b>Open</b> in the left rail.</div>
