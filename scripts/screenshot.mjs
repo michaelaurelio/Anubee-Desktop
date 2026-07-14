@@ -400,44 +400,11 @@ await win.click('#zoom-in')
 await win.waitForTimeout(300)
 await shot('09-resized-zoomed.png')
 
-// 10. Quit rail item (round-2: new #app-quit, above #theme-toggle) - clicking
-// it on a dirty run (the tag saved in step 3d) intercepts window-close and
-// surfaces the save-on-close confirm modal instead of exiting. Capture it,
-// then Cancel so the app stays open for a clean app.close() below.
-const quitOk = await win.evaluate(() => !!document.getElementById('app-quit'))
-if (!quitOk) throw new Error('#app-quit rail item missing')
-await win.click('#app-quit')
-await win.waitForSelector('.modal-backdrop .modal-head', { timeout: 5000 })
-const closeModalTitle = await win.evaluate(() => document.querySelector('.modal-head .modal-title')?.textContent)
-if (closeModalTitle !== 'Unsaved project changes') {
-  throw new Error(`quit did not surface the save-on-close confirm modal (got title: ${closeModalTitle})`)
-}
-await shot('10-quit-confirm.png')
-const canceled = await win.evaluate(() => {
-  const btn = [...document.querySelectorAll('.modal-body button')].find(b => b.textContent === 'Cancel')
-  if (!btn) return false
-  btn.click()
-  return true
-})
-if (!canceled) throw new Error('save-on-close modal had no Cancel button')
-await win.waitForTimeout(200)
-const modalGone = await win.evaluate(() => !document.querySelector('.modal-backdrop'))
-if (!modalGone) throw new Error('Cancel did not dismiss the save-on-close modal')
-
-await app.close()
-
-// Clean up the temp userData directory
-try {
-  rmSync(userDataDir, { recursive: true, force: true })
-} catch (e) {
-  console.warn('Failed to clean up temp directory:', e.message)
-}
-
-// 11. Native Libraries view. The primary fixture above carries no lib/unlib
+// 10. Native Libraries view. The primary fixture above carries no lib/unlib
 // events, so a dedicated fixture (mapped libc + libsentinel, plus a third
 // library that unmaps) is loaded in its own short-lived instance to actually
 // exercise the populated table - a fresh app + userData dir keeps it decoupled
-// from the stateful walkthrough above.
+// from the stateful walkthrough above (which stays open for the quit step below).
 const libFixture = resolve(root, 'tests/fixtures/lib-sample.jsonl')
 const libUserDataDir = mkdtempSync(resolve(tmpdir(), 'ares-desktop-shots-libs-'))
 const libApp = await electron.launch({
@@ -469,12 +436,42 @@ if (!libDockOk) throw new Error('artifacts dock should start collapsed')
 
 await libWin.mouse.move(700, 400) // off #rail so the hover-expanded (172px) rail doesn't clip the shot
 await libWin.waitForTimeout(150)
-await libWin.screenshot({ path: resolve(shots, '11-libraries.png') })
-console.log('captured', '11-libraries.png')
+await libWin.screenshot({ path: resolve(shots, '10-libraries.png') })
+console.log('captured', '10-libraries.png')
 
 await libApp.close()
 try {
   rmSync(libUserDataDir, { recursive: true, force: true })
+} catch (e) {
+  console.warn('Failed to clean up temp directory:', e.message)
+}
+
+// 11. Quit rail item (round-2: new #app-quit, above #theme-toggle) - the very
+// last step. Clicking it on a dirty run (the tag saved in step 3d) intercepts
+// window-close and surfaces the save-on-close confirm modal instead of exiting.
+// Capture it, then hit "Don't Save" so the app closes itself.
+const quitOk = await win.evaluate(() => !!document.getElementById('app-quit'))
+if (!quitOk) throw new Error('#app-quit rail item missing')
+await win.click('#app-quit')
+await win.waitForSelector('.modal-backdrop .modal-head', { timeout: 5000 })
+const closeModalTitle = await win.evaluate(() => document.querySelector('.modal-head .modal-title')?.textContent)
+if (closeModalTitle !== 'Unsaved project changes') {
+  throw new Error(`quit did not surface the save-on-close confirm modal (got title: ${closeModalTitle})`)
+}
+await shot('11-quit-confirm.png')
+const dismissed = await win.evaluate(() => {
+  const btn = [...document.querySelectorAll('.modal-body button')].find(b => b.textContent === "Don't Save")
+  if (!btn) return false
+  btn.click()
+  return true
+})
+if (!dismissed) throw new Error("save-on-close modal had no Don't Save button")
+// "Don't Save" answers the confirm with 'close', so main quits the window itself.
+await app.waitForEvent('close')
+
+// Clean up the main temp userData directory
+try {
+  rmSync(userDataDir, { recursive: true, force: true })
 } catch (e) {
   console.warn('Failed to clean up temp directory:', e.message)
 }

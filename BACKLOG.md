@@ -26,7 +26,7 @@ selectable engines in the Capture modal.
 - Live-stream and dump stdout share the single `nativelib:line` IPC channel; lines interleave if a dump is fired mid-stream.
 - The Libraries view re-fetches `libTable` on every tab click (cheap - lib records are sparse); the omni filter bar still renders in the Libraries view though it only drives the (hidden) syscall master table.
 - Pre-existing (not introduced by this feature): the `#tab-left` collapse float button clips the leading text of the Flame view's truncation banner, the same overlap the Libraries header fix resolved for its own view.
-- GUI smoke was via `npm run shots` against the loaded fixture (`11-libraries.png`); the live-stream + dump path needs an on-device pass.
+- GUI smoke was via `npm run shots` against the loaded fixture (`10-libraries.png`); the live-stream + dump path needs an on-device pass.
 
 ## Shipped (2026-07-14) - omni filter bar
 
