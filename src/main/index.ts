@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu, clipboard } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Menu, clipboard, shell } from 'electron'
 import { resolve } from 'path'
 import { writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { GraphStore } from './graph-store'
@@ -18,10 +18,11 @@ import { mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { readFile, open } from 'node:fs/promises'
 import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
+import { startLive, dumpLibs, type LiveEvent } from './native-lib-live'
 import { loadConfig, saveConfig } from './tracer-config'
 import { capById, composeRunArg, outJsonlPath, outDumpDir, resolveSavePath } from '@shared/tracer-caps'
 import { isElf, specNames, type PathCheck, type PathStatus } from './path-check'
-import { readdir } from 'node:fs/promises'
+import { readdir, copyFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 
 // DuckDB lives here in the main process; read_json runs on its own native
@@ -33,6 +34,7 @@ let win!: BrowserWindow
 const adb = realAdb()
 const spawner = realSpawner()
 let activeRun: RunHandle | null = null
+let activeLive: RunHandle | null = null
 
 async function fileMd5(path: string): Promise<string> {
   try {
@@ -290,6 +292,37 @@ ipcMain.handle('graph:coverage', (_e, runId?: number) => store.coverage(runId))
 ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter, runId?: number) => store.nodeEvents(nodeId, filter, 500, runId))
 ipcMain.handle('graph:nodeOffsets', (_e, nodeId: string, filter: Filter, runId?: number) =>
   store.nodeOffsets(nodeId, filter, runId))
+
+ipcMain.handle('nativelib:table', (_e, runId?: number) => store.libTable(runId))
+
+ipcMain.handle('nativelib:startLive', (_e, pkg: string) => {
+  activeLive = startLive(spawner, adb, pkg, (ev: LiveEvent) => {
+    if ('raw' in ev) win.webContents.send('nativelib:line', ev.raw)
+    else if (ev.line.kind === 'lib') win.webContents.send('nativelib:mapped', { ...ev.line, atMs: ev.atMs })
+    else win.webContents.send('nativelib:unmapped', { ...ev.line, atMs: ev.atMs })
+  })
+  activeLive.done.then(() => { activeLive = null; win.webContents.send('nativelib:streamEnd') })
+})
+
+ipcMain.handle('nativelib:stopLive', async () => { if (activeLive) await activeLive.stop() })
+
+ipcMain.handle('nativelib:dumpLib', async (_e, pid: number, pattern: string) => {
+  const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
+  const deviceDir = `/data/local/tmp/ares-dump-${ts}`
+  const hostDir = resolve(runsDir(), `ares-dump-${ts}`)
+  return dumpLibs(spawner, adb, pid, pattern, deviceDir, hostDir,
+    line => win.webContents.send('nativelib:line', line))
+})
+
+ipcMain.handle('nativelib:revealArtifact', (_e, path: string) => { shell.showItemInFolder(path) })
+
+ipcMain.handle('nativelib:exportArtifact', async (_e, path: string) => {
+  const r = await dialog.showSaveDialog(win, { defaultPath: basename(path) })
+  if (r.canceled || !r.filePath) return { saved: false }
+  await copyFile(path, r.filePath)
+  return { saved: true, path: r.filePath }
+})
+
 // Copy via the main-process clipboard: navigator.clipboard is unreliable in the
 // Electron renderer (permission/focus), so the popup + node menus route here.
 ipcMain.handle('clipboard:write', (_e, text: string) => clipboard.writeText(text))

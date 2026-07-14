@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Filter } from '@shared/filter'
 import type { Tag } from '@shared/project-store'
 import type { Rule, RuleScope } from '@shared/rasp-heuristics'
+import type { LibLine } from '@shared/native-lib'
 
 // The typed surface the renderer sees as `window.ares`. Raw events never cross
 // this bridge except the single record fetched by id for the inspector.
@@ -69,4 +70,16 @@ contextBridge.exposeInMainWorld('ares', {
   onPreflightCheck: (cb: (c: { id: string; label: string; ok: boolean; detail: string }) => void) =>
     ipcRenderer.on('tracer:preflight-check', (_e, c) =>
       cb(c as { id: string; label: string; ok: boolean; detail: string })),
+  libTable: (runId?: number) => ipcRenderer.invoke('nativelib:table', runId),
+  startLive: (pkg: string) => ipcRenderer.invoke('nativelib:startLive', pkg),
+  stopLive: () => ipcRenderer.invoke('nativelib:stopLive'),
+  dumpLib: (pid: number, pattern: string) => ipcRenderer.invoke('nativelib:dumpLib', pid, pattern),
+  revealArtifact: (path: string) => ipcRenderer.invoke('nativelib:revealArtifact', path),
+  exportArtifact: (path: string) => ipcRenderer.invoke('nativelib:exportArtifact', path),
+  onLibMapped: (cb: (l: LibLine & { atMs: number }) => void) =>
+    ipcRenderer.on('nativelib:mapped', (_e, l) => cb(l as LibLine & { atMs: number })),
+  onLibUnmapped: (cb: (l: LibLine & { atMs: number }) => void) =>
+    ipcRenderer.on('nativelib:unmapped', (_e, l) => cb(l as LibLine & { atMs: number })),
+  onLibLine: (cb: (line: string) => void) => ipcRenderer.on('nativelib:line', (_e, l) => cb(l as string)),
+  onLibStreamEnd: (cb: () => void) => ipcRenderer.on('nativelib:streamEnd', () => cb()),
 })
