@@ -829,6 +829,7 @@ window.ares.onProgress(pct => {
   label.textContent = `Loading... ${pct}%`
 })
 window.ares.onLoaded(s => {
+  closeModal() // any successful load closes the open (run / project / capture) modal that triggered it
   activeRunId = s.runId
   activeEngine = s.kinds.includes('funcs') && !s.kinds.includes('syscall') ? 'func' : 'syscall'
   tableOffset = 0 // a fresh run starts at page 1; a stale offset could land past its row count
