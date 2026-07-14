@@ -16,6 +16,10 @@ Full detail in `DOCUMENTATION.md`'s "UI shell" section.
 - Omni filter bar shipped with known limits: single value per key (no OR
   within one key - needs Filter/SQL changes), key-name autocomplete only (no
   value suggestions from the loaded run), and no negation/regex grammar.
+- java-bearing row selection builds its slice filter via free text (`filterForRow` sets `f.text` to the top java frame), and free text now also searches arg fields - a slice can pick up unrelated events whose args contain the method substring; consider a dedicated java-frame filter field.
+- `module:` / `symbol:` chips on a syscall-engine run yield an empty table with no cue that these keys are funcs-only.
+- Autocomplete list goes stale on caret-only movement (ArrowLeft/Right); multi-token Enter re-renders chips once per token. Cosmetic.
+- One cold-start full-suite flake (1/448, not reproduced in 5 reruns) observed during final review - watch next session.
 
 ## Shipped (2026-07-14) - UI/UX round 2: chips, detail panel, fonts, theme toggle, project bundle
 
