@@ -44,8 +44,22 @@ const barOk = await win.evaluate(() =>
   !!document.getElementById('rail') &&
   !!document.getElementById('cmdbar') &&
   !!document.getElementById('tab-graph') &&
+  !!document.getElementById('app-quit') &&
   !document.getElementById('chrome'))
 if (!barOk) throw new Error('shell not in rail + command-bar shape')
+
+// Control buttons carry inline <svg> glyphs now (round-2: no unicode glyph
+// text to assert on) - just confirm the icon markup is actually there.
+const svgOk = await win.evaluate(() =>
+  !!document.querySelector('#pager-prev svg') &&
+  !!document.querySelector('#pager-next svg') &&
+  !!document.querySelector('#zoom-in svg') &&
+  !!document.querySelector('#zoom-out svg') &&
+  !!document.querySelector('#zoom-fit svg') &&
+  !!document.querySelector('#cols-btn svg') &&
+  !!document.querySelector('#tab-left svg') &&
+  !!document.querySelector('#side-close svg'))
+if (!svgOk) throw new Error('a control button is missing its inline svg icon')
 
 // Call-site column merges java-over-native (or native-only) into one cell.
 const csOk = await win.evaluate(() => !!document.querySelector('#table td.col-callSite .cs-native'))
@@ -83,6 +97,10 @@ if (!borderOk) throw new Error('node accent border missing')
 
 await shot('02-subgraph.png')
 
+// (round-2: the unified uppercase `.cat-chip` is asserted in the Rules modal
+// step below - robust, no dependence on graph-node hit-testing or on a row's
+// innermost-frame tag surfacing in the master table's tags column.)
+
 // RASP category coloring on native blocks (task 7). The heuristic run must
 // produce suggestions, and when a suggested native block is rendered it must pick
 // up a category class. An arbitrary first-row subgraph need not contain a
@@ -102,9 +120,13 @@ await win.fill('#f-text', sugTarget)
 await win.click('#apply')
 await win.waitForTimeout(400)
 await win.click('#table table tr:nth-child(2)')
-await win.waitForTimeout(1200) // ELK settle + recolorRasp
-const raspOk = await win.evaluate(() => window.__cy.nodes('.native.suggested, .native.confirmed').length > 0)
-if (!raspOk) throw new Error('a rendered suggested native block did not receive a RASP category class')
+// ELK layout + the async recolorRasp round-trip settle at different rates run to
+// run (more so since the JetBrains Mono metrics shifted node sizing); poll for the
+// category class rather than guessing a fixed delay.
+await win.waitForFunction(
+  () => !!window.__cy && window.__cy.nodes('.native.suggested, .native.confirmed').length > 0,
+  { timeout: 12000 },
+).catch(() => { throw new Error('a rendered suggested native block did not receive a RASP category class') })
 await shot('02b-rasp-colored.png')
 // Clear the filter so later steps see the full run again.
 await win.fill('#f-text', '')
@@ -211,6 +233,12 @@ await win.evaluate(() =>
 await win.waitForSelector('.tag-popup .tag-editor', { timeout: 5000 })
 await win.waitForTimeout(150)
 await shot('03d-tag-popup.png')
+// Save the tag (defaults: category 'root', no note) - this persists via
+// persistTags() and flips the run dirty, which the quit-confirm step below
+// (step 10) relies on to surface the save-on-close modal.
+await win.evaluate(() =>
+  [...document.querySelectorAll('.tag-popup button')].find(b => b.textContent === 'Save tag')?.click())
+await win.waitForTimeout(300)
 await win.keyboard.press('Escape')
 
 // 4. Filtered: has-java_stack only, re-run.
@@ -230,6 +258,12 @@ await win.click('#rules-btn')
 await win.waitForSelector('.modal-backdrop .modal-head', { timeout: 5000 })
 const rulesModal = await win.evaluate(() => document.querySelector('.modal-head .modal-title')?.textContent === 'Rules')
 if (!rulesModal) throw new Error('Rules did not open in a modal')
+// Round-2 unified chip: rules rows render an uppercase, category-colored `.cat-chip`.
+const catChipOk = await win.evaluate(() => {
+  const chip = document.querySelector('.modal-body .cat-chip')
+  return !!chip && chip.textContent.length > 0 && chip.textContent === chip.textContent.toUpperCase()
+})
+if (!catChipOk) throw new Error('rules modal did not render an uppercase .cat-chip (unified chip)')
 await shot('07-rules-modal.png')
 await win.keyboard.press('Escape')
 
@@ -254,10 +288,18 @@ if (!capOk) throw new Error('Capture modal capability dropdown is empty (wireCap
 await shot('06-capture-modal.png')
 await win.keyboard.press('Escape')
 
-// 7. Light theme via the toggle.
+// 7. Light theme via the toggle. Round-2: the toggle is a sliding
+// `.theme-pill` (no emoji glyph text to assert on) - check the pill exists
+// and that it actually flips the applied theme.
+const pillOk = await win.evaluate(() => !!document.querySelector('#theme-toggle .theme-pill'))
+if (!pillOk) throw new Error('#theme-toggle has no .theme-pill')
 await win.click('#tab-graph')
 await win.click('#theme-toggle')
 await win.waitForTimeout(300)
+const lightOk = await win.evaluate(() =>
+  document.documentElement.getAttribute('data-theme') === 'light' &&
+  document.querySelector('#theme-toggle .theme-pill')?.classList.contains('light'))
+if (!lightOk) throw new Error('theme toggle did not apply the light theme / pill state')
 await shot('07-light-theme.png')
 await win.click('#theme-toggle') // back to dark
 
@@ -292,6 +334,30 @@ await win.click('#zoom-in')
 await win.click('#zoom-in')
 await win.waitForTimeout(300)
 await shot('09-resized-zoomed.png')
+
+// 10. Quit rail item (round-2: new #app-quit, above #theme-toggle) - clicking
+// it on a dirty run (the tag saved in step 3d) intercepts window-close and
+// surfaces the save-on-close confirm modal instead of exiting. Capture it,
+// then Cancel so the app stays open for a clean app.close() below.
+const quitOk = await win.evaluate(() => !!document.getElementById('app-quit'))
+if (!quitOk) throw new Error('#app-quit rail item missing')
+await win.click('#app-quit')
+await win.waitForSelector('.modal-backdrop .modal-head', { timeout: 5000 })
+const closeModalTitle = await win.evaluate(() => document.querySelector('.modal-head .modal-title')?.textContent)
+if (closeModalTitle !== 'Unsaved project changes') {
+  throw new Error(`quit did not surface the save-on-close confirm modal (got title: ${closeModalTitle})`)
+}
+await shot('10-quit-confirm.png')
+const canceled = await win.evaluate(() => {
+  const btn = [...document.querySelectorAll('.modal-body button')].find(b => b.textContent === 'Cancel')
+  if (!btn) return false
+  btn.click()
+  return true
+})
+if (!canceled) throw new Error('save-on-close modal had no Cancel button')
+await win.waitForTimeout(200)
+const modalGone = await win.evaluate(() => !document.querySelector('.modal-backdrop'))
+if (!modalGone) throw new Error('Cancel did not dismiss the save-on-close modal')
 
 await app.close()
 
