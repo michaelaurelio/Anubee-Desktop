@@ -3,6 +3,27 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-15) - Native Libraries (lib + dump)
+
+A third view mode (Libraries, next to Graph/Flame) with a Loaded-run <-> Live-device
+source switch and a collapsible bottom artifacts dock. Loaded mode reads retained
+`type:lib`/`unlib` records via `GraphStore.libTable` (unlib flags unmapped frames).
+Live mode streams `ares lib -P <pkg>` stdout parsed by `src/shared/lib-line.ts`,
+stamping each library with host arrival time and flagging post-setup loads (after
+`NEW_LIB_SETTLE_MS`, 1500ms) as `new` - the packer-decrypt signal. Dumping attaches
+to the live pid (`ares dump -p <pid> <pattern>`), pulls the output dir + manifest,
+and triages each `.so` via `src/shared/elf-triage.ts` (ELF magic/arch/sha-256/size).
+Reveal opens the file manager; Export saves a copy. `lib` and `dump` are no longer
+selectable engines in the Capture modal.
+
+### Known drawbacks / follow-ups
+- Loaded-mode `new-since-start` is not shown (no wall-clock in the `lib` JSONL); the badge is live-mode only. Loaded rows show ingest sequence.
+- soname is taken from the `lib` record / dump manifest module name, not parsed from the dumped ELF's `DT_SONAME`.
+- Packer-proof hash-vs-on-disk compare is deferred (needs also pulling `/data/app/.../lib/<abi>/<name>.so`).
+- Live stream + dump use the default adb device; multi-device `-s` selection is deferred (matches the rest of the app).
+- Two concurrent ares processes (lib stream + `dump -p`) are unverified on device; if they conflict, stop the stream for the dump then resume. `dump -p` acceptance by ares' argp is a device-verify item.
+- GUI smoke was via `npm run shots` against the loaded fixture (`11-libraries.png`); the live-stream + dump path needs an on-device pass.
+
 ## Shipped (2026-07-14) - omni filter bar
 
 The command bar's filter is now a single free-text input with a `key:value`
