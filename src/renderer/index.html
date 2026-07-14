@@ -435,15 +435,15 @@
       .col-grip { position:absolute; top:0; right:-3px; width:6px; height:100%; cursor:col-resize; }
       .col-grip:hover::after { content:''; position:absolute; right:2px; top:0; width:2px; height:100%; background:var(--accent-fg); }
       /* theme pill toggle */
-      .theme-mini { width:19px; height:19px; margin-left:10px; } /* +3px pad = 13, aligns with other rail icons */
+      .theme-mini { width:18px; height:18px; margin-left:10px; } /* +3px pad = 13, aligns with other rail icons */
       #rail:hover #theme-toggle .theme-mini { display:none; }
-      .theme-pill { display:none; width:56px; height:26px; border-radius:13px; background:var(--stripe); border:1px solid var(--border); position:relative; align-items:center; justify-content:space-between; padding:0 7px; box-sizing:border-box; }
+      .theme-pill { display:none; width:61px; height:26px; border-radius:13px; background:var(--stripe); border:1px solid var(--border); position:relative; align-items:center; justify-content:space-between; padding:0 4px; box-sizing:border-box; }
       #rail:hover #theme-toggle .theme-pill { display:flex; }
-      .theme-pill svg { width:12px; height:12px; color:var(--muted); z-index:1; }
+      .theme-pill svg { width:18px; height:18px; color:var(--muted); z-index:1; }
       /* 20px knob in the 24px inner height -> 2px inset all round (vertically centered); slides between the two glyphs */
-      .theme-knob { position:absolute; top:2px; width:20px; height:20px; border-radius:50%; background:var(--accent-fg); transition:left .15s; display:flex; align-items:center; justify-content:center; }
-      .theme-knob svg { width:11px; height:11px; color:#0d1117; }
-      .theme-pill.dark .theme-knob { left:2px; } .theme-pill.light .theme-knob { left:32px; }
+      .theme-knob { position:absolute; top:0px; width:24px; height:24px; border-radius:50%; background:var(--accent-fg); transition:left .15s; display:flex; align-items:center; justify-content:center; }
+      .theme-knob svg { width:13px; height:13px; color:#0d1117; }
+      .theme-pill.dark .theme-knob { left:0px; } .theme-pill.light .theme-knob { left:34px; }
       #theme-toggle { padding-left:3px; }
       #rail:hover #theme-toggle { padding-left:13px; }
     </style>
