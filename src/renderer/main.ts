@@ -26,7 +26,7 @@ import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
 import type { GraphSlice } from '@shared/graph-shape'
 import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
-import { showModal, isModalOpen } from './modal'
+import { showModal, closeModal, isModalOpen } from './modal'
 import { renderLogModal } from './log-view'
 import { logAppend } from './log-store'
 import { runLogged } from './run-logged'
@@ -70,7 +70,7 @@ const cy = cytoscape({
     {
       selector: 'edge',
       style: {
-        width: 'mapData(count, 1, 50, 2, 6)',
+        width: 'data(w)',
         'curve-style': 'bezier',
         'target-arrow-shape': 'triangle',
         'arrow-scale': 1.2,
@@ -84,6 +84,10 @@ const cy = cytoscape({
     { selector: 'edge[presence = "A-only"]', style: { 'line-color': '#c0392b', 'target-arrow-color': '#c0392b' } },
     { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
     { selector: '.dimmed', style: { 'opacity': 0.12 } },
+    // Off-path (dimmed) edges carry no arrowhead and go hair-thin: a de-emphasized
+    // edge should recede, and its triangle arrowhead - which scales with edge width
+    // and the (high) zoom of a small subgraph - was rendering as a large grey blob.
+    { selector: 'edge.dimmed', style: { 'target-arrow-shape': 'none', 'width': 1 } },
     // Edges read grey by default; the selected node's fan-in/out lights them
     // brightly so a single click clearly connects the chain.
     { selector: 'edge.highlighted', style: {
@@ -150,6 +154,9 @@ let dismissed: Dismissed[] = []
 let runB: number | undefined
 let diffMode: DiffMode = 'all'
 let currentView: 'graph' | 'flame' = 'graph'
+// Unsaved-project-changes flag: set on any tag/dismiss/rule mutation, cleared
+// once Save project completes; drives the save-on-close confirmation.
+let dirty = false
 
 async function refreshTags(): Promise<void> {
   const rid = activeRunId
@@ -162,6 +169,7 @@ async function persistTags(): Promise<void> {
   if (activeRunId === undefined) return
   try {
     await window.ares.saveTags(activeRunId, tags)
+    dirty = true
     logAppend('success', 'tags', 'Tags saved')
   } catch (e) {
     logAppend('error', 'tags', e instanceof Error ? e.message : String(e))
@@ -306,6 +314,7 @@ async function renderSuggestionsInto(host: HTMLElement): Promise<void> {
     async s => {
       dismissed = addDismissed(dismissed, s.target, s.category)
       await window.ares.dismissedSave(activeRunId!, dismissed)
+      dirty = true
       void recolorRasp()
     })
   void recolorRasp()
@@ -437,15 +446,17 @@ cy.on('tap', 'node', evt => {
   const nodeId = node.id()
   highlightNeighborhood(cy, node)
   showSide(true)
+  const nodeKind = node.data('kind') as string | undefined
+  const nodeCats = [...new Set(tagsByTarget(tags, nodeId).map(t => t.category))]
   if (activeEngine === 'func') {
     closeOffsetPopup()
     void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(records => {
       if (!selEpoch.isCurrent(e)) return // stale inspector repaint
-      showFuncsNodeInspector(nodeId, records as FuncEvent[])
+      showFuncsNodeInspector(nodeId, records as FuncEvent[], { kind: nodeKind, cats: nodeCats })
     })
     return
   }
-  if (node.data('kind') === 'native') {
+  if (nodeKind === 'native') {
     const box = nodeBox(node)
     void Promise.all([
       window.ares.nodeOffsets(nodeId, currentFilter(), activeRunId),
@@ -453,7 +464,7 @@ cy.on('tap', 'node', evt => {
     ]).then(([rows, rawEvents]) => {
       if (!selEpoch.isCurrent(e)) return // node deselected / another selected during the round-trip
       const events = rawEvents as SyscallEvent[]
-      showNodeInspector(nodeId, events)
+      showNodeInspector(nodeId, events, { kind: nodeKind, cats: nodeCats })
       showOffsetPopup({ nodeId, rows, anchor: box, eventForOffset: (row) => eventForOffset(events, row) })
     })
   } else {
@@ -461,7 +472,7 @@ cy.on('tap', 'node', evt => {
     void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(rawEvents => {
       if (!selEpoch.isCurrent(e)) return // stale inspector repaint
       const events = rawEvents as SyscallEvent[]
-      showNodeInspector(nodeId, events)
+      showNodeInspector(nodeId, events, { kind: nodeKind, cats: nodeCats })
     })
   }
 })
@@ -499,19 +510,29 @@ function applyGraphTheme(next: Theme): void {
     .update()
 }
 
-// Glyph shows the current theme (dark -> moon, light -> sun), matching the
-// index.html default so a light-theme reload isn't stuck on the moon.
-function syncThemeToggleGlyph(): void {
-  const btn = document.getElementById('theme-toggle')
-  if (btn) btn.textContent = theme === 'dark' ? '☾' : '☀'
+// Update theme pill to reflect current theme (dark -> moon on knob, light -> sun on knob).
+function updateThemePill(): void {
+  const pill = document.querySelector('.theme-pill')
+  const knob = document.querySelector('.theme-knob svg use')
+  if (pill && knob) {
+    if (theme === 'dark') {
+      pill.classList.remove('light')
+      pill.classList.add('dark')
+      knob.setAttribute('href', '#i-moon')
+    } else {
+      pill.classList.remove('dark')
+      pill.classList.add('light')
+      knob.setAttribute('href', '#i-sun')
+    }
+  }
 }
-syncThemeToggleGlyph() // init from the restored theme so a light-theme reload isn't stuck on the moon
+updateThemePill() // init from the restored theme
 
 document.getElementById('theme-toggle')?.addEventListener('click', () => {
   theme = theme === 'dark' ? 'light' : 'dark'
   document.documentElement.setAttribute('data-theme', theme)
   localStorage.setItem('ares.theme', serializeTheme(theme))
-  syncThemeToggleGlyph()
+  updateThemePill()
   applyGraphTheme(theme)
   styleRaspCategories(theme)
   if (currentView === 'flame') void refreshFlame()
@@ -816,7 +837,7 @@ document.getElementById('rules-btn')?.addEventListener('click', () => {
   showModal({
     title: 'Rules',
     width: 640,
-    render: host => { void renderRules(host, activeRunId, () => { logAppend('info', 'rules', 'Rules updated'); void recolorRasp(); void refreshSuggestions() }) },
+    render: host => { void renderRules(host, activeRunId, () => { dirty = true; logAppend('info', 'rules', 'Rules updated'); void recolorRasp(); void refreshSuggestions() }) },
   })
 })
 document.getElementById('pager-prev')?.addEventListener('click', () => {
@@ -904,7 +925,15 @@ window.addEventListener('keydown', e => {
 })
 
 document.getElementById('file-open')?.addEventListener('click', () => {
-  void runLogged('open', () => window.ares.openFile(), () => null)
+  showModal({ title: 'Open', width: 260, render: host => {
+    const runBtn = document.createElement('button'); runBtn.className = 'btn'; runBtn.id = 'open-run'
+    runBtn.textContent = 'Open run (JSONL)…'
+    runBtn.onclick = () => void runLogged('open', () => window.ares.openFile(), () => null)
+    const projBtn = document.createElement('button'); projBtn.className = 'btn'; projBtn.id = 'open-project'
+    projBtn.textContent = 'Open project…'
+    projBtn.onclick = () => void runLogged('open-project', () => window.ares.openProject(), () => null)
+    host.append(runBtn, projBtn)
+  }})
 })
 document.getElementById('file-capture')?.addEventListener('click', () => openCaptureModal())
 document.getElementById('export-btn')?.addEventListener('click', () => {
@@ -915,6 +944,15 @@ document.getElementById('export-btn')?.addEventListener('click', () => {
       host.appendChild(b)
     }
     wireExport() // re-bind against the freshly created buttons
+    const saveProj = document.createElement('button'); saveProj.className = 'btn'; saveProj.id = 'save-project'
+    saveProj.textContent = 'Save project…'
+    saveProj.onclick = () => {
+      if (activeRunId !== undefined) void runLogged('save-project', () => window.ares.saveProject(activeRunId!, currentLayout), r => {
+        if ('path' in r && r.path) dirty = false
+        return null
+      })
+    }
+    host.appendChild(saveProj)
   }})
 })
 document.getElementById('diff-btn')?.addEventListener('click', () => {
@@ -963,3 +1001,38 @@ window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); void window.ares.openFile() }
 })
 
+document.getElementById('app-quit')?.addEventListener('click', () => window.ares.requestClose())
+
+// Registered once at startup: main intercepts both the window-X and the Quit
+// rail item into the same 'app:confirmClose' signal, so there is exactly one
+// place that decides whether unsaved project changes block the close.
+window.ares.onConfirmClose(() => {
+  if (!dirty) { window.ares.respondClose('close'); return }
+  let responded = false
+  const respond = (a: 'close' | 'cancel') => { if (!responded) { responded = true; window.ares.respondClose(a) } }
+  showModal({
+    title: 'Unsaved project changes',
+    width: 380,
+    onClose: () => respond('cancel'), // X / outside-click = Cancel; no-op if already responded
+    render: host => {
+      const msg = document.createElement('p')
+      msg.textContent = 'Save this project bundle before closing?'
+      msg.style.margin = '4px 0 14px'
+      const row = document.createElement('div')
+      row.style.cssText = 'display:flex; gap:8px; justify-content:flex-end'
+      const mk = (label: string, cls: string, fn: () => void) => {
+        const b = document.createElement('button'); b.className = cls; b.textContent = label; b.onclick = fn; return b
+      }
+      const save = mk('Save', 'btn pri', async () => {
+        if (activeRunId === undefined) { respond('close'); closeModal(); return }
+        const r = await window.ares.saveProject(activeRunId, currentLayout)
+        if (r && 'path' in r && r.path) { dirty = false; respond('close'); closeModal() }
+        // else: the save dialog was canceled - leave this modal open so the user can choose again; do NOT respond or close.
+      })
+      const dont = mk("Don't Save", 'btn', () => { respond('close'); closeModal() })
+      const cancel = mk('Cancel', 'btn', () => { respond('cancel'); closeModal() })
+      row.append(save, dont, cancel)
+      host.append(msg, row)
+    },
+  })
+})

@@ -35,7 +35,14 @@ export function primaryArg(e: SyscallEvent): string {
 
 export type DetailSection =
   | { title: string; kind: 'kv'; rows: [string, string][] }
-  | { title: string; kind: 'stack'; lines: string[] }
+  | { title: string; kind: 'stack'; lines: string[]; highlight?: number }
+
+const SYSTEM_LIB = /^(libc\.so|libc\+\+|libdl\.so|libm\.so|libart\.so|libartbase|libnativebridge|libnativeloader|libandroid_runtime\.so|libbinder\.so|libselinux\.so|libcutils|liblog\.so|boot\.oat|\[anon|\[vdso|linker64|libziparchive|libnativehelper|libbase\.so)/
+// The innermost frame whose module is NOT a system/runtime lib (the app's own block); -1 if none.
+export function appFrameIndex(frames: { symbol: string }[]): number {
+  for (let i = 0; i < frames.length; i++) if (!SYSTEM_LIB.test(frames[i].symbol)) return i
+  return -1
+}
 
 // Group a record into the inspector's detail cards. Pure and unit-tested; the
 // DOM wrapper is renderEventDetail. Empty arg/stack groups are skipped.
@@ -52,8 +59,28 @@ export function eventDetailSections(e: SyscallEvent): DetailSection[] {
   for (const [k, v] of Object.entries(e.fd_args)) argRows.push([`fd[${k}]`, v])
   if (argRows.length) out.push({ title: 'Args', kind: 'kv', rows: argRows })
   if (e.java_stack?.length) out.push({ title: 'Java stack', kind: 'stack', lines: e.java_stack.slice() })
-  if (e.backtrace.length) out.push({ title: 'Backtrace', kind: 'stack', lines: e.backtrace.map(f => `#${f.frame} ${f.symbol}`) })
+  if (e.backtrace.length) out.push({ title: 'Backtrace', kind: 'stack', lines: e.backtrace.map(f => `#${f.frame} ${f.symbol}`), highlight: appFrameIndex(e.backtrace) })
   return out
+}
+
+// Build the `.bt` frame-row list for a stack section: one `.f` row per line,
+// split into an `.idx` (leading `#n`, if present) and `.sym` (the rest). When
+// `highlight` names a frame index, that row gets `.app`, the rest `.sys` - the
+// mockup's "app's own frame stands out from the bionic/ART scaffolding" cue.
+// Cells use textContent so trace strings can't inject markup.
+function buildStackRows(sec: { lines: string[]; highlight?: number }): HTMLDivElement {
+  const wrap = document.createElement('div'); wrap.className = 'bt'
+  sec.lines.forEach((line, i) => {
+    const row = document.createElement('div'); row.className = 'f'
+    // highlight === -1 (all-system backtrace) renders plain rows with no .app/.sys classes
+    if (sec.highlight !== undefined && sec.highlight >= 0) row.classList.add(i === sec.highlight ? 'app' : 'sys')
+    const m = /^(#\d+)\s(.*)$/.exec(line)
+    const idx = document.createElement('span'); idx.className = 'idx'; idx.textContent = m ? m[1] : ''
+    const sym = document.createElement('span'); sym.className = 'sym'; sym.textContent = m ? m[2] : line
+    row.append(idx, sym)
+    wrap.appendChild(row)
+  })
+  return wrap
 }
 
 // Render the detail cards for one event into `host` (clears it first). Cells use
@@ -76,27 +103,68 @@ export function renderEventDetail(host: HTMLElement, e: SyscallEvent): void {
       }
       card.appendChild(tbl)
     } else {
-      const pre = document.createElement('div'); pre.className = 'insp-stack'
-      pre.textContent = sec.lines.join('\n')
-      card.appendChild(pre)
+      card.appendChild(buildStackRows(sec))
     }
     host.appendChild(card)
   }
+}
+
+// Options for the node-inspector header: the node's graph kind (colors the
+// kind-dot + name) and its RASP tag categories (rendered as `.cat-chip`s).
+export interface NodeInspectorOpts {
+  kind?: string
+  cats?: string[]
+}
+
+// Build the node-inspector header: a kind dot + kind-colored node name + a
+// record-count pill, and one `.cat-chip` per tag category underneath. Cells
+// use textContent so trace strings/tags can't inject markup.
+function buildNodeHeader(nodeId: string, count: number, unit: string, opts?: NodeInspectorOpts): HTMLDivElement {
+  const head = document.createElement('div')
+  head.className = 'insp-head'
+
+  const title = document.createElement('div')
+  title.className = 'insp-head-title'
+  if (opts?.kind) {
+    const dot = document.createElement('span')
+    dot.className = `insp-kdot k-${opts.kind}`
+    title.appendChild(dot)
+  }
+  const nm = document.createElement('span')
+  nm.className = 'insp-head-nm'
+  if (opts?.kind) nm.classList.add(`k-${opts.kind}`)
+  nm.textContent = nodeId
+  title.appendChild(nm)
+  const pill = document.createElement('span')
+  pill.className = 'insp-pill'
+  pill.textContent = `${count} ${unit}`
+  title.appendChild(pill)
+  head.appendChild(title)
+
+  if (opts?.cats?.length) {
+    const cats = document.createElement('div')
+    cats.className = 'insp-head-cats'
+    for (const cat of opts.cats) {
+      const chip = document.createElement('span')
+      chip.className = `cat-chip cat-${cat}`
+      chip.textContent = cat.toUpperCase()
+      cats.appendChild(chip)
+    }
+    head.appendChild(cats)
+  }
+  return head
 }
 
 // Render the records behind a clicked node into #inspector as a compact table
 // (id, syscall, tid, retval, primary arg); clicking a row shows that record's
 // full formatted detail below. Cells use textContent so trace strings can't
 // inject markup. DOM side-effect, not unit-tested.
-export function showNodeInspector(nodeId: string, events: SyscallEvent[]): void {
+export function showNodeInspector(nodeId: string, events: SyscallEvent[], opts?: NodeInspectorOpts): void {
   const host = document.getElementById('inspector')
   if (!host) return
   host.innerHTML = ''
 
-  const head = document.createElement('div')
-  head.className = 'insp-head'
-  head.textContent = `${nodeId} - ${events.length} record(s)`
-  host.appendChild(head)
+  host.appendChild(buildNodeHeader(nodeId, events.length, 'record(s)', opts))
 
   const detail = document.createElement('div')
   detail.className = 'insp-detail'
@@ -124,6 +192,8 @@ export function showNodeInspector(nodeId: string, events: SyscallEvent[]): void 
     for (let i = 0; i < cells.length; i++) {
       const td = document.createElement('td')
       td.textContent = cells[i]
+      if (i === 1) td.className = 'insp-rsys' // syscall name, kind-colored
+      if (i === 3 && ev.retval !== null && ev.retval < 0) td.className = 'insp-rneg' // negative retval, called out in red
       if (i === 4) td.className = 'insp-arg' // let the args column wrap/truncate
       tr.appendChild(td)
     }
@@ -191,7 +261,7 @@ export function funcDetailSections(e: FuncEvent): DetailSection[] {
   ;(e.args ?? []).forEach((v, i) => argRows.push([`arg[${i}]`, v]))
   if (argRows.length) out.push({ title: 'Args', kind: 'kv', rows: argRows })
   if (e.java_stack?.length) out.push({ title: 'Java stack', kind: 'stack', lines: e.java_stack.slice() })
-  if (e.backtrace.length) out.push({ title: 'Backtrace', kind: 'stack', lines: e.backtrace.map(f => `#${f.frame} ${f.symbol}`) })
+  if (e.backtrace.length) out.push({ title: 'Backtrace', kind: 'stack', lines: e.backtrace.map(f => `#${f.frame} ${f.symbol}`), highlight: appFrameIndex(e.backtrace) })
   return out
 }
 
@@ -233,9 +303,7 @@ function renderFuncDetail(host: HTMLElement, e: FuncEvent): void {
       }
       card.appendChild(tbl)
     } else {
-      const pre = document.createElement('div'); pre.className = 'insp-stack'
-      pre.textContent = sec.lines.join('\n')
-      card.appendChild(pre)
+      card.appendChild(buildStackRows(sec))
     }
     host.appendChild(card)
   }
@@ -243,14 +311,11 @@ function renderFuncDetail(host: HTMLElement, e: FuncEvent): void {
 
 // Render the funcs records behind a clicked node: a compact table
 // (# / caller / retval / elapsed / args); clicking a row shows that record's detail.
-export function showFuncsNodeInspector(nodeId: string, records: FuncEvent[]): void {
+export function showFuncsNodeInspector(nodeId: string, records: FuncEvent[], opts?: NodeInspectorOpts): void {
   const host = document.getElementById('inspector')
   if (!host) return
   host.innerHTML = ''
-  const head = document.createElement('div')
-  head.className = 'insp-head'
-  head.textContent = `${nodeId} - ${records.length} call(s)`
-  host.appendChild(head)
+  host.appendChild(buildNodeHeader(nodeId, records.length, 'call(s)', opts))
 
   const detail = document.createElement('div')
   detail.className = 'insp-detail'

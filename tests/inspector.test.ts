@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { eventDetailSections } from '../src/renderer/inspector'
+import { eventDetailSections, appFrameIndex } from '../src/renderer/inspector'
 import type { SyscallEvent } from '@shared/events'
 
 const ev = (over: Partial<SyscallEvent> = {}): SyscallEvent => ({
@@ -29,12 +29,31 @@ describe('eventDetailSections', () => {
   it('emits Java stack and Backtrace as stack sections when present', () => {
     const secs = eventDetailSections(ev({
       java_stack: ['com.example.A.b'],
-      backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!f+0x8' }],
+      backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libc.so!__openat+0x8' },
+        { frame: 1, addr: '0x2', symbol: 'libexample.so!f+0x8' },
+      ],
     }))
     const j = secs.find(s => s.title === 'Java stack')
     const b = secs.find(s => s.title === 'Backtrace')
+    // Java stack has no app-frame concept - it should not carry a highlight field.
     expect(j).toMatchObject({ kind: 'stack', lines: ['com.example.A.b'] })
+    expect((j as { highlight?: number })?.highlight).toBeUndefined()
     expect(b?.kind).toBe('stack')
-    if (b?.kind === 'stack') expect(b.lines[0]).toBe('#0 libexample.so!f+0x8')
+    if (b?.kind === 'stack') {
+      expect(b.lines[0]).toBe('#0 libc.so!__openat+0x8')
+      // frame 1 (libexample.so) is the innermost non-system-lib frame.
+      expect(b.highlight).toBe(1)
+    }
+  })
+})
+
+describe('appFrameIndex', () => {
+  const S = (s: string) => ({ symbol: s })
+  it('picks the innermost non-system frame', () => {
+    expect(appFrameIndex([S('libc.so!__openat'), S('libselinux.so!x'), S('libstagefright.so+0x209028'), S('boot.oat!art_jni_trampoline')])).toBe(2)
+  })
+  it('returns -1 when every frame is a system lib', () => {
+    expect(appFrameIndex([S('libc.so!read'), S('libart.so!x'), S('boot.oat!y')])).toBe(-1)
   })
 })

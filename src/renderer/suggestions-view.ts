@@ -43,8 +43,8 @@ export function renderSuggestions(
     const line1 = document.createElement('div')
     line1.className = 'sug-line1'
     const cat = document.createElement('span')
-    cat.className = `sug-cat rasp-${s.category}`
-    cat.textContent = s.category
+    cat.className = `cat-chip cat-${s.category}`
+    cat.textContent = s.category.toUpperCase()
     const tgt = document.createElement('span')
     tgt.className = 'sug-target'
     tgt.textContent = s.target

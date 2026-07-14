@@ -2,6 +2,14 @@ import type { GraphSlice } from '@shared/graph-shape'
 import type { Filter } from '@shared/filter'
 import type { TableRow } from '@shared/table'
 
+// Edge stroke width from occurrence count, linearly 1..50 -> 2..6, CLAMPED
+// (cytoscape's mapData extrapolates past its domain, producing giant arrowheads
+// on very hot edges - clamp here so the width is bounded).
+export function mapCount(count: number): number {
+  const c = Math.max(1, Math.min(50, count))
+  return 2 + ((c - 1) / 49) * 4
+}
+
 // Cap the on-canvas node label so a long label can't overrun its ELK-reserved
 // box (nodes size to 'label'). Full text stays in the offset popup + inspector.
 export function truncateLabel(s: string, max = 22): string {
@@ -18,14 +26,14 @@ export function kindGlyph(kind: string): string {
 // carries just what the stylesheet and inspector need.
 export function sliceToElements(slice: GraphSlice): {
   nodes: { data: { id: string; label: string; kind: string; count: number }; classes: string }[]
-  edges: { data: { id: string; source: string; target: string; count: number } }[]
+  edges: { data: { id: string; source: string; target: string; count: number; w: number } }[]
 } {
   return {
     // classes mirrors data.kind as a cytoscape class (`.java`/`.native`/`.syscall`)
     // so RASP category selectors can combine `.native.suggested.rasp-<cat>`
     // without a second data-attribute lookup per style rule.
     nodes: slice.nodes.map(n => ({ data: { id: n.id, label: `${kindGlyph(n.kind)} ${truncateLabel(n.label)}`, kind: n.kind, count: n.count }, classes: n.kind })),
-    edges: slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, count: e.count } })),
+    edges: slice.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, count: e.count, w: mapCount(e.count) } })),
   }
 }
 

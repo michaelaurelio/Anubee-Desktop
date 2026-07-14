@@ -54,10 +54,11 @@ export function wirePanels(root: HTMLElement): void {
     main.style.setProperty('--side-w', `${state.sideW}px`)
     table.classList.toggle('collapsed', state.tableCollapsed)
     side.classList.toggle('collapsed', state.sideCollapsed)
-    // The square collapse button's arrow points the fold direction: '‹' collapse
-    // the table, '›' expand it. Kept in sync on restore from localStorage too.
+    // The square collapse button shows the panel SVG icon; toggling `.collapsed`
+    // flips its direction via CSS (transform: scaleX(-1)) instead of overwriting
+    // the icon markup. Kept in sync on restore from localStorage too.
     const tab = root.querySelector<HTMLElement>('#tab-left')
-    if (tab) tab.textContent = state.tableCollapsed ? '›' : '‹'
+    if (tab) tab.classList.toggle('collapsed', state.tableCollapsed)
   }
   const save = (): void => localStorage.setItem(LS_KEY, serializeLayout(state))
   apply()

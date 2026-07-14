@@ -44,7 +44,8 @@ export function showModal(opts: ModalOpts): void {
   const title = document.createElement('span')
   title.className = 'modal-title'; title.textContent = opts.title
   const x = document.createElement('button')
-  x.className = 'modal-x'; x.textContent = '×'
+  x.className = 'modal-x icon-btn'
+  x.innerHTML = '<svg class="ic" viewBox="0 0 24 24"><use href="#i-x"/></svg>'
   x.onclick = () => closeModal()
   head.append(title, x)
 

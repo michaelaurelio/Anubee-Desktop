@@ -798,3 +798,149 @@ label-backing conflicts. The layout respects label width via ELK's `width:
   across the graph).
 - Session-MCP `origins(syscall | tag)` query for programmatic offset inspection.
 - "Open in ghidra" staging to launch ghidra with the module and offset pre-loaded.
+
+## UI/UX round 2
+
+A visual-consistency and file-portability pass over the shell built by the
+first UI/UX redesign (see "UI shell" above). No data-tier or query changes.
+
+### Unified tag chip (`.cat-chip`)
+
+One category chip component - uppercase text, background colored per RASP
+category - now backs every tag/category badge in the app instead of three
+separate ad-hoc renderings. `theme.ts`'s `categoryColors(theme)` is the single
+source of the six category colors (`root`, `debugger`, `emulator`,
+`integrity`, `hook`, `custom`) per dark/light theme; `index.html` mirrors the
+same values as `--cat-root` / `--cat-debugger` / ... CSS custom properties so
+`.cat-chip.cat-<category>` can read them without a JS round-trip. Three call
+sites render the same `cat-chip cat-<category>` element: the master table's
+tag column (`table.ts`), the Suggestions modal's category badge
+(`suggestions-view.ts`), and the Rules modal's category badge
+(`rules-view.ts`) - plus the redesigned detail-panel header (below).
+
+**Rules modal enable/disable is now a toggle switch.** The Rules panel's
+per-rule enable/disable control (`rules-view.ts`) is a sliding pill (`.rule-sw`,
+`.rule-sw.off` slides the knob left) rather than a raw checkbox, matching the
+theme toggle's visual language. A disabled rule's whole row dims to `opacity:
+.55` (`.rule-row.disabled`) so a glance down the list shows which rules are
+live without reading each switch individually.
+
+### Detail panel redesign
+
+The right-panel node/record inspector (`src/renderer/inspector.ts` +
+`index.html` CSS) was restyled; the pure section builders
+(`eventDetailSections`, `funcDetailSections`, `primaryArg`) are unchanged.
+
+- **Header** (`buildNodeHeader`) - a kind dot (`.insp-kdot.k-<kind>`, colored
+  from the same `--k-java` / `--k-native` / `--k-syscall` / `--k-func` tokens
+  the graph and flame view use) beside the kind-colored node name
+  (`.insp-head-nm.k-<kind>`), a record-count pill (`.insp-pill`, e.g. "42
+  record(s)"), and any RASP categories on the node rendered as `.cat-chip`s
+  beneath the title row.
+- **Records table** (`.insp-table`) - a sticky header (`position: sticky`),
+  the syscall-name cell kind-colored (`.insp-rsys`), a negative retval colored
+  in the syscall/red accent (`.insp-rneg`), and the selected row picked out
+  with an accent background plus a left accent bar (`tr.sel td { background:
+  var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent-fg) }`).
+- **Detail cards** (`.insp-card` / `.insp-card-h`) - each card header (Summary,
+  Args, Java stack, Backtrace) carries a left accent bar (`border-left: 2px
+  solid var(--accent-fg)`) and an item-count badge (`.insp-card-cnt`) on stack
+  sections; key/value rows (`.insp-kv`) align in real table columns instead of
+  a flat text dump.
+- **Backtrace** (`appFrameIndex`, `inspector.ts`) - highlights the innermost
+  **non-system** frame (the app's own lib, per the same system-lib skip list
+  `nativeTargetOf` uses for suggestion attribution) against the bionic/ART/
+  framework scaffolding: that row gets `.f.app` (tinted background, bold
+  category-red symbol text) while every other row gets the muted `.f.sys`.
+  An all-system backtrace (`appFrameIndex` returns `-1`) renders with no
+  highlight at all, rather than mis-highlighting frame 0.
+
+### Fonts - Inter + JetBrains Mono, vendored offline
+
+`--font` (UI text) is now **Inter** and `--mono` (data/mono text) is
+**JetBrains Mono**, both bundled as woff2 files under
+`src/renderer/assets/fonts/` (plus each family's `OFL-*.txt` license) and
+declared via `@font-face` in `index.html` with relative `url()` paths -
+electron-vite fingerprints and bundles them at build time. No CDN, no network
+fetch; the existing generic fallbacks (`system-ui, sans-serif` /
+`ui-monospace, "SF Mono", Menlo, monospace`) stay in the stack so a missing
+font file degrades gracefully instead of blanking text.
+
+### Theme toggle - sliding sun/moon pill
+
+The rail's bottom-pinned theme button is now a sliding pill (`#theme-toggle`,
+`.theme-pill` with a `.theme-knob` that carries a Lucide moon/sun `<use>`
+reference) rather than a plain glyph button: the knob slides between a moon
+icon (dark) and sun icon (light) on toggle. The pill is sized to fit inside
+the collapsed 46px rail without clipping.
+
+### Control buttons - inline Lucide SVG on `.icon-btn`
+
+The pager (prev/next), the columns-picker button, the table/side collapse
+button, the graph zoom cluster (+/-/fit), and every modal/panel close X now
+render as inline `<svg><use href="#i-...">` icons (referencing the same
+`<defs>` icon sheet the rail already used) on a shared `.icon-btn` style
+(28×26px, hover background, disabled dims to 30% opacity), replacing the
+earlier plain-text glyph buttons (`‹›`, `+`/`-`, a bare `×`, etc). The
+table-collapse button (`#tab-left`) keeps one SVG icon and flips its direction
+via a CSS class (`#tab-left.collapsed svg { transform: scaleX(-1) }`) instead
+of overwriting `textContent`, so the icon markup is stable and only its
+orientation toggles.
+
+### Portable project bundle (`.aresproj.json`)
+
+A new pure module `src/shared/project-file.ts` serializes/parses/validates a
+`ProjectBundle`: `formatVersion` (currently `1`), `savedAt`, the source
+`run` (`path`, `engine`, `eventCount`), the sidecar's `tags`, `dismissed`, and
+`ruleOverrides`, plus an opaque `layout` blob. `parseProject` rejects
+malformed input field-by-field (bad JSON, non-object, wrong/missing
+`formatVersion`, missing `run.path`) rather than throwing, returning
+`{ bundle: null, error }`.
+
+- **Save project** (rail Export menu → `project:save` in `src/main/index.ts`)
+  builds a bundle from the active run's `RunInfo` plus its sidecar (tags,
+  dismissed list, rule overrides), then opens a native Save dialog defaulting
+  to `<run-basename>.aresproj.json`.
+- **Open project** (rail Open menu → `project:open`) reads and validates the
+  chosen bundle, then re-ingests the run at `run.path`. If that path no longer
+  exists, a **relocate prompt** (a second native Open dialog scoped to
+  `.jsonl`/`.json`) lets the analyst point at the moved file. The bundle's
+  tags/dismissed/rule-overrides are applied by writing them into the target
+  run's `<run>.ares-desktop.json` sidecar *before* ingest, so the existing
+  sidecar-load path picks them up with no separate apply step.
+
+**Dirty tracking + Quit + save-on-close prompt.** The renderer keeps an
+in-memory `dirty` flag (`main.ts`), set whenever a tag, dismissal, or rule
+changes and cleared on a successful Save project. A Quit rail item
+(`#app-quit`) was added to the rail's file zone; both it and the native
+window-X funnel through the same confirmation path: `src/main/index.ts`'s
+`win.on('close', ...)` intercepts the close (`e.preventDefault()`) and asks
+the renderer via `app:confirmClose` unless a prior `allowClose` flag is
+already set. The renderer answers with exactly one of `close` / `cancel` -
+if `dirty` is false it answers `close` immediately with no prompt; if `dirty`
+is true it shows a Save / Don't Save / Cancel modal. Save re-runs the same
+`project:save` IPC (a canceled save dialog leaves the modal open rather than
+closing); Don't Save answers `close` without saving; Cancel answers `cancel`
+and the window stays open.
+
+### Graph edge rendering fix - the giant grey arrowhead
+
+The long-standing giant grey arrowhead on dimmed (off-path) edges is fixed,
+and the actual cause turned out to be different from the original bug-report
+guess (see `BACKLOG.md`):
+
+- **Edge width is now clamped.** `mapCount(count)` (`src/renderer/graph-view.ts`)
+  replaces cytoscape's inline `mapData(count, 1, 50, 2, 6)` style function with
+  a pre-computed, **clamped** width stored on each edge as `data.w`
+  (`width: 'data(w)'` in the cytoscape stylesheet): `mapData` extrapolates
+  *past* its declared domain for any count outside `1..50`, so a very hot edge
+  could get an unbounded width. `mapCount` clamps the input to `[1, 50]` before
+  the linear map, so width is now bounded at both ends.
+- **The actual fix: dimmed edges drop their arrowhead.** The width clamp alone
+  didn't fully explain the giant grey blob seen in the `04-filtered` /
+  `08-collapsed` screenshots - the real cause is that a triangle arrowhead's
+  rendered size scales with **both** edge width and the current zoom level, and
+  a small, heavily-zoomed-in focused subgraph magnifies that scaling. The
+  `.dimmed` edge style (off-path edges) now sets `target-arrow-shape: none` and
+  `width: 1`: a de-emphasized edge should recede and carries no arrowhead at
+  all, rather than trying to tune arrow-scale/width numbers to shrink it.

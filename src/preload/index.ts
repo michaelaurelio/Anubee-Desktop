@@ -8,7 +8,12 @@ import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 contextBridge.exposeInMainWorld('ares', {
   openFile: () => ipcRenderer.invoke('trace:open'),
   openFileForCompare: () => ipcRenderer.invoke('trace:openCompare'),
+  saveProject: (runId: number, layout?: unknown) => ipcRenderer.invoke('project:save', runId, layout),
+  openProject: () => ipcRenderer.invoke('project:open'),
   quit: () => ipcRenderer.invoke('app:quit'),
+  requestClose: () => ipcRenderer.send('app:requestClose'),
+  onConfirmClose: (cb: () => void) => ipcRenderer.on('app:confirmClose', () => cb()),
+  respondClose: (action: 'close' | 'cancel') => ipcRenderer.send('app:closeResponse', action),
   copyToClipboard: (text: string) => ipcRenderer.invoke('clipboard:write', text),
   runs: () => ipcRenderer.invoke('graph:runs'),
   table: (filter: Filter, page: { limit: number; offset: number }, runId?: number) =>

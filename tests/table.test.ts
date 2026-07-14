@@ -111,9 +111,9 @@ describe('tag chips', () => {
     // so a regression to naive comma-splitting (which would leave "[root" /
     // "hook]" and produce classes that match no CSS rule) is caught here.
     renderTable([row], ['tags'], () => {}, () => '[root,hook]')
-    const chips = [...document.querySelectorAll('#table td.col-tags .chip')]
+    const chips = [...document.querySelectorAll('#table td.col-tags .cat-chip')]
     expect(chips.length).toBe(2)
-    expect(chips.map(c => c.textContent)).toEqual(['root', 'hook'])
+    expect(chips.map(c => c.textContent)).toEqual(['ROOT', 'HOOK'])
     expect(chips[0].classList.contains('cat-root')).toBe(true)
     expect(chips[1].classList.contains('cat-hook')).toBe(true)
   })

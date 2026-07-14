@@ -71,6 +71,10 @@ describe('funcDetailSections', () => {
     expect((summary as { rows: [string, string][] }).rows).toContainEqual(['retval', '1'])
     expect((summary as { rows: [string, string][] }).rows).toContainEqual(['elapsed', '2300 ns'])
     expect(secs.some(s => s.title === 'Args')).toBe(true)
-    expect(secs.some(s => s.title === 'Backtrace')).toBe(true)
+    const bt = secs.find(s => s.title === 'Backtrace')
+    expect(bt?.kind).toBe('stack')
+    // frame 0 (libexample.so!checkRoot) is the innermost non-system-lib frame;
+    // frame 1 (libc.so) is the system-lib caller.
+    if (bt?.kind === 'stack') expect(bt.highlight).toBe(0)
   })
 })

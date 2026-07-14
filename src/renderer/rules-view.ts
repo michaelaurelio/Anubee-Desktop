@@ -88,10 +88,10 @@ export async function renderRules(
 
   // --- list ---
   for (const r of data.effective) {
-    const row = document.createElement('div'); row.className = 'rule-row'
+    const row = document.createElement('div'); row.className = 'rule-row' + (r.enabled ? '' : ' disabled')
     const info = document.createElement('div'); info.className = 'rule-info'
     const line1 = document.createElement('div'); line1.className = 'rule-line1'
-    const cat = document.createElement('span'); cat.className = `sug-cat rasp-${r.category}`; cat.textContent = r.category
+    const cat = document.createElement('span'); cat.className = `cat-chip cat-${r.category}`; cat.textContent = r.category.toUpperCase()
     const src = document.createElement('span'); src.className = 'rule-src'; src.textContent = r.source
     const id = document.createElement('span'); id.className = 'rule-id'; id.textContent = r.id
     const meta = document.createElement('span'); meta.className = 'rule-meta'
@@ -101,10 +101,12 @@ export async function renderRules(
     info.append(line1, pred)
 
     const btns = document.createElement('div'); btns.className = 'rule-btns'
-    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = r.enabled; cb.title = 'enable / disable'
-    cb.onchange = () => { void toggle(r.id, r.source, cb.checked).catch(showError) }
+    const sw = document.createElement('button')
+    sw.className = 'rule-sw' + (r.enabled ? '' : ' off')
+    sw.title = 'enable / disable'
+    sw.onclick = () => { void toggle(r.id, r.source, !r.enabled).catch(showError) }
     const edit = document.createElement('button'); edit.className = 'btn'; edit.textContent = 'Edit'; edit.onclick = () => openForm(r)
-    btns.append(cb, edit)
+    btns.append(sw, edit)
     if (r.source !== 'builtin') {
       const del = document.createElement('button'); del.className = 'btn'; del.textContent = 'Delete'
       del.onclick = () => { void remove(r.id, r.source).catch(showError) }

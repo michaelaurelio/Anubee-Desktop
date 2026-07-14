@@ -9,7 +9,17 @@ declare global {
     ares: {
       openFile(): Promise<{ runId: number; eventCount: number; errors: number } | null>
       openFileForCompare(): Promise<{ runId: number; eventCount: number; errors: number } | null>
+      saveProject(runId: number, layout?: unknown): Promise<{ path?: string; canceled?: boolean; error?: string }>
+      openProject(): Promise<{
+        summary?: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }
+        layout?: unknown
+        canceled?: boolean
+        error?: string
+      }>
       quit(): Promise<void>
+      requestClose(): void
+      onConfirmClose(cb: () => void): void
+      respondClose(action: 'close' | 'cancel'): void
       copyToClipboard(text: string): Promise<void>
       runs(): Promise<{ runId: number; file: string; ingestedAt: string; eventCount: number }[]>
       table(filter: Filter, page: { limit: number; offset: number }, runId?: number): Promise<TableRow[]>
