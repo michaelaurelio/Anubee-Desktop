@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { currentFilter, wireFilterControls } from '../src/renderer/filter-controls'
 
 function setup(): { input: HTMLInputElement; refresh: ReturnType<typeof vi.fn> } {
@@ -51,6 +51,15 @@ describe('chip creation', () => {
     key(input, ' ')
     expect(document.querySelectorAll('#omni-chips .chip')).toHaveLength(1)
     expect(currentFilter()).toEqual({ syscall: 'openat' })
+  })
+
+  it('space mid-quote does not chip - quoted value stays typeable', () => {
+    const { input, refresh } = setup()
+    type(input, 'symbol:"a')
+    key(input, ' ')
+    expect(document.querySelectorAll('#omni-chips .chip')).toHaveLength(0)
+    expect(input.value).toBe('symbol:"a')
+    expect(refresh).not.toHaveBeenCalled()
   })
 })
 
@@ -132,6 +141,19 @@ describe('autocomplete', () => {
     type(input, 'li')
     key(input, 'Escape')
     expect(document.getElementById('omni-ac')!.classList.contains('hidden')).toBe(true)
+  })
+
+  it('ArrowDown/ArrowUp cycle the highlighted key', () => {
+    const { input } = setup()
+    type(input, 'sy') // matches syscall + symbol
+    key(input, 'ArrowDown')
+    let on = document.querySelector('#omni-ac .ac-row.on b')
+    expect(on?.textContent).toBe('symbol:')
+    key(input, 'ArrowUp')
+    on = document.querySelector('#omni-ac .ac-row.on b')
+    expect(on?.textContent).toBe('syscall:')
+    key(input, 'Tab')
+    expect(input.value).toBe('syscall:')
   })
 })
 

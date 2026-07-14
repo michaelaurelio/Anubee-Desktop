@@ -33,6 +33,10 @@ describe('matchToken', () => {
     expect(matchToken('java:maybe')).toBeNull()
     expect(matchToken('/proc/self')).toBeNull()
   })
+  it('leaves an unterminated quote as free text', () => {
+    expect(matchToken('symbol:"a')).toBeNull()
+    expect(matchToken('symbol:"')).toBeNull()
+  })
 })
 
 describe('filterFromParts', () => {

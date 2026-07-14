@@ -35,6 +35,7 @@ export function matchToken(word: string): OmniToken | null {
   if (!m) return null
   const key = m[1]
   if (!KEYS.has(key)) return null
+  if (m[3] !== undefined && m[3].startsWith('"')) return null // unterminated quote stays free text
   const value = m[2] ?? m[3] ?? ''
   if (!value) return null
   if (key === 'tid' && !/^\d+$/.test(value)) return null
