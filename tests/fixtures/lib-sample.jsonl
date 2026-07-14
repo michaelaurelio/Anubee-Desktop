@@ -1,0 +1,5 @@
+{"type":"lib","pid":100,"tid":100,"ppid":1,"library":"/apex/com.android.runtime/lib64/bionic/libc.so","start":"0x7d1a3c0000","end":"0x7d1a558000","pgoff":0,"inode":11}
+{"type":"lib","pid":100,"tid":100,"ppid":1,"library":"/data/app/dev.ares.detector-1/lib/arm64/libsentinel.so","start":"0x7c40e10000","end":"0x7c40ee0000","pgoff":0,"inode":22,"soname":"libsentinel.so"}
+{"type":"lib","pid":100,"tid":100,"ppid":1,"library":"/data/data/dev.ares.detector/.cache/libunmapped.so","start":"0x7b40000000","end":"0x7b40010000","pgoff":0,"inode":33}
+{"type":"unlib","pid":100,"tid":100,"start":"0x7b40000000","end":"0x7b40010000"}
+{"type":"syscall","id":1,"pid":100,"tid":100,"syscall":"openat","syscall_nr":56,"args":["0x0"],"retval":3}
