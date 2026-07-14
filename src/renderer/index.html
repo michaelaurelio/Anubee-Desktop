@@ -439,11 +439,12 @@
       #rail:hover #theme-toggle .theme-mini { display:none; }
       .theme-pill { display:none; width:61px; height:26px; border-radius:13px; background:var(--stripe); border:1px solid var(--border); position:relative; align-items:center; justify-content:space-between; padding:0 4px; box-sizing:border-box; }
       #rail:hover #theme-toggle .theme-pill { display:flex; }
-      .theme-pill svg { width:18px; height:18px; color:var(--muted); z-index:1; }
-      /* 20px knob in the 24px inner height -> 2px inset all round (vertically centered); slides between the two glyphs */
-      .theme-knob { position:absolute; top:0px; width:24px; height:24px; border-radius:50%; background:var(--accent-fg); transition:left .15s; display:flex; align-items:center; justify-content:center; }
-      .theme-knob svg { width:13px; height:13px; color:#0d1117; }
-      .theme-pill.dark .theme-knob { left:0px; } .theme-pill.light .theme-knob { left:34px; }
+      .theme-pill svg { width:18px; height:18px; color:var(--muted); }
+      /* 24px knob fills the 24px inner height, flush to the border (radius 12 matches the
+         pill's inner curve); slides over the active glyph and must paint above it */
+      .theme-knob { position:absolute; top:0; width:24px; height:24px; border-radius:50%; background:var(--accent-fg); transition:left .15s; display:flex; align-items:center; justify-content:center; z-index:1; }
+      .theme-knob svg { width:13px; height:13px; color:var(--panel); }
+      .theme-pill.dark .theme-knob { left:0; } .theme-pill.light .theme-knob { left:35px; }
       #theme-toggle { padding-left:3px; }
       #rail:hover #theme-toggle { padding-left:13px; }
     </style>
