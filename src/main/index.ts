@@ -18,9 +18,9 @@ import { mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { readFile, open } from 'node:fs/promises'
 import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
-import { startLive, dumpByBase, type LiveEvent } from './native-lib-live'
+import { startLive, dumpByBase, startWatch, type LiveEvent } from './native-lib-live'
 import { loadConfig, saveConfig } from './tracer-config'
-import { capById, composeRunArg, outJsonlPath, resolveSavePath } from '@shared/tracer-caps'
+import { capById, composeRunArg, outJsonlPath, resolveSavePath, isSafePattern } from '@shared/tracer-caps'
 import { isElf, specNames, type PathCheck, type PathStatus } from './path-check'
 import { readdir, copyFile } from 'node:fs/promises'
 import { basename } from 'node:path'
@@ -35,6 +35,7 @@ const adb = realAdb()
 const spawner = realSpawner()
 let activeRun: RunHandle | null = null
 let activeLive: RunHandle | null = null
+let activeWatch: RunHandle | null = null
 
 async function fileMd5(path: string): Promise<string> {
   try {
@@ -280,16 +281,33 @@ ipcMain.handle('graph:nodeOffsets', (_e, nodeId: string, filter: Filter, runId?:
 
 ipcMain.handle('nativelib:table', (_e, runId?: number) => store.libTable(runId))
 
-ipcMain.handle('nativelib:startLive', (_e, pkg: string) => {
+// The glob is validated here, at the IPC boundary, before anything is spawned:
+// startWatch also guards internally (defence in depth for a pure module), but
+// that guard fires from inside the [lib] stdout callback below - throwing there
+// would surface as an unhandled error mid-stream, not a clean IPC rejection.
+ipcMain.handle('nativelib:startLive', (_e, pkg: string, glob?: string) => {
+  if (glob && !isSafePattern(glob)) throw new Error(`unsafe on-map glob: ${glob}`)
   activeLive = startLive(spawner, adb, pkg, (ev: LiveEvent) => {
     if ('raw' in ev) win.webContents.send('nativelib:line', ev.raw)
-    else if (ev.line.kind === 'lib') win.webContents.send('nativelib:mapped', { ...ev.line, atMs: ev.atMs })
-    else win.webContents.send('nativelib:unmapped', { ...ev.line, atMs: ev.atMs })
+    else if (ev.line.kind === 'lib') {
+      win.webContents.send('nativelib:mapped', { ...ev.line, atMs: ev.atMs })
+      // Attach the watcher on the first [lib] line: that is where the pid becomes known.
+      if (glob && !activeWatch) {
+        activeWatch = startWatch(spawner, adb, ev.line.pid, glob, line => win.webContents.send('nativelib:watchLine', line))
+      }
+    } else win.webContents.send('nativelib:unmapped', { ...ev.line, atMs: ev.atMs })
   })
-  activeLive.done.then(() => { activeLive = null; win.webContents.send('nativelib:streamEnd') })
+  activeLive.done.then(() => {
+    activeLive = null
+    if (activeWatch) { void activeWatch.stop(); activeWatch = null }
+    win.webContents.send('nativelib:streamEnd')
+  })
 })
 
-ipcMain.handle('nativelib:stopLive', async () => { if (activeLive) await activeLive.stop() })
+ipcMain.handle('nativelib:stopLive', async () => {
+  if (activeLive) await activeLive.stop()
+  if (activeWatch) { await activeWatch.stop(); activeWatch = null }
+})
 
 ipcMain.handle('nativelib:dumpLib', async (_e, pid: number, base: string) => {
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)

@@ -556,7 +556,7 @@ wirePanels(document.body)
 
 const libView: LibViewApi = createLibView(document.getElementById('libs')!, {
   loadedRows: () => window.ares.libTable(activeRunId),
-  startLive: pkg => window.ares.startLive(pkg),
+  startLive: (pkg, glob) => window.ares.startLive(pkg, glob),
   stopLive: () => window.ares.stopLive(),
   dumpLib: (pid, pattern) => window.ares.dumpLib(pid, pattern),
   reveal: path => window.ares.revealArtifact(path),
@@ -567,6 +567,7 @@ window.ares.onLibMapped(l => libView.applyMapped(l))
 window.ares.onLibUnmapped(l => libView.applyUnmapped(l))
 window.ares.onLibStreamEnd(() => libView.streamEnded())
 window.ares.onLibLine(l => libView.appendLog(l))
+window.ares.onWatchLine(l => libView.appendLog(l))
 window.ares.onPreflightCheck(c => libView.applyPreflightCheck(c))
 
 async function refreshDiff(): Promise<void> {

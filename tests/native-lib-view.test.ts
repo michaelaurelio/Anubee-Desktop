@@ -97,6 +97,59 @@ describe('native-lib-view live modal', () => {
   })
 })
 
+describe('native-lib-view on-map glob field', () => {
+  it('renders a glob field and boundary hint below the package field', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
+    expect(document.body.querySelector('[data-modal-glob]')).not.toBeNull()
+    expect(document.body.querySelector('.lib-modal-hint')?.textContent).toMatch(/APK-embedded/)
+  })
+
+  it('passes the glob to startLive when Begin is clicked with a safe glob set', async () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-glob]') as HTMLInputElement).value = 'libexample*'
+    ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
+    await vi.waitFor(() =>
+      expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
+    ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
+    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector', 'libexample*')
+  })
+
+  it('keeps Begin disabled when the glob has unsafe characters, even after a clean preflight', async () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
+    await vi.waitFor(() =>
+      expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
+    const globIn = document.body.querySelector('[data-modal-glob]') as HTMLInputElement
+    globIn.value = "lib'; rm -rf /"
+    globIn.dispatchEvent(new Event('input'))
+    expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('leaves the glob field empty as valid: Begin stays enabled and startLive is called without a glob', async () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
+    await vi.waitFor(() =>
+      expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
+    ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
+    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector')
+  })
+})
+
 describe('native-lib-view device log', () => {
   it('appends device lines and shows the strip', () => {
     const { host, deps } = make()

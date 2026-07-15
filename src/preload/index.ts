@@ -71,7 +71,7 @@ contextBridge.exposeInMainWorld('ares', {
     ipcRenderer.on('tracer:preflight-check', (_e, c) =>
       cb(c as { id: string; label: string; ok: boolean; detail: string })),
   libTable: (runId?: number) => ipcRenderer.invoke('nativelib:table', runId),
-  startLive: (pkg: string) => ipcRenderer.invoke('nativelib:startLive', pkg),
+  startLive: (pkg: string, glob?: string) => ipcRenderer.invoke('nativelib:startLive', pkg, glob),
   stopLive: () => ipcRenderer.invoke('nativelib:stopLive'),
   dumpLib: (pid: number, base: string) => ipcRenderer.invoke('nativelib:dumpLib', pid, base),
   revealArtifact: (path: string) => ipcRenderer.invoke('nativelib:revealArtifact', path),
@@ -81,5 +81,6 @@ contextBridge.exposeInMainWorld('ares', {
   onLibUnmapped: (cb: (l: LibLine & { atMs: number }) => void) =>
     ipcRenderer.on('nativelib:unmapped', (_e, l) => cb(l as LibLine & { atMs: number })),
   onLibLine: (cb: (line: string) => void) => ipcRenderer.on('nativelib:line', (_e, l) => cb(l as string)),
+  onWatchLine: (cb: (line: string) => void) => ipcRenderer.on('nativelib:watchLine', (_e, l) => cb(l as string)),
   onLibStreamEnd: (cb: () => void) => ipcRenderer.on('nativelib:streamEnd', () => cb()),
 })

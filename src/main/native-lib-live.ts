@@ -1,7 +1,7 @@
 import { readFileSync, statSync, existsSync, readdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
-import { DEVICE_BIN, isSafeToken, stopArgLive } from '@shared/tracer-caps'
+import { DEVICE_BIN, isSafeToken, isSafePattern, stopArgLive, stopArgWatch } from '@shared/tracer-caps'
 import { parseLibLine } from '@shared/lib-line'
 import { parseElfHeader } from '@shared/elf-triage'
 import type { LibLine, Artifact, DumpManifest } from '@shared/native-lib'
@@ -35,6 +35,30 @@ export function startLive(sp: Spawner, adb: Adb, pkg: string, onEvent: (e: LiveE
     if (parsed) onEvent({ line: parsed, atMs: Date.now() - t0 })
     else onEvent({ raw: line })
   }, stopArgLive(pkg))
+}
+
+// `ares dump -p PID --on-map -l <glob>`: attach to the live process and dump any
+// module matching <glob> the instant it maps. Catches file-backed transient
+// payloads (decrypt-to-a-file-then-dlopen). It matches the RESOLVED maps path,
+// so it CANNOT catch an APK-embedded library (path is base.apk) or an anonymous
+// mapping (no path) - those are caught in the table / by base. The UI says so.
+//
+// The glob carries its own single quotes via the '\'' close-escape-reopen idiom.
+// isSafePattern (Task 1) stops shell INJECTION, not shell EXPANSION: * ? [ ] are
+// exactly the characters it allows and a shell expands. `su -c '<str>'` is
+// re-parsed twice - the device's outer shell strips the quotes and hands <str>
+// to su, which runs it through `sh -c`, and that inner shell globs against its
+// cwd of `/`. An unquoted `-l s*` was measured on device expanding to `-l sdcard
+// second_stage_resources storage sys system system_dlkm system_ext`: one wrong
+// -l plus six stray positional args that dump.c folds in as extra patterns via
+// ARGP_KEY_ARG, silently, with no error. Quoted, ares receives the glob intact.
+export function watchArg(pid: number, glob: string): string {
+  return `su -c '${DEVICE_BIN} dump -p ${pid} --on-map -l '\\''${glob}'\\'''`
+}
+
+export function startWatch(sp: Spawner, adb: Adb, pid: number, glob: string, onLine: (l: string) => void): RunHandle {
+  if (!isSafePattern(glob)) throw new Error(`unsafe on-map glob: ${glob}`)
+  return startRun(sp, adb, watchArg(pid, glob), onLine, stopArgWatch(pid))
 }
 
 // Snapshot one module by base, pull the output dir, triage every rebuilt .so.

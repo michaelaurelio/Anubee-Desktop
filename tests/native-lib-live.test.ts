@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { liveLibArg, dumpArg, startLive, triageDir, dumpByBase } from '../src/main/native-lib-live'
+import { liveLibArg, dumpArg, startLive, triageDir, dumpByBase, watchArg, startWatch } from '../src/main/native-lib-live'
 import type { Adb, Spawner } from '../src/main/tracer-control'
 import type { LibLine } from '@shared/native-lib'
 
@@ -54,6 +54,34 @@ function autoSpawner(exitCode: number): Spawner {
   return { spawn: () => ({ onLine: () => {}, onExit: cb => { queueMicrotask(() => cb(exitCode)) }, kill: () => {} }) }
 }
 const okAdb: Adb = { run: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })) }
+
+describe('watchArg / startWatch', () => {
+  it('watchArg single-quotes the glob so the device shell cannot expand it', () => {
+    // `su -c '<str>'` is re-parsed: the device's OUTER shell strips these quotes
+    // and hands <str> to su, which runs it via `sh -c`. That INNER shell then
+    // globs an unquoted * ? [ ] against its cwd, which is `/`. Measured on
+    // device: `su -c 'echo -l s*'` -> `-l sdcard second_stage_resources storage
+    // sys system system_dlkm system_ext`. So the glob must carry its own quotes
+    // through the outer shell, via the '\'' close-escape-reopen idiom.
+    expect(watchArg(25659, 'libexample*'))
+      .toBe("su -c '/data/local/tmp/ares dump -p 25659 --on-map -l '\\''libexample*'\\'''")
+  })
+
+  it('startWatch rejects an unsafe glob before spawning', () => {
+    expect(() => startWatch(fakeSpawner([]).sp, okAdb, 1, "lib'; rm -rf /", () => {})).toThrow(/unsafe/)
+  })
+
+  it('startWatch stops with the scoped watch pattern, not the global kill', async () => {
+    // okAdb is a vi.fn; inspect its .mock.calls (the real harness has no
+    // .calls array). fakeSpawner([]) returns { sp, fire }.
+    const adb: Adb = { run: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })) }
+    const h = startWatch(fakeSpawner([]).sp, adb, 25659, 'libexample*', () => {})
+    await h.stop()
+    const calls = (adb.run as unknown as { mock: { calls: string[][][] } }).mock.calls.map(c => c[0].join(' '))
+    expect(calls.some(c => c.includes('dump -p 25659 --on-map'))).toBe(true)
+    expect(calls.some(c => c.includes("pkill -INT -f /data/local/tmp/ares'"))).toBe(false) // not the global
+  })
+})
 
 describe('triageDir', () => {
   it('returns [] when the manifest is absent', () => {
