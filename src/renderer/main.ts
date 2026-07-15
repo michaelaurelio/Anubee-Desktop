@@ -871,6 +871,7 @@ window.ares.onLoaded(s => {
     redrawBadges()
     void refreshSuggestions()
     void refreshOrphans()
+    libView.refresh() // Libraries tab may be parked on a stale run's rows; no-ops while live
   })
   // Coverage health text (not graph data) - stored, not shown, until a row
   // is selected and renderSlice surfaces it via the chip.

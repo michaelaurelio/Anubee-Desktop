@@ -267,11 +267,14 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   }
 
   function appendLog(line: string): void {
-    $('[data-log]').hidden = false
+    // The device log is a live-mode surface: always record the line (switching
+    // back to Live should show history), but only reveal the strip while live -
+    // trailing output from a stopped stream must not pop it open on the Loaded tab.
+    if (source === 'live') $('[data-log]').hidden = false
     const div = document.createElement('div'); div.textContent = line
     if (/error|fail|not found|denied|no such|cannot|permission/i.test(line)) {
       div.className = 'log-err'
-      $('[data-log]').classList.remove('collapsed') // never hide a failure
+      if (source === 'live') $('[data-log]').classList.remove('collapsed') // never hide a failure
     }
     const body = $('[data-log-body]'); body.appendChild(div)
     $('[data-log-count]').textContent = `${body.childElementCount} lines`

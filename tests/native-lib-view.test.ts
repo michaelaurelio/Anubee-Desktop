@@ -101,6 +101,7 @@ describe('native-lib-view device log', () => {
   it('appends device lines and shows the strip', () => {
     const { host, deps } = make()
     const api = createLibView(host, deps)
+    api.setSource('live')
     api.appendLog('su: ares: not found')
     const wrap = host.querySelector('[data-log]') as HTMLElement
     expect(wrap.hidden).toBe(false)
@@ -110,6 +111,7 @@ describe('native-lib-view device log', () => {
   it('auto-expands the strip on an error-like line', () => {
     const { host, deps } = make()
     const api = createLibView(host, deps)
+    api.setSource('live')
     api.appendLog('some benign line')
     expect((host.querySelector('[data-log]') as HTMLElement).classList.contains('collapsed')).toBe(true)
     api.appendLog('error: permission denied')
@@ -119,8 +121,21 @@ describe('native-lib-view device log', () => {
   it('logs stream end', () => {
     const { host, deps } = make()
     const api = createLibView(host, deps)
+    api.setSource('live')
     api.streamEnded()
     expect(host.querySelector('[data-log-body]')?.textContent).toContain('stream ended')
+  })
+
+  it('records a trailing line after leaving Live mode without re-showing the strip', async () => {
+    const { host, deps } = make({ loadedRows: vi.fn(async () => []) })
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    api.setSource('loaded')
+    await vi.waitFor(() => expect(deps.loadedRows).toHaveBeenCalled())
+    api.appendLog('some trailing line')
+    const wrap = host.querySelector('[data-log]') as HTMLElement
+    expect(wrap.hidden).toBe(true)
+    expect(host.querySelector('[data-log-body]')?.textContent).toContain('some trailing line')
   })
 })
 
