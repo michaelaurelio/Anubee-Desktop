@@ -98,6 +98,7 @@
       /* --- body --- */
       #main { position: absolute; top: 44px; bottom: 0; left: 46px; right: 0; display: flex;
               --table-w: 420px; --side-w: 320px; }
+      #main.no-cmdbar { top: 0; }
       .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px;
         font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted);
         border-bottom: 1px solid var(--border-soft); }
@@ -462,6 +463,7 @@
       /* native libraries view */
       #libs { position:absolute; inset:0; display:flex; flex-direction:column; background:var(--surface); overflow:hidden; }
       #libs.hidden { display:none; }
+      #libs [hidden] { display:none !important; }
       #libs .lib-hdr { padding:8px 12px; background:var(--bar); border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
       #libs .lib-row1 { display:flex; align-items:center; gap:10px; }
       #libs .lib-seg { display:flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; font-size:11px; }
@@ -488,6 +490,20 @@
       #libs .lib-dock.collapsed .lib-dock-body { display:none; }
       #libs .lib-dock-body { overflow:auto; }
       #libs .lib-act { color:var(--accent-fg); cursor:pointer; }
+      #libs .lib-live-on { display:inline-flex; align-items:center; gap:8px; font-size:11px; color:var(--muted); }
+      #libs .lib-empty { padding:40px 16px; text-align:center; color:var(--muted); font-size:12px; line-height:1.6; }
+      #libs .lib-log { border-top:1px solid var(--border); background:var(--panel-2); max-height:160px; display:flex; flex-direction:column; }
+      #libs .lib-log-hd { padding:6px 12px; font-size:11px; font-weight:600; border-bottom:1px solid var(--border-soft); cursor:pointer; display:flex; gap:8px; }
+      #libs .lib-log-hd .c { color:var(--muted); font-weight:400; }
+      #libs .lib-log.collapsed .lib-log-body { display:none; }
+      #libs .lib-log-body { overflow:auto; padding:6px 12px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--muted); }
+      #libs .lib-log-body .log-err { color:var(--k-syscall); }
+      .lib-modal { display:flex; flex-direction:column; gap:12px; }
+      .lib-modal-row { display:flex; flex-direction:column; gap:5px; font-size:11px; color:var(--muted); }
+      .lib-modal-row input { background:var(--input-bg); border:1px solid var(--input-bd); border-radius:5px; padding:6px 8px; color:var(--text); font-size:12px; }
+      .lib-modal-actions { display:flex; }
+      .lib-checks { display:flex; flex-direction:column; gap:3px; font-family:'JetBrains Mono',monospace; font-size:11px; min-height:20px; }
+      .lib-modal-foot { display:flex; justify-content:flex-end; }
     </style>
   </head>
   <body>

@@ -2,6 +2,10 @@
 // dock. Pure DOM controller, no framework - mirrors flame-view/table's style.
 
 import { NEW_LIB_SETTLE_MS, type LibRow, type LibLine, type Artifact } from '@shared/native-lib'
+import { showModal, closeModal } from './modal'
+import { isSafeToken } from '@shared/tracer-caps'
+import { makeEpoch } from './selection-epoch'
+import { renderPreflightRow, type PreflightCheck } from './capture-view'
 
 type Source = 'loaded' | 'live'
 const key = (pid: number, base: string): string => `${pid}|${base}`
@@ -16,9 +20,12 @@ function humanBytes(n: number): string {
 
 export interface LibViewApi {
   setSource(s: Source): void
+  refresh(): void
   applyMapped(l: LibLine & { atMs: number }): void
   applyUnmapped(l: LibLine & { atMs: number }): void
+  applyPreflightCheck(c: PreflightCheck): void
   addArtifacts(a: Artifact[]): void
+  appendLog(line: string): void
   streamEnded(): void
 }
 
@@ -29,6 +36,7 @@ export interface LibViewDeps {
   dumpLib: (pid: number, pattern: string) => Promise<Artifact[]>
   reveal: (path: string) => void
   exportArtifact: (path: string) => void
+  preflight: (pkg: string) => Promise<PreflightCheck[]>
 }
 
 export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi {
@@ -37,6 +45,9 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   const rows = new Map<string, LibRow>()
   const selected = new Set<string>()
   const artifacts: Artifact[] = []
+  let livePkg = ''
+  let checkHost: HTMLElement | null = null // the open modal's check list, else null
+  const preflightEpoch = makeEpoch()
 
   host.innerHTML = `
     <div class="lib-hdr">
@@ -44,9 +55,11 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
         <strong>Native Libraries</strong>
         <div class="lib-seg"><button data-src="loaded" class="on">Loaded run</button><button data-src="live">Live device</button></div>
         <div class="lib-ctl" data-live hidden>
-          <input data-pkg placeholder="package (e.g. dev.ares.detector)" size="26">
-          <button class="btn" data-start>Start</button>
-          <button class="btn" data-stop hidden>Stop</button>
+          <button class="btn pri" data-live-open>Start live capture&hellip;</button>
+          <span class="lib-live-on" data-live-on hidden>
+            <span class="lib-dot"></span><span data-live-pkg></span>
+            <button class="btn" data-stop>Stop</button>
+          </span>
         </div>
       </div>
       <div class="lib-row1">
@@ -58,6 +71,10 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     <div class="lib-dock collapsed">
       <div class="lib-dock-hd" data-dock-toggle>Dumped artifacts <span class="c" data-dock-count>none yet</span></div>
       <div class="lib-dock-body"><table><thead><tr><th>module</th><th>base</th><th>pid</th><th>size</th><th>arch</th><th>ELF</th><th>sha-256</th><th>raw</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="lib-log collapsed" data-log hidden>
+      <div class="lib-log-hd" data-log-toggle>Device log <span class="c" data-log-count></span></div>
+      <div class="lib-log-body" data-log-body></div>
     </div>`
 
   const $ = <T extends HTMLElement>(sel: string): T => host.querySelector(sel) as T
@@ -75,10 +92,17 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     return atMs !== undefined && atMs > NEW_LIB_SETTLE_MS
   }
 
+  // A row is only dumpable if its `library` is an on-disk path (dump derives the
+  // device-side pattern from the basename); bracketed pseudo-paths like
+  // "[anon_shmem:dalvik-jit-code-cache]" are not files and must not be offered.
+  function isDumpable(r: LibRow): boolean {
+    return r.library.startsWith('/')
+  }
+
   function rowHtml(r: LibRow): string {
     const k = key(r.pid, r.base)
     const cb = source === 'live'
-      ? `<td><input type="checkbox" data-k="${esc(k)}" ${selected.has(k) ? 'checked' : ''}></td>` : ''
+      ? (isDumpable(r) ? `<td><input type="checkbox" data-k="${esc(k)}" ${selected.has(k) ? 'checked' : ''}></td>` : '<td></td>') : ''
     const atMs = (r as LibRow & { atMs?: number }).atMs
     const mapped = source === 'live' && atMs !== undefined ? `t+${(atMs / 1000).toFixed(1)}s` : `#${r.seq}`
     const flags = [
@@ -98,6 +122,19 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
         cb.onchange = () => { cb.checked ? selected.add(cb.dataset.k!) : selected.delete(cb.dataset.k!); syncDump() }
       })
     }
+    renderEmpty()
+  }
+
+  function renderEmpty(): void {
+    const existing = host.querySelector('.lib-empty'); if (existing) existing.remove()
+    if (rows.size > 0) return
+    const msg = source === 'live'
+      ? (streaming
+          ? `Waiting for [lib] events from ${esc(livePkg || 'the target')}&hellip; trigger activity in the app on the device.`
+          : 'Start a live capture to stream mapped libraries from the device.')
+      : 'No library records in this run. Capture with a current ares build (the syscall, lib and funcs engines all emit them), or stream live under Live device.'
+    const div = document.createElement('div'); div.className = 'lib-empty'; div.innerHTML = msg
+    $('.lib-tbl').appendChild(div)
   }
 
   function renderStat(): void {
@@ -137,13 +174,71 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   host.querySelectorAll<HTMLButtonElement>('.lib-seg button').forEach(b =>
     b.onclick = () => { void setSource(b.dataset.src as Source) })
   $('[data-dock-toggle]').onclick = () => $('.lib-dock').classList.toggle('collapsed')
-  $<HTMLButtonElement>('[data-start]').onclick = async () => {
-    const pkg = $<HTMLInputElement>('[data-pkg]').value.trim(); if (!pkg) return
-    rows.clear(); selected.clear(); streaming = true
-    $<HTMLButtonElement>('[data-start]').hidden = true; $<HTMLButtonElement>('[data-stop]').hidden = false
-    renderRows(); renderStat(); await deps.startLive(pkg)
+  $('[data-log-toggle]').onclick = () => $('[data-log]').classList.toggle('collapsed')
+
+  // --- live source: modal-driven preflight + streaming state ---
+  function renderLiveHeader(): void {
+    $<HTMLButtonElement>('[data-live-open]').hidden = streaming
+    $('[data-live-on]').hidden = !streaming
+    $('[data-live-pkg]').textContent = livePkg || 'streaming'
   }
-  $<HTMLButtonElement>('[data-stop]').onclick = async () => { await deps.stopLive() }
+
+  function beginLive(pkg: string): void {
+    livePkg = pkg; rows.clear(); selected.clear(); streaming = true
+    renderLiveHeader(); renderRows(); renderStat(); syncDump()
+    void deps.startLive(pkg)
+  }
+
+  function openLiveModal(): void {
+    showModal({
+      title: 'Live library capture', width: 460,
+      onClose: () => { checkHost = null; preflightEpoch.bump() },
+      render: host => {
+        host.innerHTML = `
+          <div class="lib-modal">
+            <label class="lib-modal-row">Package
+              <input data-modal-pkg placeholder="e.g. dev.ares.detector" value="${esc(livePkg)}">
+            </label>
+            <div class="lib-modal-actions"><button class="btn" data-modal-refresh>Refresh device</button></div>
+            <div class="lib-checks" data-modal-checks></div>
+            <div class="lib-modal-foot"><button class="btn pri" data-modal-begin disabled>Begin</button></div>
+          </div>`
+        checkHost = host.querySelector('[data-modal-checks]')
+        const pkgIn = host.querySelector('[data-modal-pkg]') as HTMLInputElement
+        const beginBtn = host.querySelector('[data-modal-begin]') as HTMLButtonElement
+        const refreshBtn = host.querySelector('[data-modal-refresh]') as HTMLButtonElement
+        // Any edit invalidates a prior green preflight (epoch guard).
+        pkgIn.oninput = () => { preflightEpoch.bump(); beginBtn.disabled = true; if (checkHost) checkHost.innerHTML = '' }
+        refreshBtn.onclick = async () => {
+          const pkg = pkgIn.value.trim()
+          if (!pkg) { if (checkHost) checkHost.textContent = 'enter a package first'; return }
+          if (!isSafeToken(pkg)) { if (checkHost) checkHost.textContent = 'package has unsupported characters'; return }
+          const token = preflightEpoch.bump()
+          if (checkHost) checkHost.innerHTML = ''
+          beginBtn.disabled = true; refreshBtn.disabled = true
+          try {
+            const checks = await deps.preflight(pkg)
+            if (!preflightEpoch.isCurrent(token)) return // superseded by an edit / newer run
+            beginBtn.disabled = !(checks.length > 0 && checks.every(c => c.ok))
+          } catch (e) {
+            if (!preflightEpoch.isCurrent(token)) return
+            if (checkHost) {
+              const r = document.createElement('div'); r.className = 'preflight-bad'
+              r.textContent = `preflight failed: ${e instanceof Error ? e.message : String(e)}`
+              checkHost.appendChild(r)
+            }
+          } finally { refreshBtn.disabled = false }
+        }
+        beginBtn.onclick = () => {
+          const pkg = pkgIn.value.trim(); if (!pkg) return
+          closeModal(); beginLive(pkg)
+        }
+      },
+    })
+  }
+
+  $<HTMLButtonElement>('[data-live-open]').onclick = () => openLiveModal()
+  $<HTMLButtonElement>('[data-stop]').onclick = () => { void deps.stopLive() }
   dumpBtn.onclick = async () => {
     const jobs = [...selected].map(k => {
       const r = rows.get(k)
@@ -152,16 +247,37 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       return { pid, pattern }
     }).filter(j => j.pattern)
     dumpBtn.disabled = true
-    try { for (const j of jobs) addArtifacts(await deps.dumpLib(j.pid, j.pattern)) }
-    finally { dumpBtn.disabled = false }
+    try {
+      for (const j of jobs) {
+        try { addArtifacts(await deps.dumpLib(j.pid, j.pattern)) }
+        catch (e) { appendLog(`dump failed for ${j.pattern}: ${e instanceof Error ? e.message : String(e)}`) }
+      }
+    } finally { dumpBtn.disabled = false }
   }
 
   async function setSource(s: Source): Promise<void> {
     source = s
     host.querySelectorAll<HTMLButtonElement>('.lib-seg button').forEach(b => b.classList.toggle('on', b.dataset.src === s))
     $('[data-live]').hidden = s !== 'live'
-    if (s === 'loaded') { streaming = false; await loadLoaded() }
-    else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); syncDump() }
+    if (s === 'loaded') {
+      if (streaming) { streaming = false; void deps.stopLive() }
+      $('[data-log]').hidden = true // the device log is meaningless once back on a loaded run
+      await loadLoaded()
+    } else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); syncDump(); renderLiveHeader() }
+  }
+
+  function appendLog(line: string): void {
+    // The device log is a live-mode surface: always record the line (switching
+    // back to Live should show history), but only reveal the strip while live -
+    // trailing output from a stopped stream must not pop it open on the Loaded tab.
+    if (source === 'live') $('[data-log]').hidden = false
+    const div = document.createElement('div'); div.textContent = line
+    if (/error|fail|not found|denied|no such|cannot|permission/i.test(line)) {
+      div.className = 'log-err'
+      if (source === 'live') $('[data-log]').classList.remove('collapsed') // never hide a failure
+    }
+    const body = $('[data-log-body]'); body.appendChild(div)
+    $('[data-log-count]').textContent = `${body.childElementCount} lines`
   }
 
   function addArtifacts(a: Artifact[]): void { artifacts.push(...a); renderArtifacts() }
@@ -171,7 +287,9 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
 
   return {
     setSource: s => { void setSource(s) },
+    refresh: () => { if (source === 'loaded') void loadLoaded() },
     applyMapped: l => {
+      if (source !== 'live') return // a stream-end already in flight must not write into the Loaded table
       const base = l.start
       const r: LibRow & { atMs: number } = {
         library: l.library ?? '', soname: l.soname ?? null, base, end: l.end,
@@ -181,9 +299,15 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       rows.set(key(l.pid, base), r); renderRows(); renderStat()
     },
     applyUnmapped: l => {
+      if (source !== 'live') return
       const r = rows.get(key(l.pid, l.start)); if (r) { r.unmapped = true; renderRows(); renderStat() }
     },
+    applyPreflightCheck: c => {
+      if (!checkHost) return // no modal open: nothing to render into (a Capture preflight also lands here)
+      renderPreflightRow(checkHost, c)
+    },
     addArtifacts,
-    streamEnded: () => { streaming = false; renderStat() },
+    appendLog,
+    streamEnded: () => { streaming = false; renderLiveHeader(); renderStat(); appendLog('stream ended') },
   }
 }

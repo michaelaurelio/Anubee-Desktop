@@ -148,6 +148,23 @@ export function renderDot(dot: HTMLElement, status: { ok: boolean; detail: strin
   dot.title = status.detail
 }
 
+// Mirrors the preload preflight check shape (main's tracer-control.PreflightCheck);
+// the renderer cannot import the main-process type, so it is restated here. Shared
+// by the Capture wiring and the Libraries live modal.
+export interface PreflightCheck {
+  id: string
+  label: string
+  ok: boolean
+  detail: string
+}
+
+export function renderPreflightRow(host: HTMLElement, c: PreflightCheck): void {
+  const row = document.createElement('div')
+  row.className = c.ok ? 'preflight-ok' : 'preflight-bad'
+  row.textContent = `${c.ok ? 'OK' : 'FAIL'}  ${c.label} - ${c.detail}`
+  host.appendChild(row)
+}
+
 export function appendConsoleLine(host: HTMLElement, line: string): void {
   const div = document.createElement('div')
   div.className = 'console-line'

@@ -434,6 +434,43 @@ if (!libRowsOk) throw new Error('Libraries table did not render libc/libsentinel
 const libDockOk = await libWin.evaluate(() => document.querySelector('#libs .lib-dock')?.classList.contains('collapsed') === true)
 if (!libDockOk) throw new Error('artifacts dock should start collapsed')
 
+// Loaded mode must NOT show the live package input or a Start button (issue 4:
+// the live controls previously leaked in via a display:flex override of [hidden]).
+const loadedHidesLive = await libWin.evaluate(() => {
+  const live = document.querySelector('#libs [data-live]')
+  return !!live && getComputedStyle(live).display === 'none'
+})
+if (!loadedHidesLive) throw new Error('live controls are visible in Loaded mode (issue 4 regression)')
+
+// The global command bar is hidden on the libs view.
+const cmdbarHidden = await libWin.evaluate(() => {
+  const cb = document.getElementById('cmdbar')
+  return !!cb && getComputedStyle(cb).display === 'none'
+})
+if (!cmdbarHidden) throw new Error('#cmdbar should be hidden on the libraries view')
+
+// Live mode: the Start-live-capture button is present and opens the preflight modal.
+await libWin.evaluate(() => document.querySelector('#libs .lib-seg button[data-src="live"]').click())
+const liveBtnOk = await libWin.evaluate(() => {
+  const live = document.querySelector('#libs [data-live]')
+  const open = document.querySelector('#libs [data-live-open]')
+  const on = document.querySelector('#libs [data-live-on]')
+  return getComputedStyle(live).display !== 'none' &&
+    getComputedStyle(open).display !== 'none' &&
+    getComputedStyle(on).display === 'none' // not streaming yet
+})
+if (!liveBtnOk) throw new Error('Live mode did not show the Start-live-capture button')
+await libWin.click('#libs [data-live-open]')
+await libWin.waitForSelector('.modal-backdrop [data-modal-pkg]', { timeout: 5000 })
+const modalOk = await libWin.evaluate(() =>
+  !!document.querySelector('.modal-backdrop [data-modal-refresh]') &&
+  document.querySelector('.modal-backdrop [data-modal-begin]').disabled === true)
+if (!modalOk) throw new Error('live preflight modal missing Refresh or an initially-disabled Begin')
+await libWin.keyboard.press('Escape') // close the modal
+// Return to Loaded source for the reference screenshot.
+await libWin.evaluate(() => document.querySelector('#libs .lib-seg button[data-src="loaded"]').click())
+await libWin.waitForTimeout(150)
+
 await libWin.mouse.move(700, 400) // off #rail so the hover-expanded (172px) rail doesn't clip the shot
 await libWin.waitForTimeout(150)
 await libWin.screenshot({ path: resolve(shots, '10-libraries.png') })
