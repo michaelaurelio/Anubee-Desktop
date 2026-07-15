@@ -592,13 +592,42 @@ libraries decrypted by a packer after app startup (the packer-proof use case).
 
 ### Dumping binaries
 
-From live mode, a **Dump** button triggers an on-device binary pull via `ares dump
--p <pid> <pattern>`, attaching to the live process and extracting matched `.so`
-files. The desktop pulls the output directory and its manifest, triages each binary
+Ticking one or more rows and clicking **Dump** sends each row's exact `pid` and
+load `base` - the selection key itself, never a name derived from it - through
+`nativelib:dumpLib` to `ares dump --now -p <pid> --base <addr> -d <dir> -o
+<dir>/manifest.jsonl`. `--now` is a pure `/proc` snapshot of the already-running
+process: it attaches no BPF, does not relaunch the target, and exits 0 on
+success, so `code !== 0` is a genuine error test. The live stream in the same
+view is untouched - it keeps updating underneath the dump.
+
+Selecting by exact base rather than a name pattern is a correctness requirement,
+not just a safety margin. For an `extractNativeLibs=false` app (the modern AGP
+default), a library is never extracted to a standalone file on disk - it maps
+straight out of the APK, so its `/proc/<pid>/maps` path is literally `base.apk`.
+`ares`'s `-l` name filter only ever sees that raw maps path, so no name pattern
+can match such a library; `--base` addresses the exact load address instead and
+is the only selector that reaches it.
+
+The desktop pulls the output directory and its manifest, triages each binary
 via `src/shared/elf-triage.ts` (ELF magic check, architecture, SHA-256 hash, file
 size), and displays them in a collapsible bottom **Artifacts dock**. **Reveal**
 opens the file manager at the dumped `.so`; **Export** saves a copy to the analyst's
 chosen location.
+
+### Targeted stop
+
+Every run started from the Libraries view - the live stream, the on-map
+watcher, and (implicitly, since it runs to completion on its own) a dump -
+carries its own stop pattern instead of one shared kill switch. `stopArgLive`
+and `stopArgWatch` (`src/shared/tracer-caps.ts`) build an anchored,
+ERE-escaped `pkill -INT -f "^/data/local/tmp/ares ..."` scoped to that run's
+exact package (live) or pid (watcher). The leading `^` anchor is what excludes
+the run's own `su -c '...'` wrapper process: its cmdline also contains the
+matched command as a substring, but does not *start* with it, so the anchor
+keeps the pattern from also killing its own launcher. Previously one global
+`pkill -INT -f /data/local/tmp/ares` was used to stop anything, so stopping a
+dump or the watcher could SIGINT an unrelated live stream sharing the device;
+targeted patterns make stopping one run a no-op for every other.
 
 The `lib` and `dump` capability outputs are no longer selectable engines in the
 Capture modal (feature 9) - they are now integrated as exclusive features of the
@@ -614,6 +643,22 @@ enabled only when every check passes, and any edit to the package re-gates it
 until Refresh runs again. Begin then streams `[lib]`/`[unlib]` events into the
 table.
 
+The modal also carries an optional **on-map watcher** field: a glob (e.g.
+`libexample*` or `blob_[0-9]*`, validated by `isSafePattern` before anything is
+spawned) that, if set, starts a second attached process alongside the live
+stream - `ares dump -p <pid> --on-map -l <glob>` - launched the moment the
+first `[lib]` line reveals the stream's pid. It dumps any library matching the
+glob the instant it maps, which is meant to catch a file-backed transient
+payload (a packer's decrypt-to-a-file-then-`dlopen`) as it appears rather than
+only after the fact from the table. **Its boundary is a maps-path limitation
+in `ares`'s `-l`, not a Desktop shortcoming**: the watcher matches the
+resolved `/proc/<pid>/maps` path only, so it cannot match an APK-embedded
+library (whose path is `base.apk`) or an anonymous mapping (no path at all) -
+those remain visible in the table and reachable by dumping their base once
+mapped (see Dumping binaries, above). Stopping the live capture stops both
+the stream and the watcher, each via its own anchored stop pattern (see
+Targeted stop, above).
+
 Raw device stdout and errors (a missing binary, a denied `su`, a stream that
 exits) appear in a collapsible **Device log** strip below the table, which
 auto-expands on the first error line - a failed start is never silent. A run with
@@ -625,8 +670,10 @@ table.
 flowchart LR
   A[Load JSONL: syscall / lib / funcs engine] -->|type:lib records| B[Libraries view: Loaded]
   C[Live device: ares lib -P pkg] -->|[lib]/[unlib] stream| D[Libraries view: Live]
-  D -->|tick + Dump| E[ares dump -p pid pattern]
-  E -->|pull dir + manifest| F[Artifacts dock: ELF / arch / sha-256]
+  C -->|first lib line: pid known, glob set| G[ares dump -p pid --on-map -l glob]
+  D -->|tick + Dump| E[ares dump --now -p pid --base addr]
+  G -->|matched file-backed maps| F[Artifacts dock: ELF / arch / sha-256]
+  E -->|pull dir + manifest| F
 ```
 
 ## Render caps (`src/shared/caps.ts`)
