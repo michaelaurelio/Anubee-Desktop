@@ -118,7 +118,7 @@ describe('tracer-caps registry', () => {
   })
 })
 
-import { composeRunArg, outJsonlPath, DEVICE_BIN, STOP_ARG, commonArgv, ereEscape, stopArgLive, stopArgWatch, isSafePattern } from '../src/shared/tracer-caps'
+import { composeRunArg, outJsonlPath, DEVICE_BIN, STOP_ARG, commonArgv, ereEscape, stopArgLive, stopArgWatch, isSafePattern, isSafeToken } from '../src/shared/tracer-caps'
 
 describe('composeRunArg', () => {
   const syscalls = capById('syscalls')!
@@ -167,13 +167,22 @@ describe('composeRunArg', () => {
     expect(a).not.toContain('-l')
   })
 
-  it('neither stop pattern matches its own su -c wrapper', () => {
-    // The device runs `su -c '<one string>'`; the su cmdline contains the
-    // pattern but does not START with /data/local/tmp/ares, so ^ excludes it.
-    for (const a of [stopArgLive('dev.ares.detector'), stopArgWatch(1)]) {
+  it('neither stop pattern matches its own wrapper shell', () => {
+    // The device runs `su -c '<one string>'`. su strips the quotes and runs the
+    // string through `sh -c`, so the wrapper process ps reports is
+    // `sh -c /data/local/tmp/ares ...` - it CONTAINS the command but does not
+    // START with the binary path, so ^ excludes it. Measured on device; the
+    // quotes are gone by the time pkill sees the cmdline. Each pattern is probed
+    // against its own wrapper: probing the watch pattern against a `lib -P`
+    // cmdline would pass with or without the anchor.
+    const cases: Array<[string, string]> = [
+      [stopArgLive('dev.ares.detector'), 'sh -c /data/local/tmp/ares lib -P dev.ares.detector'],
+      [stopArgWatch(1), 'sh -c /data/local/tmp/ares dump -p 1 --on-map -l libexample*'],
+    ]
+    for (const [a, ownWrapper] of cases) {
       const re = a.match(/-f "(.+)"/)?.[1]
       expect(re).toBeDefined()
-      expect(new RegExp(re!).test("su -c '/data/local/tmp/ares lib -P dev.ares.detector'")).toBe(false)
+      expect(new RegExp(re!).test(ownWrapper)).toBe(false)
     }
   })
 
@@ -185,6 +194,18 @@ describe('composeRunArg', () => {
     expect(isSafePattern("lib'; rm -rf /")).toBe(false)  // quote + space
     expect(isSafePattern('lib$(x)')).toBe(false)          // $ (
     expect(isSafePattern('lib`x`')).toBe(false)           // backtick
+  })
+
+  it('isSafePattern stays a superset of isSafeToken', () => {
+    // SAFE_PATTERN hand-copies SAFE_TOKEN's char class and adds the glob
+    // metacharacters. Nothing in the types ties them together, so this pins the
+    // relationship: tighten or widen SAFE_TOKEN without SAFE_PATTERN and this
+    // fails instead of the two silently diverging.
+    const samples = ['A', 'z', 'Z', 'a', '0', '9', '.', '_', ':', '/', ',', '+', '-',
+                     'dev.ares.detector', 'libsentinel.so', '/data/local/tmp/ares']
+    // Guard against a vacuous pass: every sample must really be a safe token.
+    expect(samples.every(s => isSafeToken(s))).toBe(true)
+    for (const s of samples) expect(isSafePattern(s)).toBe(true)
   })
 
   it('splices -b/-Q/-v before -o for a common cap', () => {
