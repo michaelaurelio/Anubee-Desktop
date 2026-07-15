@@ -33,7 +33,7 @@ export interface LibViewDeps {
   loadedRows: () => Promise<LibRow[]>
   startLive: (pkg: string) => Promise<void>
   stopLive: () => Promise<void>
-  dumpLib: (pid: number, pattern: string) => Promise<Artifact[]>
+  dumpLib: (pid: number, base: string) => Promise<Artifact[]>
   reveal: (path: string) => void
   exportArtifact: (path: string) => void
   preflight: (pkg: string) => Promise<PreflightCheck[]>
@@ -241,16 +241,14 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   $<HTMLButtonElement>('[data-stop]').onclick = () => { void deps.stopLive() }
   dumpBtn.onclick = async () => {
     const jobs = [...selected].map(k => {
-      const r = rows.get(k)
-      const pid = Number(k.split('|')[0])
-      const pattern = (r?.library.split('/').pop() || r?.soname || '') as string
-      return { pid, pattern }
-    }).filter(j => j.pattern)
+      const [pidStr, base] = k.split('|')
+      return { pid: Number(pidStr), base }
+    }).filter(j => j.base)
     dumpBtn.disabled = true
     try {
       for (const j of jobs) {
-        try { addArtifacts(await deps.dumpLib(j.pid, j.pattern)) }
-        catch (e) { appendLog(`dump failed for ${j.pattern}: ${e instanceof Error ? e.message : String(e)}`) }
+        try { addArtifacts(await deps.dumpLib(j.pid, j.base)) }
+        catch (e) { appendLog(`dump failed for pid ${j.pid} @${j.base}: ${e instanceof Error ? e.message : String(e)}`) }
       }
     } finally { dumpBtn.disabled = false }
   }

@@ -216,6 +216,24 @@ describe('native-lib-view refresh (review fix 1)', () => {
   })
 })
 
+describe('native-lib-view dump button', () => {
+  it('dumping a ticked row calls dumpLib with its exact pid+base, not a name', async () => {
+    const calls: Array<[number, string]> = []
+    const { host, deps } = make({ dumpLib: async (pid, base) => { calls.push([pid, base]); return [] } })
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    api.applyMapped({
+      kind: 'lib', pid: 25659, ppid: 1, start: '0x7281a0000', end: '0x7281c0000',
+      library: '/data/app/base.apk', atMs: 4300,
+    })
+    const cb = host.querySelector('input[data-k="25659|0x7281a0000"]') as HTMLInputElement
+    cb.click()
+    ;(host.querySelector('[data-dump]') as HTMLButtonElement).click()
+    await new Promise(r => setTimeout(r, 0))
+    expect(calls).toEqual([[25659, '0x7281a0000']])
+  })
+})
+
 describe('native-lib-view dump checkbox eligibility (review fix 3)', () => {
   it('omits the dump checkbox for a bracketed pseudo-path row, keeps it for a real on-disk file row', () => {
     const { host, deps } = make()

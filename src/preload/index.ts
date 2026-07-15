@@ -73,7 +73,7 @@ contextBridge.exposeInMainWorld('ares', {
   libTable: (runId?: number) => ipcRenderer.invoke('nativelib:table', runId),
   startLive: (pkg: string) => ipcRenderer.invoke('nativelib:startLive', pkg),
   stopLive: () => ipcRenderer.invoke('nativelib:stopLive'),
-  dumpLib: (pid: number, pattern: string) => ipcRenderer.invoke('nativelib:dumpLib', pid, pattern),
+  dumpLib: (pid: number, base: string) => ipcRenderer.invoke('nativelib:dumpLib', pid, base),
   revealArtifact: (path: string) => ipcRenderer.invoke('nativelib:revealArtifact', path),
   exportArtifact: (path: string) => ipcRenderer.invoke('nativelib:exportArtifact', path),
   onLibMapped: (cb: (l: LibLine & { atMs: number }) => void) =>

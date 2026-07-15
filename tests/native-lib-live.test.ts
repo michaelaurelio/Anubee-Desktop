@@ -49,7 +49,7 @@ describe('startLive', () => {
 })
 
 // A spawner whose run exits with a fixed code on the next microtask, so
-// `await run.done` inside dumpLibs resolves without a manual fire().
+// `await run.done` inside dumpByBase resolves without a manual fire().
 function autoSpawner(exitCode: number): Spawner {
   return { spawn: () => ({ onLine: () => {}, onExit: cb => { queueMicrotask(() => cb(exitCode)) }, kill: () => {} }) }
 }
