@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { liveLibArg, dumpArg, startLive, triageDir, dumpLibs } from '../src/main/native-lib-live'
+import { liveLibArg, dumpArg, startLive, triageDir, dumpByBase } from '../src/main/native-lib-live'
 import type { Adb, Spawner } from '../src/main/tracer-control'
 import type { LibLine } from '@shared/native-lib'
 
@@ -24,9 +24,12 @@ describe('native-lib-live argv', () => {
   it('builds the live lib stream command', () => {
     expect(liveLibArg('dev.ares.detector')).toBe("su -c '/data/local/tmp/ares lib -P dev.ares.detector'")
   })
-  it('builds the attach-and-dump command with -p pid', () => {
-    expect(dumpArg(7420, 'libsentinel.so', '/data/local/tmp/ares-dump-X'))
-      .toBe("su -c '/data/local/tmp/ares dump -p 7420 libsentinel.so -d /data/local/tmp/ares-dump-X -o /data/local/tmp/ares-dump-X/manifest.jsonl'")
+  it('dumpArg selects by exact base via --now, and exits 0 (no wait-for-Ctrl-C)', () => {
+    const a = dumpArg(25659, '0x7281a0000', '/data/local/tmp/out')
+    expect(a).toContain('dump --now -p 25659')
+    expect(a).toContain('--base 0x7281a0000')
+    expect(a).toContain('-o /data/local/tmp/out/manifest.jsonl')
+    expect(a).not.toContain('--on-map')
   })
 })
 
@@ -79,28 +82,28 @@ describe('input validation', () => {
     const { sp } = fakeSpawner([])
     expect(() => startLive(sp, noAdb, "com.x'; rm -rf /", () => {})).toThrow(/unsafe package/)
   })
-  it('dumpLibs rejects an unsafe dump pattern', async () => {
+  it('dumpByBase rejects an unsafe base token', async () => {
     const { sp } = fakeSpawner([])
-    await expect(dumpLibs(sp, noAdb, 7, "a'; id", '/data/local/tmp/d', '/tmp/x', () => {}))
-      .rejects.toThrow(/unsafe dump pattern/)
+    await expect(dumpByBase(sp, noAdb, 7, "a'; id", '/data/local/tmp/d', '/tmp/x', () => {}))
+      .rejects.toThrow(/unsafe base token/)
   })
 })
 
-describe('dumpLibs', () => {
-  it('throws when the ares dump run exits non-zero', async () => {
+describe('dumpByBase', () => {
+  it('treats a non-zero exit as a real error (not the old false alarm)', async () => {
     const d = mkdtempSync(join(tmpdir(), 'ares-dump-'))
-    await expect(dumpLibs(autoSpawner(1), okAdb, 7, 'libx.so', '/data/local/tmp/dev', d, () => {}))
-      .rejects.toThrow(/dump exited 1/)
+    await expect(dumpByBase(autoSpawner(1), okAdb, 7, '0x1000', '/data/local/tmp/dev', d, () => {}))
+      .rejects.toThrow(/ares dump --now exited 1/)
     rmSync(d, { recursive: true, force: true })
   })
-  it('pulls and triages on a clean dump', async () => {
+  it('pulls and triages on a clean exit 0', async () => {
     const d = mkdtempSync(join(tmpdir(), 'ares-dump-'))
     // the fake adb "pull" is a no-op, so pre-populate hostDir as if pulled
     const elf = Buffer.alloc(64); elf.set([0x7f, 0x45, 0x4c, 0x46]); elf[4] = 2; elf[5] = 1; elf[18] = 0xb7
     writeFileSync(join(d, 'libz.so'), elf)
     writeFileSync(join(d, 'manifest.jsonl'),
       '{"type":"dump","module":"libz.so","path":"/proc/7/libz.so","base":"0x2000","pid":7,"raw":true}\n')
-    const arts = await dumpLibs(autoSpawner(0), okAdb, 7, 'libz.so', '/data/local/tmp/dev', d, () => {})
+    const arts = await dumpByBase(autoSpawner(0), okAdb, 7, '0x2000', '/data/local/tmp/dev', d, () => {})
     expect(arts).toHaveLength(1)
     expect(arts[0]).toMatchObject({ module: 'libz.so', raw: true, arch: 'arm64' })
     rmSync(d, { recursive: true, force: true })

@@ -1,7 +1,7 @@
 import { readFileSync, statSync, existsSync, readdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
-import { DEVICE_BIN, isSafeToken } from '@shared/tracer-caps'
+import { DEVICE_BIN, isSafeToken, stopArgLive } from '@shared/tracer-caps'
 import { parseLibLine } from '@shared/lib-line'
 import { parseElfHeader } from '@shared/elf-triage'
 import type { LibLine, Artifact, DumpManifest } from '@shared/native-lib'
@@ -16,10 +16,13 @@ export function liveLibArg(pkg: string): string {
   return `su -c '${DEVICE_BIN} lib -P ${pkg}'`
 }
 
-// Attach to the live process and dump matching modules from current memory now
-// (-p PID), post-decryption. -d writes rebuilt .so; -o writes the manifest.
-export function dumpArg(pid: number, pattern: string, dir: string): string {
-  return `su -c '${DEVICE_BIN} dump -p ${pid} ${pattern} -d ${dir} -o ${dir}/manifest.jsonl'`
+// `ares dump --now -p PID --base ADDR`: snapshot the module at this exact load
+// base from the live process and exit 0. No BPF, no wait-for-Ctrl-C. -d writes
+// the rebuilt .so; -o writes the manifest. Selecting by base (not name) is
+// immune to per-run library renaming and is the only selector that reaches an
+// APK-embedded library.
+export function dumpArg(pid: number, base: string, dir: string): string {
+  return `su -c '${DEVICE_BIN} dump --now -p ${pid} --base ${base} -d ${dir} -o ${dir}/manifest.jsonl'`
 }
 
 // Start the live stream. Reuses tracer-control's spawn/line plumbing; parses
@@ -31,20 +34,22 @@ export function startLive(sp: Spawner, adb: Adb, pkg: string, onEvent: (e: LiveE
     const parsed = parseLibLine(line)
     if (parsed) onEvent({ line: parsed, atMs: Date.now() - t0 })
     else onEvent({ raw: line })
-  })
+  }, stopArgLive(pkg))
 }
 
-// Run one dump job against a live pid, pull the whole output dir, and triage
-// every rebuilt .so against its manifest record. Throws if the pull fails.
-export async function dumpLibs(
-  sp: Spawner, adb: Adb, pid: number, pattern: string,
+// Snapshot one module by base, pull the output dir, triage every rebuilt .so.
+// --now exits 0 on success and non-zero on real failure, so `code !== 0` is a
+// correct error test - unlike the old dump-on-exit path, which only ended when
+// an external SIGINT (exit 130) arrived.
+export async function dumpByBase(
+  sp: Spawner, adb: Adb, pid: number, base: string,
   deviceDir: string, hostDir: string, onLine: (l: string) => void,
 ): Promise<Artifact[]> {
-  if (!isSafeToken(pattern)) throw new Error(`unsafe dump pattern: ${pattern}`)
+  if (!isSafeToken(base)) throw new Error(`unsafe base token: ${base}`)
   await adb.run(['shell', `su -c 'mkdir -p ${deviceDir}'`])
-  const run = startRun(sp, adb, dumpArg(pid, pattern, deviceDir), onLine)
+  const run = startRun(sp, adb, dumpArg(pid, base, deviceDir), onLine)
   const { code } = await run.done
-  if (code !== 0) throw new Error(`ares dump exited ${code}`)
+  if (code !== 0) throw new Error(`ares dump --now exited ${code}`)
   const pull = await adb.run(['pull', deviceDir, hostDir])
   if (pull.code !== 0) throw new Error(`dump pull failed: ${pull.stderr.trim() || pull.stdout.trim()}`)
   return triageDir(hostDir)

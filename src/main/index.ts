@@ -18,7 +18,7 @@ import { mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { readFile, open } from 'node:fs/promises'
 import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
-import { startLive, dumpLibs, type LiveEvent } from './native-lib-live'
+import { startLive, dumpByBase, type LiveEvent } from './native-lib-live'
 import { loadConfig, saveConfig } from './tracer-config'
 import { capById, composeRunArg, outJsonlPath, resolveSavePath } from '@shared/tracer-caps'
 import { isElf, specNames, type PathCheck, type PathStatus } from './path-check'
@@ -291,11 +291,11 @@ ipcMain.handle('nativelib:startLive', (_e, pkg: string) => {
 
 ipcMain.handle('nativelib:stopLive', async () => { if (activeLive) await activeLive.stop() })
 
-ipcMain.handle('nativelib:dumpLib', async (_e, pid: number, pattern: string) => {
+ipcMain.handle('nativelib:dumpLib', async (_e, pid: number, base: string) => {
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
   const deviceDir = `/data/local/tmp/ares-dump-${ts}`
   const hostDir = resolve(runsDir(), `ares-dump-${ts}`)
-  return dumpLibs(spawner, adb, pid, pattern, deviceDir, hostDir,
+  return dumpByBase(spawner, adb, pid, base, deviceDir, hostDir,
     line => win.webContents.send('nativelib:line', line))
 })
 
