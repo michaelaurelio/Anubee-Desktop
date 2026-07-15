@@ -1,10 +1,13 @@
 import type { LibLine } from './native-lib'
 
 // A path may contain spaces; capture it non-greedily up to the ` [0x` range
-// marker. Hex ranges/offsets are emitted as 0x-prefixed lowercase.
+// marker. Hex ranges/offsets are emitted as 0x-prefixed lowercase. ts_print()
+// prepends an optional "HH:MM:SS " timestamp ahead of the "[lib]"/"[unlib]"
+// tag on live stdout; both regexes tolerate it without shifting capture
+// group indices.
 const LIB_RE =
-  /^\[lib\] pid (\d+) (.+?) \[(0x[0-9a-f]+), (0x[0-9a-f]+)\) off=0x([0-9a-f]+) inode=(\d+) ppid=(-?\d+)(?: -> (.+))?$/
-const UNLIB_RE = /^\[unlib\] pid (\d+) \[(0x[0-9a-f]+), (0x[0-9a-f]+)\)$/
+  /^(?:\d{2}:\d{2}:\d{2} )?\[lib\] pid (\d+) (.+?) \[(0x[0-9a-f]+), (0x[0-9a-f]+)\) off=0x([0-9a-f]+) inode=(\d+) ppid=(-?\d+)(?: -> (.+))?$/
+const UNLIB_RE = /^(?:\d{2}:\d{2}:\d{2} )?\[unlib\] pid (\d+) \[(0x[0-9a-f]+), (0x[0-9a-f]+)\)$/
 
 // Parse one live-stream stdout line into a LibLine, or null when the line is
 // neither a [lib] nor an [unlib] record (e.g. libbpf chatter). Grammar mirrors
