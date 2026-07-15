@@ -385,8 +385,11 @@ function showView(view: 'graph' | 'flame' | 'libs'): void {
   document.getElementById('main')?.classList.toggle('no-cmdbar', view === 'libs')
   showTablePanel(view !== 'libs' && activeRunId !== undefined)
   document.getElementById('graph-empty')?.classList.toggle('hidden', view !== 'graph' || selectedRowId !== undefined)
+  // "No run loaded" must not paint over the Libraries view - it needs no loaded
+  // run (Live device capture works without one) and the overlay swallows clicks.
+  document.getElementById('empty-state')?.classList.toggle('hidden', view === 'libs' || activeRunId !== undefined)
   if (view === 'flame') void refreshFlame()
-  if (view === 'libs') libView.setSource('loaded')
+  if (view === 'libs') libView.refresh()
   for (const [id, v] of [['tab-graph', 'graph'], ['tab-flame', 'flame'], ['tab-libs', 'libs']] as const) {
     document.getElementById(id)?.classList.toggle('on', currentView === v)
   }

@@ -453,7 +453,11 @@ if (!cmdbarHidden) throw new Error('#cmdbar should be hidden on the libraries vi
 await libWin.evaluate(() => document.querySelector('#libs .lib-seg button[data-src="live"]').click())
 const liveBtnOk = await libWin.evaluate(() => {
   const live = document.querySelector('#libs [data-live]')
-  return getComputedStyle(live).display !== 'none' && !!document.querySelector('#libs [data-live-open]')
+  const open = document.querySelector('#libs [data-live-open]')
+  const on = document.querySelector('#libs [data-live-on]')
+  return getComputedStyle(live).display !== 'none' &&
+    getComputedStyle(open).display !== 'none' &&
+    getComputedStyle(on).display === 'none' // not streaming yet
 })
 if (!liveBtnOk) throw new Error('Live mode did not show the Start-live-capture button')
 await libWin.click('#libs [data-live-open]')

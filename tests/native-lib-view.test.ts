@@ -154,3 +154,70 @@ describe('native-lib-view empty states', () => {
     expect(host.querySelector('.lib-empty')).toBeNull()
   })
 })
+
+describe('native-lib-view source switching (review fix 1)', () => {
+  it('stops the live stream on leaving Live mode, and a stale live event after the switch cannot land a row', async () => {
+    const { host, deps } = make({ loadedRows: vi.fn(async () => []) })
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
+    await vi.waitFor(() =>
+      expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
+    ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
+    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector')
+
+    api.setSource('loaded')
+    await vi.waitFor(() => expect(deps.stopLive).toHaveBeenCalled())
+
+    // A [lib] event that arrives after the switch (stream-end already in flight)
+    // must not inject a row into what is now the Loaded table.
+    api.applyMapped({
+      kind: 'lib', library: '/data/app/dev.ares.detector-1/lib/arm64/libc.so', soname: 'libc.so',
+      start: '0x3000', end: '0x4000', pid: 7420, ppid: 1, atMs: 2000,
+    })
+    expect(host.querySelectorAll('.lib-tbl tbody tr').length).toBe(0)
+  })
+})
+
+describe('native-lib-view refresh (review fix 1)', () => {
+  it('re-fetches loaded rows when the source is loaded', async () => {
+    const { host, deps } = make({ loadedRows: vi.fn(async () => []) })
+    const api = createLibView(host, deps)
+    await vi.waitFor(() => expect(deps.loadedRows).toHaveBeenCalledTimes(1))
+    api.refresh()
+    await vi.waitFor(() => expect(deps.loadedRows).toHaveBeenCalledTimes(2))
+  })
+
+  it('does nothing when the source is live', async () => {
+    const { host, deps } = make({ loadedRows: vi.fn(async () => []) })
+    const api = createLibView(host, deps)
+    await vi.waitFor(() => expect(deps.loadedRows).toHaveBeenCalledTimes(1))
+    api.setSource('live')
+    api.refresh()
+    await new Promise(r => setTimeout(r, 0))
+    expect(deps.loadedRows).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('native-lib-view dump checkbox eligibility (review fix 3)', () => {
+  it('omits the dump checkbox for a bracketed pseudo-path row, keeps it for a real on-disk file row', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    api.applyMapped({
+      kind: 'lib', library: '[anon_shmem:dalvik-jit-code-cache]', start: '0x5000', end: '0x6000',
+      pid: 7420, ppid: 1, atMs: 2000,
+    })
+    api.applyMapped({
+      kind: 'lib', library: '/data/app/dev.ares.detector-1/lib/arm64/libsentinel.so', soname: 'libsentinel.so',
+      start: '0x7000', end: '0x8000', pid: 7420, ppid: 1, atMs: 2000,
+    })
+    const rows = [...host.querySelectorAll('.lib-tbl tbody tr')]
+    const pseudoRow = rows.find(r => r.getAttribute('title') === '[anon_shmem:dalvik-jit-code-cache]')
+    const fileRow = rows.find(r => r.getAttribute('title') === '/data/app/dev.ares.detector-1/lib/arm64/libsentinel.so')
+    expect(pseudoRow?.querySelector('input[type=checkbox]')).toBeNull()
+    expect(fileRow?.querySelector('input[type=checkbox]')).not.toBeNull()
+  })
+})

@@ -22,7 +22,7 @@ selectable engines in the Capture modal.
 - Packer-proof hash-vs-on-disk compare is deferred (needs also pulling `/data/app/.../lib/<abi>/<name>.so`).
 - Live stream + dump use the default adb device; multi-device `-s` selection is deferred (matches the rest of the app).
 - Two concurrent ares processes (lib stream + `dump -p`) are unverified on device; if they conflict, stop the stream for the dump then resume. `dump -p` acceptance by ares' argp is a device-verify item.
-- `startLive` has no double-start guard: invoking it while a stream is live orphans the previous RunHandle (the live header hides "Start live capture" while streaming, so low risk today).
+- `startLive` has no double-start guard in the main process: invoking it while a stream is live still orphans the previous RunHandle. The renderer now closes both practical paths - the header hides "Start live capture" while streaming, and leaving Live mode calls `stopLive` - so this is defence-in-depth only, not a live risk today.
 - Live-stream and dump stdout share the single `nativelib:line` IPC channel; lines interleave if a dump is fired mid-stream.
 - The Libraries view re-fetches `libTable` on every tab click (cheap - lib records are sparse).
 - Pre-existing (not introduced by this feature): the `#tab-left` collapse float button clips the leading text of the Flame view's truncation banner, the same overlap the Libraries header fix resolved for its own view.

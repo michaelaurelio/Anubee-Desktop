@@ -20,6 +20,7 @@ function humanBytes(n: number): string {
 
 export interface LibViewApi {
   setSource(s: Source): void
+  refresh(): void
   applyMapped(l: LibLine & { atMs: number }): void
   applyUnmapped(l: LibLine & { atMs: number }): void
   applyPreflightCheck(c: PreflightCheck): void
@@ -91,10 +92,17 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     return atMs !== undefined && atMs > NEW_LIB_SETTLE_MS
   }
 
+  // A row is only dumpable if its `library` is an on-disk path (dump derives the
+  // device-side pattern from the basename); bracketed pseudo-paths like
+  // "[anon_shmem:dalvik-jit-code-cache]" are not files and must not be offered.
+  function isDumpable(r: LibRow): boolean {
+    return r.library.startsWith('/')
+  }
+
   function rowHtml(r: LibRow): string {
     const k = key(r.pid, r.base)
     const cb = source === 'live'
-      ? `<td><input type="checkbox" data-k="${esc(k)}" ${selected.has(k) ? 'checked' : ''}></td>` : ''
+      ? (isDumpable(r) ? `<td><input type="checkbox" data-k="${esc(k)}" ${selected.has(k) ? 'checked' : ''}></td>` : '<td></td>') : ''
     const atMs = (r as LibRow & { atMs?: number }).atMs
     const mapped = source === 'live' && atMs !== undefined ? `t+${(atMs / 1000).toFixed(1)}s` : `#${r.seq}`
     const flags = [
@@ -172,7 +180,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   function renderLiveHeader(): void {
     $<HTMLButtonElement>('[data-live-open]').hidden = streaming
     $('[data-live-on]').hidden = !streaming
-    $('[data-live-pkg]').textContent = livePkg ? `streaming ${livePkg}` : 'streaming'
+    $('[data-live-pkg]').textContent = livePkg || 'streaming'
   }
 
   function beginLive(pkg: string): void {
@@ -184,7 +192,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   function openLiveModal(): void {
     showModal({
       title: 'Live library capture', width: 460,
-      onClose: () => { checkHost = null },
+      onClose: () => { checkHost = null; preflightEpoch.bump() },
       render: host => {
         host.innerHTML = `
           <div class="lib-modal">
@@ -239,16 +247,23 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       return { pid, pattern }
     }).filter(j => j.pattern)
     dumpBtn.disabled = true
-    try { for (const j of jobs) addArtifacts(await deps.dumpLib(j.pid, j.pattern)) }
-    finally { dumpBtn.disabled = false }
+    try {
+      for (const j of jobs) {
+        try { addArtifacts(await deps.dumpLib(j.pid, j.pattern)) }
+        catch (e) { appendLog(`dump failed for ${j.pattern}: ${e instanceof Error ? e.message : String(e)}`) }
+      }
+    } finally { dumpBtn.disabled = false }
   }
 
   async function setSource(s: Source): Promise<void> {
     source = s
     host.querySelectorAll<HTMLButtonElement>('.lib-seg button').forEach(b => b.classList.toggle('on', b.dataset.src === s))
     $('[data-live]').hidden = s !== 'live'
-    if (s === 'loaded') { streaming = false; await loadLoaded() }
-    else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); syncDump(); renderLiveHeader() }
+    if (s === 'loaded') {
+      if (streaming) { streaming = false; void deps.stopLive() }
+      $('[data-log]').hidden = true // the device log is meaningless once back on a loaded run
+      await loadLoaded()
+    } else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); syncDump(); renderLiveHeader() }
   }
 
   function appendLog(line: string): void {
@@ -269,7 +284,9 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
 
   return {
     setSource: s => { void setSource(s) },
+    refresh: () => { if (source === 'loaded') void loadLoaded() },
     applyMapped: l => {
+      if (source !== 'live') return // a stream-end already in flight must not write into the Loaded table
       const base = l.start
       const r: LibRow & { atMs: number } = {
         library: l.library ?? '', soname: l.soname ?? null, base, end: l.end,
@@ -279,6 +296,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       rows.set(key(l.pid, base), r); renderRows(); renderStat()
     },
     applyUnmapped: l => {
+      if (source !== 'live') return
       const r = rows.get(key(l.pid, l.start)); if (r) { r.unmapped = true; renderRows(); renderStat() }
     },
     applyPreflightCheck: c => {
