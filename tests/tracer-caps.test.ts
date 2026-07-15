@@ -118,7 +118,7 @@ describe('tracer-caps registry', () => {
   })
 })
 
-import { composeRunArg, outJsonlPath, DEVICE_BIN, STOP_ARG, commonArgv } from '../src/shared/tracer-caps'
+import { composeRunArg, outJsonlPath, DEVICE_BIN, STOP_ARG, commonArgv, ereEscape, stopArgLive, stopArgWatch, isSafePattern } from '../src/shared/tracer-caps'
 
 describe('composeRunArg', () => {
   const syscalls = capById('syscalls')!
@@ -148,6 +148,43 @@ describe('composeRunArg', () => {
     expect(DEVICE_BIN).toBe('/data/local/tmp/ares')
     expect(STOP_ARG).toBe("su -c 'pkill -INT -f /data/local/tmp/ares'")
     expect(outJsonlPath('X')).toBe('/data/local/tmp/ares-X.jsonl')
+  })
+
+  it('stopArgLive targets only the lib stream, anchored and ERE-escaped', () => {
+    const a = stopArgLive('dev.ares.detector')
+    // Anchored on the binary path so it cannot match its own su/sh parent,
+    // whose cmdline contains the pattern but does not start with the binary.
+    expect(a).toContain('pkill -INT -f')
+    expect(a).toContain('^/data/local/tmp/ares lib -P dev\\.ares\\.detector$')
+    // A dot must be escaped: unescaped it would also match devXaresYdetector.
+    expect(a).not.toContain('dev.ares.detector$')
+  })
+
+  it('stopArgWatch targets only the on-map watcher for one pid', () => {
+    const a = stopArgWatch(25659)
+    expect(a).toContain('^/data/local/tmp/ares dump -p 25659 --on-map')
+    // Stops before any -l glob, so the glob never round-trips through ERE.
+    expect(a).not.toContain('-l')
+  })
+
+  it('neither stop pattern matches its own su -c wrapper', () => {
+    // The device runs `su -c '<one string>'`; the su cmdline contains the
+    // pattern but does not START with /data/local/tmp/ares, so ^ excludes it.
+    for (const a of [stopArgLive('dev.ares.detector'), stopArgWatch(1)]) {
+      const re = a.match(/-f "(.+)"/)?.[1]
+      expect(re).toBeDefined()
+      expect(new RegExp(re!).test("su -c '/data/local/tmp/ares lib -P dev.ares.detector'")).toBe(false)
+    }
+  })
+
+  it('isSafePattern accepts a glob but still rejects shell-dangerous chars', () => {
+    expect(isSafePattern('lib<example>.so'.replace('<example>', 'example'))).toBe(true) // libexample.so
+    expect(isSafePattern('libexample*')).toBe(true)
+    expect(isSafePattern('blob_[0-9]*')).toBe(true)
+    expect(isSafePattern('lib?.so')).toBe(true)
+    expect(isSafePattern("lib'; rm -rf /")).toBe(false)  // quote + space
+    expect(isSafePattern('lib$(x)')).toBe(false)          // $ (
+    expect(isSafePattern('lib`x`')).toBe(false)           // backtick
   })
 
   it('splices -b/-Q/-v before -o for a common cap', () => {
