@@ -71,7 +71,13 @@ describe('integration: load the fixture end to end', () => {
     // The capture carries real RASP bridges, so the has-java_stack slice is non-empty.
     expect((await real.slice({ hasJavaStack: true })).eventCount).toBeGreaterThan(0)
     await real.close()
-  })
+    // The only test that ingests the 8.5MB real capture (DuckDB read_json plus a
+    // full TS fold of every syscall). It is the slowest in the suite by an order
+    // of magnitude - ~1.5s idle, but >7s when the machine is loaded, which
+    // silently blew vitest's 5s default and made this the suite's one flaky test.
+    // Timed out here rather than raising testTimeout globally, which would mask a
+    // real hang in the other fast tests.
+  }, 30000)
 
   it('filters by library and by tid', async () => {
     await store.ingest(FIXTURE)
