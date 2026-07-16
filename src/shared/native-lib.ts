@@ -60,6 +60,16 @@ export interface Artifact {
   sha256: string
 }
 
-// A library that maps after this window (from live-stream start) is flagged
-// `new` - the runtime-decrypt / packer signal. Authoritative in live mode only.
-export const NEW_LIB_SETTLE_MS = 1500
+export type ModcmpState = 'match' | 'differ' | 'nofile' | 'apk' | 'unreadable'
+
+// One `ares dump --check` verdict for a module, joined to a table row by
+// pid+base (NOT module: an APK-embedded lib's module is "base.apk").
+export interface Modcmp {
+  module: string
+  path: string
+  base: string
+  pid: number
+  state: ModcmpState
+  memSha256: string | null
+  fileSha256: string | null
+}
