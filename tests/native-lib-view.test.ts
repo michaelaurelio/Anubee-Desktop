@@ -26,7 +26,21 @@ function make(over: Partial<LibViewDeps> = {}): { host: HTMLElement; deps: LibVi
   return { host, deps }
 }
 
-afterEach(() => { document.body.innerHTML = '' })
+afterEach(() => { document.body.innerHTML = ''; localStorage.clear() })
+
+// Drives a real grip drag the same way a pointer would: pointerdown on the grip,
+// pointermove/pointerup on window (matching the window-level listener pattern in
+// native-lib-view.ts and panels.ts). startH is read from the live --dock-h so the
+// helper is correct regardless of the dock's current height.
+function setDockHeight(host: HTMLElement, target: number): void {
+  const grip = host.querySelector('[data-grip]') as HTMLElement
+  const dock = host.querySelector('.lib-dock') as HTMLElement
+  const cur = dock.style.getPropertyValue('--dock-h')
+  const startH = cur ? parseInt(cur, 10) : 180
+  grip.dispatchEvent(new PointerEvent('pointerdown', { clientY: 0, bubbles: true }))
+  window.dispatchEvent(new PointerEvent('pointermove', { clientY: -(target - startH), bubbles: true }))
+  window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+}
 
 // Drives the full preflight-modal Begin flow so the view actually enters its
 // internal `streaming` state (only reachable this way - `setSource('live')`
@@ -256,6 +270,33 @@ describe('native-lib-view tabbed dock (task 3)', () => {
     expect(dock.classList.contains('collapsed')).toBe(true)
     api.appendLog('some ordinary device line')
     expect(dock.classList.contains('collapsed')).toBe(true)   // stayed collapsed
+  })
+})
+
+describe('native-lib-view dock resize + persistence (task 4)', () => {
+  it('persists dock height/collapsed/activeTab across a re-mount', () => {
+    localStorage.clear()
+    const { host, deps } = make()
+    createLibView(host, deps)
+    ;(host.querySelector('[data-dock-collapse]') as HTMLElement).click()  // expand (default is collapsed)
+    ;(host.querySelector('[data-tab="log"]') as HTMLElement).click()
+    setDockHeight(host, 260)
+    host.innerHTML = ''                       // unmount
+    createLibView(host, deps)                 // remount reads localStorage
+    const dock = host.querySelector('.lib-dock') as HTMLElement
+    expect(dock.getAttribute('data-active')).toBe('log')
+    expect(dock.classList.contains('collapsed')).toBe(false)
+    expect(dock.style.getPropertyValue('--dock-h')).toBe('260px')
+  })
+
+  it('clamps a dragged height to MAX_H so the dock cannot crush the table', () => {
+    localStorage.clear()
+    const { host, deps } = make()
+    createLibView(host, deps)
+    ;(host.querySelector('[data-dock-collapse]') as HTMLElement).click()  // expand
+    setDockHeight(host, 9999)
+    const dock = host.querySelector('.lib-dock') as HTMLElement
+    expect(dock.style.getPropertyValue('--dock-h')).toBe('520px')
   })
 })
 

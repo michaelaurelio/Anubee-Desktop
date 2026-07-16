@@ -6,6 +6,7 @@ import { showModal, closeModal } from './modal'
 import { isSafeToken, isSafePattern } from '@shared/tracer-caps'
 import { makeEpoch } from './selection-epoch'
 import { renderPreflightRow, type PreflightCheck } from './capture-view'
+import { clampHeight, serializeDock, parseDock, type DockLayout } from './lib-dock-layout'
 
 type Source = 'loaded' | 'live'
 const key = (pid: number, base: string): string => `${pid}|${base}`
@@ -201,15 +202,48 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   host.querySelectorAll<HTMLButtonElement>('.lib-seg button').forEach(b =>
     b.onclick = () => { void setSource(b.dataset.src as Source) })
   const dock = $('.lib-dock')
+  const DOCK_LS = 'ares.libdock'
+  let dockState: DockLayout = parseDock(localStorage.getItem(DOCK_LS))
   function setActiveTab(tab: 'artifacts' | 'log'): void {
     dock.setAttribute('data-active', tab)
     host.querySelectorAll<HTMLElement>('.lib-tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tab))
     host.querySelectorAll<HTMLElement>('.lib-pane').forEach(p => { p.hidden = p.dataset.pane !== tab })
     if (tab === 'log') $('[data-tab="log"] .dot-err').hidden = true   // reading the log clears its alert
+    saveDock()
+  }
+  // Reads the live DOM state but takes height from dockState.height (never the
+  // DOM) so a restore paint (applyDock -> setActiveTab -> saveDock) cannot
+  // clobber the height it just restored.
+  function saveDock(): void {
+    dockState = {
+      height: dockState.height,
+      collapsed: dock.classList.contains('collapsed'),
+      activeTab: dock.getAttribute('data-active') as DockLayout['activeTab'],
+    }
+    localStorage.setItem(DOCK_LS, serializeDock(dockState))
+  }
+  // Paints persisted state onto the DOM at mount.
+  function applyDock(): void {
+    dock.style.setProperty('--dock-h', `${dockState.height}px`)
+    dock.classList.toggle('collapsed', dockState.collapsed)
+    setActiveTab(dockState.activeTab)
   }
   host.querySelectorAll<HTMLButtonElement>('.lib-tab').forEach(b =>
     b.onclick = () => setActiveTab(b.dataset.tab as 'artifacts' | 'log'))   // switch only, never collapse
-  $('[data-dock-collapse]').onclick = () => { dock.classList.toggle('collapsed') }
+  $('[data-dock-collapse]').onclick = () => { dock.classList.toggle('collapsed'); saveDock() }
+  $('[data-grip]').addEventListener('pointerdown', down => {
+    down.preventDefault()
+    const startY = down.clientY, startH = dockState.height
+    const move = (e: PointerEvent): void => {
+      dockState.height = clampHeight(startH + (startY - e.clientY))   // drag up grows the dock
+      dock.style.setProperty('--dock-h', `${dockState.height}px`)
+    }
+    const up = (): void => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); saveDock()
+    }
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+  })
+  applyDock()
 
   // --- live source: modal-driven preflight + streaming state ---
   function renderLiveHeader(): void {
