@@ -300,8 +300,8 @@ async function pullAndPushWatchArtifacts(): Promise<void> {
   try {
     const arts = await pullWatchArtifacts(adb, deviceDir, hostDir)
     if (arts.length > 0) win.webContents.send('nativelib:watchArtifacts', arts)
-  } catch {
-    // best-effort: the watcher's catches are a bonus, not a requirement
+  } catch (e) {
+    win.webContents.send('nativelib:line', `on-map artifact pull failed: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
 

@@ -100,9 +100,16 @@ describe('watchArg / startWatch', () => {
 })
 
 describe('pullWatchArtifacts', () => {
-  it('returns [] when the pull fails, instead of throwing (no match caught is a legitimate outcome)', async () => {
+  it('returns [] when the pull fails, despite a populated dir (failed pull discriminator)', async () => {
     const failAdb: Adb = { run: vi.fn(async () => ({ code: 1, stdout: '', stderr: 'no such file or directory' })) }
     const d = mkdtempSync(join(tmpdir(), 'ares-onmap-'))
+    // pre-populate hostDir with manifest and ELF, as if a prior pull succeeded.
+    // calling pullWatchArtifacts with failAdb should still return [],
+    // proving the code branches on pull failure (not just empty dir).
+    const elf = Buffer.alloc(64); elf.set([0x7f, 0x45, 0x4c, 0x46]); elf[4] = 2; elf[5] = 1; elf[18] = 0xb7
+    writeFileSync(join(d, 'libcaught.so'), elf)
+    writeFileSync(join(d, 'manifest.jsonl'),
+      '{"type":"dump","module":"libcaught.so","path":"/proc/7/libcaught.so","base":"0x3000","pid":7,"raw":false}\n')
     await expect(pullWatchArtifacts(failAdb, '/data/local/tmp/ares-onmap-x', d)).resolves.toEqual([])
     rmSync(d, { recursive: true, force: true })
   })
