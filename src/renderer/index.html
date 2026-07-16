@@ -464,15 +464,20 @@
       #libs { position:absolute; inset:0; display:flex; flex-direction:column; background:var(--surface); overflow:hidden; }
       #libs.hidden { display:none; }
       #libs [hidden] { display:none !important; }
-      #libs .lib-hdr { padding:8px 12px; background:var(--bar); border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
-      #libs .lib-row1 { display:flex; align-items:center; gap:10px; }
+      #libs .lib-hdr { background:var(--bar); border-bottom:1px solid var(--border); }
+      #libs .lib-tool { display:flex; align-items:center; gap:10px; padding:0 12px; height:44px; }
+      #libs .lib-tool strong { font-size:13px; white-space:nowrap; }
+      #libs .lib-live { margin-left:auto; display:flex; gap:6px; align-items:center; }
       #libs .lib-seg { display:flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; font-size:11px; }
       #libs .lib-seg button { background:transparent; border:0; color:var(--muted); padding:3px 10px; cursor:pointer; }
       #libs .lib-seg button.on { background:var(--accent); color:#fff; }
-      #libs .lib-ctl { margin-left:auto; display:flex; gap:6px; align-items:center; }
-      #libs .lib-ctl input { background:var(--input-bg); border:1px solid var(--input-bd); border-radius:5px; padding:3px 8px; color:var(--text); font-size:11px; }
-      #libs .lib-stat { display:flex; gap:14px; font-size:11px; color:var(--muted); align-items:center; }
+      #libs .lib-stat { display:flex; align-items:center; gap:14px; height:30px; padding:0 12px; font-size:11px; color:var(--muted); border-top:1px solid var(--border-soft); }
       #libs .lib-stat .mod { color:var(--k-func); }
+      #libs .lib-selbar { display:flex; align-items:center; gap:8px; height:34px; padding:0 12px; font-size:11px; background:var(--accent-soft); border-top:1px solid var(--accent-bd); }
+      #libs .lib-selbar[hidden] { display:none; }
+      #libs .lib-selbar .n { color:var(--accent-fg); font-weight:600; }
+      #libs .lib-selbar .lib-sp { margin-left:auto; }
+      #libs .lib-div { width:1px; height:18px; background:var(--border); }
       #libs .lib-dot { width:7px; height:7px; border-radius:50%; background:var(--k-java); display:inline-block; margin-right:5px; }
       #libs .lib-tbl { flex:1; overflow:auto; }
       #libs table { width:100%; border-collapse:collapse; font-size:11px; }

@@ -28,6 +28,19 @@ function make(over: Partial<LibViewDeps> = {}): { host: HTMLElement; deps: LibVi
 
 afterEach(() => { document.body.innerHTML = '' })
 
+// Drives the full preflight-modal Begin flow so the view actually enters its
+// internal `streaming` state (only reachable this way - `setSource('live')`
+// alone does not stream). Needed by Verify tests now that Verify is gated on
+// `streaming`, not just `source === 'live'`.
+async function beginLiveCapture(host: HTMLElement, pkg = 'dev.ares.detector'): Promise<void> {
+  ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
+  ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = pkg
+  ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
+  await vi.waitFor(() =>
+    expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
+  ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
+}
+
 describe('native-lib-view live modal', () => {
   it('hides live controls in loaded mode', () => {
     const { host, deps } = make()
@@ -422,9 +435,10 @@ describe('native-lib-view MODIFIED / NO FILE badges from dump --check verdicts',
 })
 
 describe('native-lib-view Verify button (task 5)', () => {
-  it('calls verify with the streaming pid and every dumpable base when nothing is ticked', () => {
+  it('calls verify with the streaming pid and every dumpable base when nothing is ticked', async () => {
     const { host, deps } = make()
     const api = createLibView(host, deps); api.setSource('live')
+    await beginLiveCapture(host) // task 2: Verify now requires an actual live stream, not just source==='live'
     api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 100 })
     // a pseudo-path row is not dumpable and must be excluded from the "all" set
     api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x2', end: '0x3', library: '[anon_shmem:x]', atMs: 100 })
@@ -434,9 +448,10 @@ describe('native-lib-view Verify button (task 5)', () => {
     expect(deps.verify).toHaveBeenCalledWith(42, ['0x1', '0x3'])
   })
 
-  it('calls verify with only the ticked subset when some rows are selected', () => {
+  it('calls verify with only the ticked subset when some rows are selected', async () => {
     const { host, deps } = make()
     const api = createLibView(host, deps); api.setSource('live')
+    await beginLiveCapture(host)
     api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 100 })
     api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x2', end: '0x3', library: '/y', atMs: 100 })
     ;(host.querySelector('input[data-k="42|0x1"]') as HTMLInputElement).click()
@@ -445,18 +460,67 @@ describe('native-lib-view Verify button (task 5)', () => {
     expect(deps.verify).toHaveBeenCalledWith(42, ['0x1'])
   })
 
-  it('does nothing when there are no live rows yet', () => {
+  it('does nothing when there are no live rows yet', async () => {
     const { host, deps } = make()
     const api = createLibView(host, deps); api.setSource('live')
+    await beginLiveCapture(host)
     ;(host.querySelector('[data-verify]') as HTMLButtonElement).click()
     expect(deps.verify).not.toHaveBeenCalled()
   })
 
-  it('hides the Verify control in loaded mode and never calls verify there', async () => {
+  it('keeps the selection bar hidden in loaded mode so Verify is unreachable, and never calls verify there', async () => {
     const { host, deps } = make({ loadedRows: vi.fn(async () => [row()]) })
     const api = createLibView(host, deps)
     await vi.waitFor(() => expect(host.querySelector('.lib-tbl tbody tr')).not.toBeNull())
-    expect((host.querySelector('[data-verify]') as HTMLElement).hidden).toBe(true)
+    expect((host.querySelector('[data-selbar]') as HTMLElement).hidden).toBe(true)
     expect(deps.verify).not.toHaveBeenCalled()
+  })
+})
+
+describe('native-lib-view selection bar (task 2)', () => {
+  it('shows the selection bar only when rows are ticked, with Dump + Verify + Clear', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, start: '0x1', end: '0x2', library: '/x/liba.so', atMs: 100 })
+    // nothing ticked -> the bar exists (toggled via [hidden], not removed) but stays hidden
+    expect((host.querySelector('.lib-selbar') as HTMLElement).hidden).toBe(true)
+    ;(host.querySelector('input[data-k="7|0x1"]') as HTMLInputElement).click()
+    const bar = host.querySelector('.lib-selbar') as HTMLElement
+    expect(bar.hidden).toBe(false)
+    expect(bar.textContent).toMatch(/1 selected/)
+    expect(bar.querySelector('[data-dump]')).not.toBeNull()
+    expect(bar.querySelector('[data-verify]')).not.toBeNull()
+    expect(bar.querySelector('[data-clear]')).not.toBeNull()
+  })
+
+  it('Clear unticks every row and hides the selection bar', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, start: '0x1', end: '0x2', library: '/x/liba.so', atMs: 100 })
+    ;(host.querySelector('input[data-k="7|0x1"]') as HTMLInputElement).click()
+    ;(host.querySelector('[data-clear]') as HTMLElement).click()
+    expect((host.querySelector('.lib-selbar') as HTMLElement).hidden).toBe(true)
+  })
+
+  it('loaded mode has no selection bar and the stat row reads "N libraries"', async () => {
+    const { host, deps } = make({ loadedRows: vi.fn(async () => []) })
+    const api = createLibView(host, deps); api.setSource('loaded')
+    await vi.waitFor(() => expect(host.querySelector('[data-stat]')!.textContent).toMatch(/librar/i))
+    expect((host.querySelector('.lib-selbar') as HTMLElement).hidden).toBe(true)
+  })
+
+  it('Verify on a stopped stream gives feedback instead of a silent no-op', () => {
+    // The Phase 3 minor: after stop, liveCheckDir is null main-side so verify
+    // does nothing. Here the view is live-source but not streaming (this test
+    // never enters beginLive), so a Verify click must log rather than silently
+    // swallow.
+    const verified: unknown[] = []
+    const { host, deps } = make({ verify: async (...a) => { verified.push(a) } })
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, start: '0x1', end: '0x2', library: '/x/liba.so', atMs: 100 })
+    ;(host.querySelector('input[data-k="7|0x1"]') as HTMLInputElement).click()
+    ;(host.querySelector('[data-verify]') as HTMLElement).click()
+    expect(verified).toEqual([]) // deps.verify NOT called
+    expect(host.querySelector('[data-log-body]')!.textContent).toMatch(/verify needs a live stream/i)
   })
 })

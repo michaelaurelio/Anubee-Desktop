@@ -66,10 +66,10 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
 
   host.innerHTML = `
     <div class="lib-hdr">
-      <div class="lib-row1">
+      <div class="lib-tool">
         <strong>Native Libraries</strong>
         <div class="lib-seg"><button data-src="loaded" class="on">Loaded run</button><button data-src="live">Live device</button></div>
-        <div class="lib-ctl" data-live hidden>
+        <div class="lib-live" data-live hidden>
           <button class="btn pri" data-live-open>Start live capture&hellip;</button>
           <span class="lib-live-on" data-live-on hidden>
             <span class="lib-dot"></span><span data-live-pkg></span>
@@ -77,12 +77,14 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
           </span>
         </div>
       </div>
-      <div class="lib-row1">
-        <div class="lib-stat" data-stat></div>
-        <div class="lib-ctl">
-          <button class="btn" data-verify hidden>Verify</button>
-          <button class="btn pri" data-dump hidden>Dump selected (0)</button>
-        </div>
+      <div class="lib-stat" data-stat></div>
+      <div class="lib-selbar" data-selbar hidden>
+        <span class="n" data-sel-count></span>
+        <span class="lib-div"></span>
+        <button class="btn pri" data-dump>Dump</button>
+        <button class="btn" data-verify>Verify</button>
+        <span class="lib-sp"></span>
+        <button class="btn gh" data-clear>Clear</button>
       </div>
     </div>
     <div class="lib-tbl"><table><thead></thead><tbody></tbody></table></div>
@@ -140,7 +142,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     tbody.innerHTML = [...rows.values()].map(rowHtml).join('')
     if (source === 'live') {
       tbody.querySelectorAll<HTMLInputElement>('input[data-k]').forEach(cb => {
-        cb.onchange = () => { cb.checked ? selected.add(cb.dataset.k!) : selected.delete(cb.dataset.k!); syncDump() }
+        cb.onchange = () => { cb.checked ? selected.add(cb.dataset.k!) : selected.delete(cb.dataset.k!); renderSelectionBar() }
       })
     }
     renderEmpty()
@@ -166,21 +168,17 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       `${streaming ? '<span class="lib-dot"></span>streaming' : 'stopped'} · ${rows.size} mapped · <span class="mod">${modified} modified</span> · ${unm} unmapped`
   }
 
-  function syncDump(): void {
-    dumpBtn.textContent = `Dump selected (${selected.size})`
-    dumpBtn.hidden = source !== 'live' || selected.size === 0
-  }
-
-  // Minimal, live-only control: Phase 4's header gives Verify its polished,
-  // selection-aware home. Here it just shows/hides with the source.
-  function syncVerify(): void {
-    verifyBtn.hidden = source !== 'live'
+  function renderSelectionBar(): void {
+    const bar = $('[data-selbar]')
+    const show = source === 'live' && selected.size > 0
+    bar.hidden = !show
+    if (show) $('[data-sel-count]').textContent = `${selected.size} selected`
   }
 
   async function loadLoaded(): Promise<void> {
     rows.clear(); selected.clear()
     for (const r of await deps.loadedRows()) rows.set(key(r.pid, r.base), r)
-    renderHead(); renderRows(); renderStat(); syncDump(); syncVerify()
+    renderHead(); renderRows(); renderStat(); renderSelectionBar()
   }
 
   function renderArtifacts(): void {
@@ -212,7 +210,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
 
   function beginLive(pkg: string, glob?: string): void {
     livePkg = pkg; rows.clear(); selected.clear(); streaming = true
-    renderLiveHeader(); renderRows(); renderStat(); syncDump(); syncVerify()
+    renderLiveHeader(); renderRows(); renderStat(); renderSelectionBar()
     void deps.startLive(pkg, glob)
   }
 
@@ -283,6 +281,10 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   // (they all share the one streaming pid); with no rows there is nothing
   // to check.
   verifyBtn.onclick = () => {
+    // Post-stop click must not silently no-op: liveCheckDir is nulled
+    // main-side once the stream stops, so a click with no live stream
+    // needs feedback instead of doing nothing.
+    if (!streaming) { appendLog('verify needs a live stream (start a live capture first)'); return }
     const liveRows = [...rows.values()]
     if (liveRows.length === 0) return
     const pid = liveRows[0].pid
@@ -291,6 +293,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       : liveRows.filter(isDumpable).map(r => r.base)
     void deps.verify(pid, bases)
   }
+  $('[data-clear]').onclick = () => { selected.clear(); renderRows(); renderSelectionBar() }
   dumpBtn.onclick = async () => {
     const jobs = [...selected].map(k => {
       const [pidStr, base] = k.split('|')
@@ -313,7 +316,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       if (streaming) { streaming = false; void deps.stopLive() }
       $('[data-log]').hidden = true // the device log is meaningless once back on a loaded run
       await loadLoaded()
-    } else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); syncDump(); syncVerify(); renderLiveHeader() }
+    } else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); renderSelectionBar(); renderLiveHeader() }
   }
 
   function appendLog(line: string): void {
