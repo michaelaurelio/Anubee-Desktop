@@ -34,6 +34,7 @@ selectable engines in the Capture modal.
 - GUI smoke was via `npm run shots` against the loaded fixture (`10-libraries.png`); the live-stream + dump path has a CLI-level device pass (see above) but still needs to be driven through the GUI itself.
 - The Libraries preflight modal shares the `tracer:preflight-check` IPC channel with the Capture modal; both listeners fire on any preflight and each no-ops when its own surface is closed. Harmless today, but a per-caller channel would be cleaner if a third caller appears.
 - The live preflight modal's shape is asserted by `npm run shots`, but a green preflight + streaming run still needs an on-device pass (no device in the harness).
+- Capture's stop still uses the old global `STOP_ARG` kill switch (`startRun`'s default, `activeRun.stop()` in `src/main/index.ts`), so stopping a Capture run can still SIGINT a concurrent Libraries live stream or on-map watcher. Deferred because Capture's cmdline can carry an optional `timeout -s INT -k 3 <N>` wrapper (e.g. `su -c 'timeout -s INT -k 3 20 /data/local/tmp/ares syscalls -P dev.ares.detector -l libc.so -o ...'`), so a scoped Capture stop pattern needs to match both the wrapped and unwrapped shapes, not just an anchored `^/data/local/tmp/ares syscalls ...`.
 
 ## Shipped (2026-07-14) - omni filter bar
 

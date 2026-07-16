@@ -628,12 +628,18 @@ it needs none: `--now` is a synchronous `/proc` snapshot that runs to
 completion and exits 0 on its own, `dumpByBase` (`src/main/native-lib-live.ts`)
 only ever awaits its `RunHandle`'s `done`, and `RunHandle.stop()` is never
 called on it anywhere - `startRun`'s default `stopArg` (the old global
-`STOP_ARG`) is inherited but sits unused. Previously, before `stopArgLive` and
-`stopArgWatch` existed, that one global `pkill -INT -f /data/local/tmp/ares`
-was the only stop path in the app: it applied to the live stream and the
-wait-for-Ctrl-C dump mechanism this feature later replaced with `dump --now`,
-so stopping one could SIGINT the other. The per-run patterns make stopping
-the live stream or the watcher a no-op for every other run.
+`STOP_ARG`) is inherited but sits unused *for a dump*. It is not unused
+everywhere: Capture (`tracer:start` / `tracer:stop` in `src/main/index.ts`,
+`activeRun = startRun(...)` with no 5th argument) still calls `startRun` with
+the global default, so it remains the one caller of the old kill switch - a
+Capture stop still SIGINTs any concurrent Libraries live stream or on-map
+watcher (known drawback, see `BACKLOG.md`). Previously, before `stopArgLive`
+and `stopArgWatch` existed, that one global `pkill -INT -f
+/data/local/tmp/ares` was the only stop path in the app: it applied to the
+live stream, the wait-for-Ctrl-C dump mechanism this feature later replaced
+with `dump --now`, and Capture. The per-run patterns made stopping the live
+stream or the watcher a no-op for every other run, but did not make Capture's
+stop scoped in the same way.
 
 The `lib` and `dump` capability outputs are no longer selectable engines in the
 Capture modal (feature 9) - they are now integrated as exclusive features of the
