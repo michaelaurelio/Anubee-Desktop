@@ -374,7 +374,7 @@ describe('native-lib-view MODIFIED / NO FILE badges from dump --check verdicts',
     expect(row.querySelector('.lib-badge')).toBeNull()
   })
 
-  it('a later match verdict does not clear a previously rendered MODIFIED badge into a false clean', () => {
+  it('joins a differ verdict only to its exact row - the sibling row at an adjacent base is never badged', () => {
     // Pin the join target precisely: two rows for the same pid at adjacent
     // bases must not cross-contaminate - only the checked row gets the badge,
     // and the sibling row (never checked) stays unbadged.
@@ -387,6 +387,24 @@ describe('native-lib-view MODIFIED / NO FILE badges from dump --check verdicts',
     const sibling = host.querySelector('.lib-tbl tbody tr[data-k="7|0x2"]') as HTMLElement
     expect(checked.querySelector('.lib-badge.mod')).not.toBeNull()
     expect(sibling.querySelector('.lib-badge')).toBeNull()
+  })
+
+  it('a differ verdict that later heals to match clears the MODIFIED badge but keeps the trail honest at the first-seen differ baseline', () => {
+    // The healing transition: differ (t+5.0s) -> match (t+31.0s). checkState
+    // must move to match (badge gone), while baselineState stays frozen at
+    // the first-seen differ, so the trail reads "modified -> clean" - a
+    // genuine baseline -> latest change, not a silently erased history.
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 4300 })
+    api.applyCheck([cm({ base: '0x1', state: 'differ', memSha256: 'a', fileSha256: 'b' })], 5000)
+    const afterDiffer = host.querySelector('.lib-tbl tbody tr[data-k="7|0x1"]') as HTMLElement
+    expect(afterDiffer.querySelector('.lib-badge.mod')).not.toBeNull()
+
+    api.applyCheck([cm({ base: '0x1', state: 'match', memSha256: 'a', fileSha256: 'a' })], 31000)
+    const afterMatch = host.querySelector('.lib-tbl tbody tr[data-k="7|0x1"]') as HTMLElement
+    expect(afterMatch.querySelectorAll('.lib-badge.mod').length).toBe(0)
+    expect(afterMatch.title).toMatch(/modified.*->.*clean/i)
   })
 
   it('renders a "N modified" stat computed from differ rows, not a hand-fixed count', () => {
