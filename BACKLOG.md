@@ -3,6 +3,42 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-16) - Native Libraries Phase 3 (integrity tags + check batching)
+
+Replaces the Phase 2 `isNew`/`NEW_LIB_SETTLE_MS` heuristic (which flagged every
+row, since a cold-start linker burst lands well past its 1500ms mark) with a real
+integrity signal. Every dumpable row that maps during a live stream is
+auto-queued into a 300ms debounced batcher, coalescing the whole map burst into
+one `ares dump --now --check -p <pid> --base A --base B ...` pass (`--base`
+repeats; sliced above ARES's 64-base cap). Returned `modcmp` verdicts join back
+to table rows by `pid` + numeric base (never by module name - an APK-embedded
+library's `modcmp` module is literally `base.apk`) and render as `MODIFIED`
+(`differ`) or `NO FILE` (`nofile`); `match`, `apk`, and `unreadable` are
+deliberately withheld from a badge so a read failure or an unresolved APK
+baseline never reads as a false modification. Because every library is
+baselined at map time, a clean-to-modified transition is observed and recorded
+on the row (`clean at t+Xs -> modified at t+Ys`), not inferred. An on-demand
+**Verify** control re-runs the same batched check for the ticked selection or
+every dumpable row. Full detail in `DOCUMENTATION.md`'s "Native Libraries"
+section.
+
+Device-verified (`dev.ares.detector`, Phase 1 binary): `ares dump --now --check`
+against the APK-embedded `libsentinel.so` (maps path `base.apk`) returned
+`state: match` with `mem_sha256 == file_sha256`, confirming the false-MODIFIED
+guard holds on a genuinely clean library and that the `pid|base` join is
+necessary on real hardware (the modcmp `module` field really is `base.apk`, not
+the library name). A batched three-base pass in one invocation returned three
+`match` verdicts, validating repeatable-`--base` batching end-to-end. The device
+pass does not exercise the `differ` (unpacking) path or the GUI path - see
+below.
+
+### Known drawbacks / follow-ups
+- The on-demand Verify control is minimal (live-only, no selection-aware placement); its polished home is the view header, planned for Phase 4 (spec 7.1).
+- `DT_TEXTREL` / JIT libraries legitimately read `MODIFIED` - the honest cost of naming the observation rather than an inferred cause. Documented, not worked around.
+- The real `clean -> differ` (unpacking) transition is not proven end-to-end on a device: no self-modifying / packed fixture exists in `../ARES-Detector`. Host tests cover the differ path on synthetic images; the device pass proves only `match`. Same gap as Phases 1/2.
+- The GUI end-to-end path (badges rendering in the running Electron app, the Verify button, the 300ms debounce timing) is unit-tested only, never driven through Electron. The device pass above was CLI-level. Same carry-forward as Phase 2.
+- `startLive` eagerly `mkdir -p`'s the check device dir up front; `checkByBases`'s first slice `mkdir -p`'s the same dir again internally. Redundant but harmless - `mkdir -p` is idempotent.
+
 ## Shipped (2026-07-15) - Native Libraries (lib + dump)
 
 A third view mode (Libraries, next to Graph/Flame) with a Loaded-run <-> Live-device
@@ -26,7 +62,7 @@ selectable engines in the Capture modal.
 - The on-map watcher's file-path-only boundary is a maps-path limitation in ares' `-l`, not a Desktop bug: it matches the resolved `/proc/<pid>/maps` path of a mapped library, so it can only ever catch a file-backed transient. It cannot match an APK-embedded library (maps path is `base.apk`, there is no standalone file it decrypted to) or an anonymous mapping (no path at all) - those remain reachable only through the table (once mapped) or by dumping their base directly.
 - The on-map watcher was NOT fired against a real transient on device: `dev.ares.detector` has no decrypt-to-a-file-then-`dlopen` payload, and its libraries are APK-embedded, which on-map cannot match by design (see above). What IS proven: the built command delivers the glob literally through `su -c` (measured on device), and its stop pattern is the same anchored form verified for the live stream. For the same reason, the pull-and-triage-into-the-dock path added after this bullet was written (own device dir, pulled + triaged into the Artifacts dock on stream stop) is likewise unverified on device - it is covered by unit tests only. Closing this needs a target that maps a file-backed transient library.
 - The GUI live+dump path has still not been driven end-to-end through the app UI; the device pass above was at the CLI level, exercising the exact strings the Desktop builds directly over adb, not through Electron.
-- Check-batching and the `MODIFIED`/`NO FILE` tags on repeated dumps are Phase 3, not shipped here.
+- Check-batching and the `MODIFIED`/`NO FILE` tags on repeated dumps were Phase 3, not this drop - see the 2026-07-16 section above.
 - `startLive` has no double-start guard in the main process: invoking it while a stream is live still orphans the previous RunHandle. The renderer now closes both practical paths - the header hides "Start live capture" while streaming, and leaving Live mode calls `stopLive` - so this is defence-in-depth only, not a live risk today.
 - Live-stream and dump stdout share the single `nativelib:line` IPC channel; lines interleave if a dump is fired mid-stream.
 - The Libraries view re-fetches `libTable` on every tab click (cheap - lib records are sparse).

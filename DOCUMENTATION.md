@@ -579,16 +579,96 @@ Reads `type:lib` records from the opened run via `GraphStore.libTable`. Each row
 displays a library basename, its load address base, and flags for whether the
 library was successfully mapped (`lib`) or unmapped (`unlib` - unresolved symbol
 addresses). The view re-fetches the table on every tab click (sparse records, low
-cost). Rows display in ingest sequence; unlike the live-mode `new` badge, there
-is no wall-clock timestamp in the JSONL schema to compute `new-since-start`.
+cost). Rows display in ingest sequence - there is no wall-clock timestamp in the
+JSONL schema to compute a `mapped` time the way live mode's `t+X.Xs` column does.
 
 ### Live mode
 
 Streams the output of `ares lib -P <pkg>` from the connected device, parsing each
 `[lib]` line via `src/shared/lib-line.ts` and stamping each with the host's arrival
-time. Libraries that load later than `NEW_LIB_SETTLE_MS` (1500ms) after the stream
-starts are flagged with a `new` badge - this signals post-setup loads, including
-libraries decrypted by a packer after app startup (the packer-proof use case).
+time (the `mapped` column, `t+X.Xs`). Every dumpable row is also auto-checked
+against its on-disk baseline as it maps - see Integrity check, below - which is
+where a row's badge comes from; the map timestamp itself no longer drives one.
+
+### Integrity check (MODIFIED / NO FILE badges)
+
+Every dumpable row (an on-disk library, not a bracketed pseudo-path) that maps
+during a live stream has its `pid|base` queued into a 300ms debounced batcher
+(`makeBatcher`, `src/shared/batcher.ts`). `ares lib -P <pkg>` launches the target
+app itself, so a cold start's linker maps dozens of libraries within a short
+burst; the debounce coalesces that whole burst into **one** batched pass -
+`ares dump --now --check -p <pid> --base A --base B ...` (`--base` repeats).
+Above ARES's 64-base cap the bases are sliced into sequential passes: `--check`'s
+`-o` output truncates on each device write, so slices are run and pulled one at a
+time rather than all at once, or an earlier slice's verdicts would be lost to a
+later one's write.
+
+Clicking **Verify** runs the same batched check on demand - the ticked selection
+if any row is selected, else every dumpable row. It is a minimal, live-only
+control for now; giving it a polished, selection-aware home in the view header is
+Phase 4 work (see `BACKLOG.md`).
+
+Each returned `modcmp` verdict joins back to a table row by **`pid` and numeric
+base** (`sameBase`, a `BigInt` compare so a leading-zero formatting difference
+cannot drop a match) - **never by module name**. An APK-embedded library's
+`modcmp` `module` field is literally `base.apk` (the `/proc/<pid>/maps` path
+ares actually resolved), so a name join would either match nothing or collide
+with an unrelated row.
+
+The verdict `state` maps to a badge as follows:
+
+| state | badge | meaning |
+|---|---|---|
+| `differ` | `MODIFIED` | executable-memory hash != on-disk file hash |
+| `nofile` | `NO FILE` | no on-disk file exists to compare against |
+| `match` | none | memory hash == file hash - clean |
+| `apk` | none | baseline unresolved (APK-embedded; no standalone file to hash) |
+| `unreadable` | none | the `/proc/<pid>/mem` read failed |
+
+`match`, `apk`, and `unreadable` are withheld from a badge deliberately, not
+merely left unstyled. `unreadable` and `apk` are read failures, not integrity
+findings: a `/proc/<pid>/mem` read can come up short for reasons that have
+nothing to do with a library's contents, and an unresolved APK baseline is a
+measurement gap, not a modification. Showing `MODIFIED` for either would be the
+worst failure a trust signal can have - a false positive on a library that is
+actually clean. The badge fires only on a verdict that is confidently *not*
+clean.
+
+Because every library is baselined at map time rather than lazily on first
+Verify, a clean-to-modified transition is **observed**, not inferred: a row
+records its first-seen state and its latest state, and when they differ the
+row's tooltip shows the trail, e.g. `clean at t+2.1s -> modified at t+9.4s`. A
+first-seen `differ` (no earlier `match` on record for that row) shows only the
+`MODIFIED` badge with no trail - there is nothing to show a transition from.
+
+```mermaid
+flowchart LR
+  A[lib line: pid + base] -->|dumpable row| B[300ms debounce batcher]
+  B -->|coalesced bases, repeatable --base, capped at 64| C[ares dump --now --check]
+  C -->|modcmp records| D[join by pid + numeric base]
+  D -->|differ| E[MODIFIED badge]
+  D -->|nofile| F[NO FILE badge]
+  D -->|match / apk / unreadable| G[no badge]
+```
+
+The badge is named `MODIFIED`, not e.g. `TAMPERED`, on purpose: it names what was
+measured (`differ`), not what caused it. A library built with `DT_TEXTREL`
+relocations, or one carrying ART JIT-compiled code, legitimately rewrites its own
+executable pages after load and will honestly read `differ`. A tag that names the
+observation rather than an inferred verdict stays accurate even when the cause
+turns out to be benign - the analyst, not the badge, decides whether a given
+`MODIFIED` is suspicious.
+
+**The old `new` badge is gone.** Phase 2's `isNew` / `NEW_LIB_SETTLE_MS` (1500ms)
+heuristic flagged **every** row, not just late loads: `ares lib -P <pkg>` launches
+the target app fresh, so the entire linker burst of a cold start - not only a
+packer's late payload - lands well past 1500ms (observed ~4.3s on a real device
+pass). The heuristic anchored "new" to stream-start, but stream-start is the
+wrong reference point; what actually matters is a library's own prior state,
+which a fixed offset since start cannot express. The `mapped` column (`t+4.3s`
+etc.) is unchanged and still sortable - the timing is real, it just does not by
+itself warrant a badge. The integrity check above replaced it with a signal
+anchored to the library's own baseline instead of the clock.
 
 ### Dumping binaries
 
