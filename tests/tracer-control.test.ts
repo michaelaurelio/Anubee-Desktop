@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { preflight, startRun, lineSplitter, pullResult, type Adb, type Spawner } from '../src/main/tracer-control'
+import { STOP_ARG } from '../src/shared/tracer-caps'
 
 // A scripted fake adb: matches on the joined args, returns a canned result.
 function fakeAdb(routes: Array<[RegExp, { code?: number; stdout?: string; stderr?: string }]>): Adb & { calls: string[] } {
@@ -177,12 +178,23 @@ describe('startRun', () => {
     expect(lines).toContain('[lib] bionic/libc.so')
   })
 
-  it('stop() sends the graceful pkill -INT via a separate su -c', async () => {
+  it('stop() sends the run-specific graceful pkill -INT via a separate su -c', async () => {
     const sp = fakeSpawner()
     const adb = fakeAdb([])
-    const h = startRun(sp, adb, "su -c '/data/local/tmp/ares lib x'", () => {})
+    const stopArg = "su -c 'pkill -INT -f \"^/data/local/tmp/ares lib -P pkg$\"'"
+    const h = startRun(sp, adb, "su -c '/data/local/tmp/ares lib -P pkg'", () => {}, stopArg)
     await h.stop()
-    expect(adb.calls).toContain("shell su -c 'pkill -INT -f /data/local/tmp/ares'")
+    expect(adb.calls).toContain(`shell ${stopArg}`)
+    sp.exit(130)
+    await h.done
+  })
+
+  it('stop() falls back to the global STOP_ARG when no stopArg is given', async () => {
+    const sp = fakeSpawner()
+    const adb = fakeAdb([])
+    const h = startRun(sp, adb, "su -c '/data/local/tmp/ares syscalls x'", () => {})
+    await h.stop()
+    expect(adb.calls).toContain(`shell ${STOP_ARG}`)
     sp.exit(130)
     await h.done
   })

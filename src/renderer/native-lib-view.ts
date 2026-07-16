@@ -3,7 +3,7 @@
 
 import { NEW_LIB_SETTLE_MS, type LibRow, type LibLine, type Artifact } from '@shared/native-lib'
 import { showModal, closeModal } from './modal'
-import { isSafeToken } from '@shared/tracer-caps'
+import { isSafeToken, isSafePattern } from '@shared/tracer-caps'
 import { makeEpoch } from './selection-epoch'
 import { renderPreflightRow, type PreflightCheck } from './capture-view'
 
@@ -31,9 +31,9 @@ export interface LibViewApi {
 
 export interface LibViewDeps {
   loadedRows: () => Promise<LibRow[]>
-  startLive: (pkg: string) => Promise<void>
+  startLive: (pkg: string, glob?: string) => Promise<void>
   stopLive: () => Promise<void>
-  dumpLib: (pid: number, pattern: string) => Promise<Artifact[]>
+  dumpLib: (pid: number, base: string) => Promise<Artifact[]>
   reveal: (path: string) => void
   exportArtifact: (path: string) => void
   preflight: (pkg: string) => Promise<PreflightCheck[]>
@@ -183,10 +183,10 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     $('[data-live-pkg]').textContent = livePkg || 'streaming'
   }
 
-  function beginLive(pkg: string): void {
+  function beginLive(pkg: string, glob?: string): void {
     livePkg = pkg; rows.clear(); selected.clear(); streaming = true
     renderLiveHeader(); renderRows(); renderStat(); syncDump()
-    void deps.startLive(pkg)
+    void deps.startLive(pkg, glob)
   }
 
   function openLiveModal(): void {
@@ -199,27 +199,38 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
             <label class="lib-modal-row">Package
               <input data-modal-pkg placeholder="e.g. dev.ares.detector" value="${esc(livePkg)}">
             </label>
+            <label class="lib-modal-row">Also dump matching libraries as they map (optional)
+              <input data-modal-glob placeholder="e.g. libexample* or blob_[0-9]*">
+            </label>
+            <p class="lib-modal-hint">Catches libraries mapped from a file path. APK-embedded
+              and anonymous mappings are caught in the table or by dumping their base.</p>
             <div class="lib-modal-actions"><button class="btn" data-modal-refresh>Refresh device</button></div>
             <div class="lib-checks" data-modal-checks></div>
             <div class="lib-modal-foot"><button class="btn pri" data-modal-begin disabled>Begin</button></div>
           </div>`
         checkHost = host.querySelector('[data-modal-checks]')
         const pkgIn = host.querySelector('[data-modal-pkg]') as HTMLInputElement
+        const globIn = host.querySelector('[data-modal-glob]') as HTMLInputElement
         const beginBtn = host.querySelector('[data-modal-begin]') as HTMLButtonElement
         const refreshBtn = host.querySelector('[data-modal-refresh]') as HTMLButtonElement
+        let preflightOk = false
+        const globValid = (): boolean => { const g = globIn.value.trim(); return g === '' || isSafePattern(g) }
+        const syncBegin = (): void => { beginBtn.disabled = !(preflightOk && globValid()) }
         // Any edit invalidates a prior green preflight (epoch guard).
-        pkgIn.oninput = () => { preflightEpoch.bump(); beginBtn.disabled = true; if (checkHost) checkHost.innerHTML = '' }
+        pkgIn.oninput = () => { preflightEpoch.bump(); preflightOk = false; beginBtn.disabled = true; if (checkHost) checkHost.innerHTML = '' }
+        globIn.oninput = () => syncBegin()
         refreshBtn.onclick = async () => {
           const pkg = pkgIn.value.trim()
           if (!pkg) { if (checkHost) checkHost.textContent = 'enter a package first'; return }
           if (!isSafeToken(pkg)) { if (checkHost) checkHost.textContent = 'package has unsupported characters'; return }
           const token = preflightEpoch.bump()
           if (checkHost) checkHost.innerHTML = ''
-          beginBtn.disabled = true; refreshBtn.disabled = true
+          preflightOk = false; beginBtn.disabled = true; refreshBtn.disabled = true
           try {
             const checks = await deps.preflight(pkg)
             if (!preflightEpoch.isCurrent(token)) return // superseded by an edit / newer run
-            beginBtn.disabled = !(checks.length > 0 && checks.every(c => c.ok))
+            preflightOk = checks.length > 0 && checks.every(c => c.ok)
+            syncBegin()
           } catch (e) {
             if (!preflightEpoch.isCurrent(token)) return
             if (checkHost) {
@@ -231,7 +242,8 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
         }
         beginBtn.onclick = () => {
           const pkg = pkgIn.value.trim(); if (!pkg) return
-          closeModal(); beginLive(pkg)
+          const glob = globIn.value.trim()
+          closeModal(); beginLive(pkg, glob || undefined)
         }
       },
     })
@@ -241,16 +253,14 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   $<HTMLButtonElement>('[data-stop]').onclick = () => { void deps.stopLive() }
   dumpBtn.onclick = async () => {
     const jobs = [...selected].map(k => {
-      const r = rows.get(k)
-      const pid = Number(k.split('|')[0])
-      const pattern = (r?.library.split('/').pop() || r?.soname || '') as string
-      return { pid, pattern }
-    }).filter(j => j.pattern)
+      const [pidStr, base] = k.split('|')
+      return { pid: Number(pidStr), base }
+    }).filter(j => j.base)
     dumpBtn.disabled = true
     try {
       for (const j of jobs) {
-        try { addArtifacts(await deps.dumpLib(j.pid, j.pattern)) }
-        catch (e) { appendLog(`dump failed for ${j.pattern}: ${e instanceof Error ? e.message : String(e)}`) }
+        try { addArtifacts(await deps.dumpLib(j.pid, j.base)) }
+        catch (e) { appendLog(`dump failed for pid ${j.pid} @${j.base}: ${e instanceof Error ? e.message : String(e)}`) }
       }
     } finally { dumpBtn.disabled = false }
   }

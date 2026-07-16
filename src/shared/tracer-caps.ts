@@ -214,6 +214,35 @@ export function fieldErrors(cap: Capability, vals: CapValues): { fields: Record<
 export const DEVICE_BIN = '/data/local/tmp/ares'
 export const STOP_ARG = "su -c 'pkill -INT -f /data/local/tmp/ares'"
 
+// Escape ERE metacharacters so a literal string is matched literally by
+// `pkill -f` (which takes an extended regex). Package names contain dots;
+// unescaped, `dev.ares.detector` would also match `devXaresYdetector`.
+export function ereEscape(s: string): string {
+  return s.replace(/[.[\]{}()*+?^$|\\]/g, '\\$&')
+}
+
+// SIGINT only the live `lib` stream for one package. Anchored with ^ on the
+// binary path: the device runs `su -c '<...>'`, and pkill skips itself but not
+// its su/sh parent, whose cmdline contains the pattern - but does not START
+// with the binary path, so ^ excludes it.
+export function stopArgLive(pkg: string): string {
+  return `su -c 'pkill -INT -f "^${DEVICE_BIN} lib -P ${ereEscape(pkg)}$"'`
+}
+
+// SIGINT only the on-map watcher for one pid. The pattern deliberately stops at
+// `--on-map` and never includes the -l glob, so the glob never has to survive a
+// round-trip through ERE. pid is digits, so no escaping is needed.
+export function stopArgWatch(pid: number): string {
+  return `su -c 'pkill -INT -f "^${DEVICE_BIN} dump -p ${pid} --on-map"'`
+}
+
+// A dump/on-map glob: SAFE_TOKEN plus the glob metacharacters * ? [ ]. Still no
+// quote, $, backtick, space or paren, so it stays safe inside `su -c '...'`.
+const SAFE_PATTERN = /^[A-Za-z0-9._:/,+*?[\]-]+$/
+export function isSafePattern(s: string): boolean {
+  return SAFE_PATTERN.test(s)
+}
+
 export function outJsonlPath(ts: string): string {
   return `/data/local/tmp/ares-${ts}.jsonl`
 }

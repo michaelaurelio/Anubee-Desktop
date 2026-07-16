@@ -152,7 +152,7 @@ export function realSpawner(): Spawner {
   }
 }
 
-export function startRun(sp: Spawner, adb: Adb, runArg: string, onLine: (line: string) => void): RunHandle {
+export function startRun(sp: Spawner, adb: Adb, runArg: string, onLine: (line: string) => void, stopArg: string = STOP_ARG): RunHandle {
   const proc = sp.spawn(['shell', runArg])
   proc.onLine(onLine)
   const done = new Promise<{ code: number }>(resolve => proc.onExit(code => resolve({ code })))
@@ -160,7 +160,7 @@ export function startRun(sp: Spawner, adb: Adb, runArg: string, onLine: (line: s
     async stop() {
       // Graceful device-side stop: ares' 2-stage handler catches SIGINT. The
       // adb-shell child then sees EOF and exits on its own.
-      await adb.run(['shell', STOP_ARG])
+      await adb.run(['shell', stopArg])
     },
     done,
   }

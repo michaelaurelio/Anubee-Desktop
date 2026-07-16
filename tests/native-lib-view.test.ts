@@ -92,8 +92,61 @@ describe('native-lib-view live modal', () => {
     await vi.waitFor(() =>
       expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
     ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
-    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector')
+    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector', undefined)
     expect((host.querySelector('[data-live-on]') as HTMLElement).hidden).toBe(false)
+  })
+})
+
+describe('native-lib-view on-map glob field', () => {
+  it('renders a glob field and boundary hint below the package field', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
+    expect(document.body.querySelector('[data-modal-glob]')).not.toBeNull()
+    expect(document.body.querySelector('.lib-modal-hint')?.textContent).toMatch(/APK-embedded/)
+  })
+
+  it('passes the glob to startLive when Begin is clicked with a safe glob set', async () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-glob]') as HTMLInputElement).value = 'libexample*'
+    ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
+    await vi.waitFor(() =>
+      expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
+    ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
+    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector', 'libexample*')
+  })
+
+  it('keeps Begin disabled when the glob has unsafe characters, even after a clean preflight', async () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
+    await vi.waitFor(() =>
+      expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
+    const globIn = document.body.querySelector('[data-modal-glob]') as HTMLInputElement
+    globIn.value = "lib'; rm -rf /"
+    globIn.dispatchEvent(new Event('input'))
+    expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('leaves the glob field empty as valid: Begin stays enabled and startLive is called without a glob', async () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
+    await vi.waitFor(() =>
+      expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
+    ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
+    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector', undefined)
   })
 })
 
@@ -181,7 +234,7 @@ describe('native-lib-view source switching (review fix 1)', () => {
     await vi.waitFor(() =>
       expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
     ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
-    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector')
+    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector', undefined)
 
     api.setSource('loaded')
     await vi.waitFor(() => expect(deps.stopLive).toHaveBeenCalled())
@@ -213,6 +266,24 @@ describe('native-lib-view refresh (review fix 1)', () => {
     api.refresh()
     await new Promise(r => setTimeout(r, 0))
     expect(deps.loadedRows).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('native-lib-view dump button', () => {
+  it('dumping a ticked row calls dumpLib with its exact pid+base, not a name', async () => {
+    const calls: Array<[number, string]> = []
+    const { host, deps } = make({ dumpLib: async (pid, base) => { calls.push([pid, base]); return [] } })
+    const api = createLibView(host, deps)
+    api.setSource('live')
+    api.applyMapped({
+      kind: 'lib', pid: 25659, ppid: 1, start: '0x7281a0000', end: '0x7281c0000',
+      library: '/data/app/base.apk', atMs: 4300,
+    })
+    const cb = host.querySelector('input[data-k="25659|0x7281a0000"]') as HTMLInputElement
+    cb.click()
+    ;(host.querySelector('[data-dump]') as HTMLButtonElement).click()
+    await new Promise(r => setTimeout(r, 0))
+    expect(calls).toEqual([[25659, '0x7281a0000']])
   })
 })
 
