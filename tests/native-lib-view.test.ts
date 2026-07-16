@@ -165,24 +165,24 @@ describe('native-lib-view on-map glob field', () => {
 })
 
 describe('native-lib-view device log', () => {
-  it('appends device lines and shows the strip', () => {
+  it('appends device lines and expands the dock on an error-like line', () => {
     const { host, deps } = make()
     const api = createLibView(host, deps)
     api.setSource('live')
     api.appendLog('su: ares: not found')
-    const wrap = host.querySelector('[data-log]') as HTMLElement
-    expect(wrap.hidden).toBe(false)
+    const dock = host.querySelector('.lib-dock') as HTMLElement
+    expect(dock.classList.contains('collapsed')).toBe(false)
     expect(host.querySelector('[data-log-body]')?.textContent).toContain('su: ares: not found')
   })
 
-  it('auto-expands the strip on an error-like line', () => {
+  it('auto-expands the dock on an error-like line', () => {
     const { host, deps } = make()
     const api = createLibView(host, deps)
     api.setSource('live')
     api.appendLog('some benign line')
-    expect((host.querySelector('[data-log]') as HTMLElement).classList.contains('collapsed')).toBe(true)
+    expect((host.querySelector('.lib-dock') as HTMLElement).classList.contains('collapsed')).toBe(true)
     api.appendLog('error: permission denied')
-    expect((host.querySelector('[data-log]') as HTMLElement).classList.contains('collapsed')).toBe(false)
+    expect((host.querySelector('.lib-dock') as HTMLElement).classList.contains('collapsed')).toBe(false)
   })
 
   it('logs stream end', () => {
@@ -193,16 +193,69 @@ describe('native-lib-view device log', () => {
     expect(host.querySelector('[data-log-body]')?.textContent).toContain('stream ended')
   })
 
-  it('records a trailing line after leaving Live mode without re-showing the strip', async () => {
+  it('records a trailing error line after leaving Live mode without expanding the dock', async () => {
     const { host, deps } = make({ loadedRows: vi.fn(async () => []) })
     const api = createLibView(host, deps)
     api.setSource('live')
     api.setSource('loaded')
     await vi.waitFor(() => expect(deps.loadedRows).toHaveBeenCalled())
-    api.appendLog('some trailing line')
-    const wrap = host.querySelector('[data-log]') as HTMLElement
-    expect(wrap.hidden).toBe(true)
-    expect(host.querySelector('[data-log-body]')?.textContent).toContain('some trailing line')
+    api.appendLog('dump failed: trailing error')
+    const dock = host.querySelector('.lib-dock') as HTMLElement
+    expect(dock.classList.contains('collapsed')).toBe(true)
+    expect(host.querySelector('[data-log-body]')?.textContent).toContain('dump failed: trailing error')
+  })
+})
+
+describe('native-lib-view tabbed dock (task 3)', () => {
+  it('tabs switch between artifacts and log without collapsing', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    const dock = host.querySelector('.lib-dock')!
+    ;(host.querySelector('[data-dock-collapse]') as HTMLElement).click()   // expand (default is collapsed)
+    ;(host.querySelector('[data-tab="log"]') as HTMLElement).click()
+    expect(dock.getAttribute('data-active')).toBe('log')
+    expect(dock.classList.contains('collapsed')).toBe(false)   // tab click never collapses
+  })
+
+  it('the chevron collapses and expands; tabs stay visible when collapsed', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    const dock = host.querySelector('.lib-dock')!
+    expect(dock.classList.contains('collapsed')).toBe(true)   // default collapsed
+    ;(host.querySelector('[data-dock-collapse]') as HTMLElement).click()
+    expect(dock.classList.contains('collapsed')).toBe(false)  // expanded
+    expect(host.querySelector('.lib-tabs')).not.toBeNull()      // tab bar still shown
+    ;(host.querySelector('[data-dock-collapse]') as HTMLElement).click()
+    expect(dock.classList.contains('collapsed')).toBe(true)   // collapsed again
+    expect(host.querySelector('.lib-tabs')).not.toBeNull()      // tab bar still shown
+  })
+
+  it('an error line red-dots the background tab and auto-expands a collapsed dock, without switching tab', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    const dock = host.querySelector('.lib-dock')!
+    expect(dock.classList.contains('collapsed')).toBe(true)   // default collapsed
+    api.appendLog('dump failed for pid 7: some error')
+    expect(dock.classList.contains('collapsed')).toBe(false)  // error auto-expanded
+    expect(dock.getAttribute('data-active')).toBe('artifacts') // did NOT steal the tab
+    expect((host.querySelector('[data-tab="log"] .dot-err') as HTMLElement).hidden).toBe(false) // red dot shown
+  })
+
+  it('switching to the log tab clears its error dot', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.appendLog('dump failed: boom')
+    ;(host.querySelector('[data-tab="log"]') as HTMLElement).click()
+    expect((host.querySelector('[data-tab="log"] .dot-err') as HTMLElement).hidden).toBe(true)
+  })
+
+  it('a non-error live line does not expand a collapsed dock', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    const dock = host.querySelector('.lib-dock')!
+    expect(dock.classList.contains('collapsed')).toBe(true)
+    api.appendLog('some ordinary device line')
+    expect(dock.classList.contains('collapsed')).toBe(true)   // stayed collapsed
   })
 })
 

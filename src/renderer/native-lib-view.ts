@@ -88,13 +88,15 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       </div>
     </div>
     <div class="lib-tbl"><table><thead></thead><tbody></tbody></table></div>
-    <div class="lib-dock collapsed">
-      <div class="lib-dock-hd" data-dock-toggle>Dumped artifacts <span class="c" data-dock-count>none yet</span></div>
-      <div class="lib-dock-body"><table><thead><tr><th>module</th><th>base</th><th>pid</th><th>size</th><th>arch</th><th>ELF</th><th>sha-256</th><th>raw</th><th></th></tr></thead><tbody></tbody></table></div>
-    </div>
-    <div class="lib-log collapsed" data-log hidden>
-      <div class="lib-log-hd" data-log-toggle>Device log <span class="c" data-log-count></span></div>
-      <div class="lib-log-body" data-log-body></div>
+    <div class="lib-dock collapsed" data-active="artifacts">
+      <div class="lib-grip" data-grip></div>
+      <div class="lib-tabs">
+        <button class="lib-tab on" data-tab="artifacts">Dumped artifacts <span class="c" data-dock-count>none yet</span></button>
+        <button class="lib-tab" data-tab="log">Device log <span class="c" data-log-count></span><span class="dot-err" hidden></span></button>
+        <button class="icon-btn" data-dock-collapse title="collapse"><svg class="ic" viewBox="0 0 24 24"><use href="#i-chevron-down"/></svg></button>
+      </div>
+      <div class="lib-pane" data-pane="artifacts"><table><thead><tr><th>module</th><th>base</th><th>pid</th><th>size</th><th>arch</th><th>ELF</th><th>sha-256</th><th>raw</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div class="lib-pane" data-pane="log" data-log-body hidden></div>
     </div>`
 
   const $ = <T extends HTMLElement>(sel: string): T => host.querySelector(sel) as T
@@ -182,7 +184,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   }
 
   function renderArtifacts(): void {
-    const body = $('.lib-dock-body tbody')
+    const body = $('[data-pane="artifacts"] tbody')
     body.innerHTML = artifacts.map((a, i) => `<tr>
       <td class="lib-name">${esc(a.module.split('/').pop() ?? a.module)}</td><td>${esc(a.base)}</td><td>${a.pid}</td>
       <td>${humanBytes(a.size)}</td><td>${a.arch ? esc(a.arch) : '-'}</td><td>${a.elfValid ? 'valid' : 'invalid'}</td>
@@ -198,8 +200,16 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   // --- header wiring ---
   host.querySelectorAll<HTMLButtonElement>('.lib-seg button').forEach(b =>
     b.onclick = () => { void setSource(b.dataset.src as Source) })
-  $('[data-dock-toggle]').onclick = () => $('.lib-dock').classList.toggle('collapsed')
-  $('[data-log-toggle]').onclick = () => $('[data-log]').classList.toggle('collapsed')
+  const dock = $('.lib-dock')
+  function setActiveTab(tab: 'artifacts' | 'log'): void {
+    dock.setAttribute('data-active', tab)
+    host.querySelectorAll<HTMLElement>('.lib-tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tab))
+    host.querySelectorAll<HTMLElement>('.lib-pane').forEach(p => { p.hidden = p.dataset.pane !== tab })
+    if (tab === 'log') $('[data-tab="log"] .dot-err').hidden = true   // reading the log clears its alert
+  }
+  host.querySelectorAll<HTMLButtonElement>('.lib-tab').forEach(b =>
+    b.onclick = () => setActiveTab(b.dataset.tab as 'artifacts' | 'log'))   // switch only, never collapse
+  $('[data-dock-collapse]').onclick = () => { dock.classList.toggle('collapsed') }
 
   // --- live source: modal-driven preflight + streaming state ---
   function renderLiveHeader(): void {
@@ -314,20 +324,18 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     $('[data-live]').hidden = s !== 'live'
     if (s === 'loaded') {
       if (streaming) { streaming = false; void deps.stopLive() }
-      $('[data-log]').hidden = true // the device log is meaningless once back on a loaded run
       await loadLoaded()
     } else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); renderSelectionBar(); renderLiveHeader() }
   }
 
   function appendLog(line: string): void {
-    // The device log is a live-mode surface: always record the line (switching
-    // back to Live should show history), but only reveal the strip while live -
-    // trailing output from a stopped stream must not pop it open on the Loaded tab.
-    if (source === 'live') $('[data-log]').hidden = false
     const div = document.createElement('div'); div.textContent = line
     if (/error|fail|not found|denied|no such|cannot|permission/i.test(line)) {
       div.className = 'log-err'
-      if (source === 'live') $('[data-log]').classList.remove('collapsed') // never hide a failure
+      // red-dot the log tab only while it is the background tab; if the log tab is
+      // already active, the analyst is looking at it and needs no alert.
+      if (dock.getAttribute('data-active') !== 'log') $('[data-tab="log"] .dot-err').hidden = false
+      if (source === 'live') dock.classList.remove('collapsed')  // errors auto-expand a collapsed dock
     }
     const body = $('[data-log-body]'); body.appendChild(div)
     $('[data-log-count]').textContent = `${body.childElementCount} lines`
