@@ -44,7 +44,7 @@ export function startLive(sp: Spawner, adb: Adb, pkg: string, onEvent: (e: LiveE
 // mapping (no path) - those are caught in the table / by base. The UI says so.
 //
 // The glob carries its own single quotes via the '\'' close-escape-reopen idiom.
-// isSafePattern (Task 1) stops shell INJECTION, not shell EXPANSION: * ? [ ] are
+// isSafePattern stops shell INJECTION, not shell EXPANSION: * ? [ ] are
 // exactly the characters it allows and a shell expands. `su -c '<str>'` is
 // re-parsed twice - the device's outer shell strips the quotes and hands <str>
 // to su, which runs it through `sh -c`, and that inner shell globs against its
@@ -80,12 +80,14 @@ export async function dumpByBase(
 }
 
 // Pull the watcher's device output dir and triage it. Unlike dumpByBase, a
-// failed pull must NOT throw: the watcher legitimately produces nothing when
-// no library ever matched the glob during the whole live session (the device
-// dir is never created), and this runs on the stream-teardown path (stopLive /
-// activeLive.done) where a throw would surface as an unhandled rejection
-// instead of a clean "nothing caught" result. Callers log a [] result if they
-// want to note it.
+// failed pull must NOT throw: the caller (`nativelib:startLive` in
+// src/main/index.ts) mkdir's the device dir up front, before the stream even
+// starts, so the no-match case (nothing ever matched the glob) is a
+// successful pull of an empty dir - no manifest, triageDir returns []. A
+// failed pull here means an actual device/adb fault (disconnect mid-pull,
+// etc.), and this runs on a teardown path (stopLive / activeLive.done) where
+// throwing would surface as an unhandled rejection instead of a clean
+// "nothing caught" result. Callers log a [] result if they want to note it.
 export async function pullWatchArtifacts(adb: Adb, deviceDir: string, hostDir: string): Promise<Artifact[]> {
   const pull = await adb.run(['pull', deviceDir, hostDir])
   if (pull.code !== 0) return []

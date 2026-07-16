@@ -72,7 +72,7 @@ declare global {
       libTable(runId?: number): Promise<import('@shared/native-lib').LibRow[]>
       startLive(pkg: string, glob?: string): Promise<void>
       stopLive(): Promise<void>
-      dumpLib(pid: number, pattern: string): Promise<import('@shared/native-lib').Artifact[]>
+      dumpLib(pid: number, base: string): Promise<import('@shared/native-lib').Artifact[]>
       revealArtifact(path: string): Promise<void>
       exportArtifact(path: string): Promise<{ saved: boolean; path?: string }>
       onLibMapped(cb: (l: import('@shared/native-lib').LibLine & { atMs: number }) => void): void

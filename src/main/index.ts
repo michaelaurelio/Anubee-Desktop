@@ -289,9 +289,10 @@ ipcMain.handle('nativelib:table', (_e, runId?: number) => store.libTable(runId))
 // whatever it caught to the renderer. activeWatchDirs is cleared synchronously
 // before the pull's await, so a concurrent call from the other teardown path
 // (stopLive vs. activeLive.done) sees it already null and no-ops - no double
-// pull, no double push. pullWatchArtifacts itself never throws (by contract:
-// a failed pull just means nothing was caught), but this still wraps the call
-// so a rejection anywhere in the chain (e.g. adb.run itself rejecting) cannot
+// pull, no double push. pullWatchArtifacts itself never throws (the device dir
+// is mkdir'd up front in nativelib:startLive, so a failed pull means a real
+// device/adb fault, not "nothing matched"), but this still wraps the call so
+// a rejection anywhere in the chain (e.g. adb.run itself rejecting) cannot
 // escape as an unhandled rejection on this fire-and-forget teardown path.
 async function pullAndPushWatchArtifacts(): Promise<void> {
   if (!activeWatchDirs) return
@@ -315,13 +316,18 @@ ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => 
   // dir), so it is created here, up front - not inside the [lib] callback
   // below, since startWatch is synchronous and called from stdout handling.
   let watchDeviceDir: string | undefined
+  let watchDirs: { deviceDir: string; hostDir: string } | undefined
   if (glob) {
     const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
     watchDeviceDir = `/data/local/tmp/ares-onmap-${ts}`
     const watchHostDir = resolve(runsDir(), `ares-onmap-${ts}`)
     await adb.run(['shell', `su -c 'mkdir -p ${watchDeviceDir}'`])
-    activeWatchDirs = { deviceDir: watchDeviceDir, hostDir: watchHostDir }
+    watchDirs = { deviceDir: watchDeviceDir, hostDir: watchHostDir }
   }
+  // startLive throws synchronously on an unsafe pkg token. Assign
+  // activeWatchDirs only once startLive has returned without throwing, so a
+  // rejected start does not orphan this run's freshly-mkdir'd dir - the next
+  // run's teardown would otherwise pull a stale, unrelated directory.
   activeLive = startLive(spawner, adb, pkg, (ev: LiveEvent) => {
     if ('raw' in ev) win.webContents.send('nativelib:line', ev.raw)
     else if (ev.line.kind === 'lib') {
@@ -332,11 +338,17 @@ ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => 
       }
     } else win.webContents.send('nativelib:unmapped', { ...ev.line, atMs: ev.atMs })
   })
+  activeWatchDirs = watchDirs ?? null
   activeLive.done.then(async () => {
     activeLive = null
+    // Ack Stop immediately: artifacts arrive on their own nativelib:watchArtifacts
+    // channel and the dock is independent of streaming state, so nothing depends
+    // on streamEnd waiting for the watcher stop + adb pull below. Sending it here
+    // also means a rejection in either await (both under the catch below) can no
+    // longer strand the view in "streaming" with no way to recover.
+    win.webContents.send('nativelib:streamEnd')
     if (activeWatch) { await activeWatch.stop(); activeWatch = null }
     await pullAndPushWatchArtifacts()
-    win.webContents.send('nativelib:streamEnd')
   }).catch(() => {})
 })
 

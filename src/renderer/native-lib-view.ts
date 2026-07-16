@@ -186,7 +186,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   function beginLive(pkg: string, glob?: string): void {
     livePkg = pkg; rows.clear(); selected.clear(); streaming = true
     renderLiveHeader(); renderRows(); renderStat(); syncDump()
-    void (glob ? deps.startLive(pkg, glob) : deps.startLive(pkg))
+    void deps.startLive(pkg, glob)
   }
 
   function openLiveModal(): void {

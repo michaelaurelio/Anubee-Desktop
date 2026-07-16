@@ -92,7 +92,7 @@ describe('native-lib-view live modal', () => {
     await vi.waitFor(() =>
       expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
     ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
-    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector')
+    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector', undefined)
     expect((host.querySelector('[data-live-on]') as HTMLElement).hidden).toBe(false)
   })
 })
@@ -146,7 +146,7 @@ describe('native-lib-view on-map glob field', () => {
     await vi.waitFor(() =>
       expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
     ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
-    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector')
+    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector', undefined)
   })
 })
 
@@ -234,7 +234,7 @@ describe('native-lib-view source switching (review fix 1)', () => {
     await vi.waitFor(() =>
       expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
     ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
-    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector')
+    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector', undefined)
 
     api.setSource('loaded')
     await vi.waitFor(() => expect(deps.stopLive).toHaveBeenCalled())

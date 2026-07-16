@@ -167,22 +167,38 @@ describe('composeRunArg', () => {
     expect(a).not.toContain('-l')
   })
 
-  it('neither stop pattern matches its own wrapper shell', () => {
-    // The device runs `su -c '<one string>'`. su strips the quotes and runs the
-    // string through `sh -c`, so the wrapper process ps reports is
-    // `sh -c /data/local/tmp/ares ...` - it CONTAINS the command but does not
-    // START with the binary path, so ^ excludes it. Measured on device; the
-    // quotes are gone by the time pkill sees the cmdline. Each pattern is probed
-    // against its own wrapper: probing the watch pattern against a `lib -P`
-    // cmdline would pass with or without the anchor.
+  it('neither anchored stop pattern matches its own wrapper shell', () => {
+    // Measured on device (dev.ares.detector): `su -c '<cmd>'` does not strip the
+    // quotes before running <cmd> - it re-invokes it through a fresh shell, so
+    // the wrapper ps actually reports is `/system/bin/sh -c su -c '<cmd>'`, quotes
+    // intact:
+    //   24011 [/system/bin/sh -c su -c '/data/local/tmp/ares lib -P dev.ares.detector']
+    //   24015 [/data/local/tmp/ares lib -P dev.ares.detector]
+    // That wrapper never starts with the binary path, so ^ excludes it from both
+    // patterns. It also never ends right after the command (it ends with the
+    // trailing quote), so stopArgLive's trailing $ excludes it too - on this
+    // measured shape $ alone would already suffice for stopArgLive; ^ is
+    // belt-and-braces there.
+    //
+    // stopArgWatch has no trailing $ (it deliberately stops before the -l glob),
+    // so it has only one line of defence. The unquoted `su -c <cmd>` shape below
+    // (no surrounding quotes at all, e.g. what a shell that did not re-wrap via
+    // sh -c would produce) still carries the anchored command as a literal
+    // substring: stripping ^ from stopArgWatch turns its pattern into a bare
+    // substring search that matches both wrapper shapes below - ^ is the sole
+    // thing keeping the watcher off its own launcher.
+    const liveWrapper = "/system/bin/sh -c su -c '/data/local/tmp/ares lib -P dev.ares.detector'"
+    const watchWrapper = "/system/bin/sh -c su -c '/data/local/tmp/ares dump -p 1 --on-map -l libexample*'"
+    const watchWrapperUnquoted = 'su -c /data/local/tmp/ares dump -p 1 --on-map -l libexample*'
     const cases: Array<[string, string]> = [
-      [stopArgLive('dev.ares.detector'), 'sh -c /data/local/tmp/ares lib -P dev.ares.detector'],
-      [stopArgWatch(1), 'sh -c /data/local/tmp/ares dump -p 1 --on-map -l libexample*'],
+      [stopArgLive('dev.ares.detector'), liveWrapper],
+      [stopArgWatch(1), watchWrapper],
+      [stopArgWatch(1), watchWrapperUnquoted],
     ]
-    for (const [a, ownWrapper] of cases) {
+    for (const [a, wrapper] of cases) {
       const re = a.match(/-f "(.+)"/)?.[1]
       expect(re).toBeDefined()
-      expect(new RegExp(re!).test(ownWrapper)).toBe(false)
+      expect(new RegExp(re!).test(wrapper)).toBe(false)
     }
   })
 
