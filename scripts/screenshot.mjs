@@ -434,6 +434,27 @@ if (!libRowsOk) throw new Error('Libraries table did not render libc/libsentinel
 const libDockOk = await libWin.evaluate(() => document.querySelector('#libs .lib-dock')?.classList.contains('collapsed') === true)
 if (!libDockOk) throw new Error('artifacts dock should start collapsed')
 
+// Phase 4 header layout A: three strips - toolbar, stat row, and a selection
+// bar that stays in the DOM (for the tick-to-select flow) but hidden by default.
+const libHeaderOk = await libWin.evaluate(() =>
+  !!document.querySelector('#libs .lib-tool') && !!document.querySelector('#libs .lib-stat'))
+if (!libHeaderOk) throw new Error('Libraries header is missing the .lib-tool toolbar or .lib-stat stat row')
+
+const libSelbarHiddenOk = await libWin.evaluate(() => {
+  const selbar = document.querySelector('#libs .lib-selbar')
+  return !!selbar && getComputedStyle(selbar).display === 'none'
+})
+if (!libSelbarHiddenOk) throw new Error('.lib-selbar should be hidden when no rows are ticked')
+
+// Tabbed dock C1: exactly two tabs, artifacts and log.
+const libDockTabsOk = await libWin.evaluate(() => {
+  const tabs = document.querySelector('#libs .lib-tabs')
+  const tabBtns = [...document.querySelectorAll('#libs .lib-tab')]
+  return !!tabs && tabBtns.length === 2 &&
+    tabBtns.some(b => b.dataset.tab === 'artifacts') && tabBtns.some(b => b.dataset.tab === 'log')
+})
+if (!libDockTabsOk) throw new Error('.lib-tabs should hold exactly two .lib-tab buttons for artifacts and log')
+
 // Loaded mode must NOT show the live package input or a Start button (issue 4:
 // the live controls previously leaked in via a display:flex override of [hidden]).
 const loadedHidesLive = await libWin.evaluate(() => {
@@ -475,6 +496,22 @@ await libWin.mouse.move(700, 400) // off #rail so the hover-expanded (172px) rai
 await libWin.waitForTimeout(150)
 await libWin.screenshot({ path: resolve(shots, '10-libraries.png') })
 console.log('captured', '10-libraries.png')
+
+// Dock interactions (mutate state, so they run after the reference shot).
+// libDockOk above already confirmed the dock starts collapsed.
+await libWin.click('#libs [data-dock-collapse]')
+await libWin.waitForTimeout(150)
+const dockExpandedOk = await libWin.evaluate(() =>
+  !document.querySelector('#libs .lib-dock')?.classList.contains('collapsed'))
+if (!dockExpandedOk) throw new Error('clicking [data-dock-collapse] should expand the dock (remove .collapsed)')
+
+await libWin.click('#libs [data-tab="log"]')
+await libWin.waitForTimeout(150)
+const logTabOk = await libWin.evaluate(() => {
+  const dock = document.querySelector('#libs .lib-dock')
+  return dock?.getAttribute('data-active') === 'log' && !dock.classList.contains('collapsed')
+})
+if (!logTabOk) throw new Error('clicking the log tab should set data-active="log" without collapsing the dock')
 
 await libApp.close()
 try {

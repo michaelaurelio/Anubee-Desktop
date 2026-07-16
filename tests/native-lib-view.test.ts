@@ -26,7 +26,34 @@ function make(over: Partial<LibViewDeps> = {}): { host: HTMLElement; deps: LibVi
   return { host, deps }
 }
 
-afterEach(() => { document.body.innerHTML = '' })
+afterEach(() => { document.body.innerHTML = ''; localStorage.clear() })
+
+// Drives a real grip drag the same way a pointer would: pointerdown on the grip,
+// pointermove/pointerup on window (matching the window-level listener pattern in
+// native-lib-view.ts and panels.ts). startH is read from the live --dock-h so the
+// helper is correct regardless of the dock's current height.
+function setDockHeight(host: HTMLElement, target: number): void {
+  const grip = host.querySelector('[data-grip]') as HTMLElement
+  const dock = host.querySelector('.lib-dock') as HTMLElement
+  const cur = dock.style.getPropertyValue('--dock-h')
+  const startH = cur ? parseInt(cur, 10) : 180
+  grip.dispatchEvent(new PointerEvent('pointerdown', { clientY: 0, bubbles: true }))
+  window.dispatchEvent(new PointerEvent('pointermove', { clientY: -(target - startH), bubbles: true }))
+  window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+}
+
+// Drives the full preflight-modal Begin flow so the view actually enters its
+// internal `streaming` state (only reachable this way - `setSource('live')`
+// alone does not stream). Needed by Verify tests now that Verify is gated on
+// `streaming`, not just `source === 'live'`.
+async function beginLiveCapture(host: HTMLElement, pkg = 'dev.ares.detector'): Promise<void> {
+  ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
+  ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = pkg
+  ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
+  await vi.waitFor(() =>
+    expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
+  ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
+}
 
 describe('native-lib-view live modal', () => {
   it('hides live controls in loaded mode', () => {
@@ -152,24 +179,24 @@ describe('native-lib-view on-map glob field', () => {
 })
 
 describe('native-lib-view device log', () => {
-  it('appends device lines and shows the strip', () => {
+  it('appends device lines and expands the dock on an error-like line', () => {
     const { host, deps } = make()
     const api = createLibView(host, deps)
     api.setSource('live')
     api.appendLog('su: ares: not found')
-    const wrap = host.querySelector('[data-log]') as HTMLElement
-    expect(wrap.hidden).toBe(false)
+    const dock = host.querySelector('.lib-dock') as HTMLElement
+    expect(dock.classList.contains('collapsed')).toBe(false)
     expect(host.querySelector('[data-log-body]')?.textContent).toContain('su: ares: not found')
   })
 
-  it('auto-expands the strip on an error-like line', () => {
+  it('auto-expands the dock on an error-like line', () => {
     const { host, deps } = make()
     const api = createLibView(host, deps)
     api.setSource('live')
     api.appendLog('some benign line')
-    expect((host.querySelector('[data-log]') as HTMLElement).classList.contains('collapsed')).toBe(true)
+    expect((host.querySelector('.lib-dock') as HTMLElement).classList.contains('collapsed')).toBe(true)
     api.appendLog('error: permission denied')
-    expect((host.querySelector('[data-log]') as HTMLElement).classList.contains('collapsed')).toBe(false)
+    expect((host.querySelector('.lib-dock') as HTMLElement).classList.contains('collapsed')).toBe(false)
   })
 
   it('logs stream end', () => {
@@ -180,16 +207,96 @@ describe('native-lib-view device log', () => {
     expect(host.querySelector('[data-log-body]')?.textContent).toContain('stream ended')
   })
 
-  it('records a trailing line after leaving Live mode without re-showing the strip', async () => {
+  it('records a trailing error line after leaving Live mode without expanding the dock', async () => {
     const { host, deps } = make({ loadedRows: vi.fn(async () => []) })
     const api = createLibView(host, deps)
     api.setSource('live')
     api.setSource('loaded')
     await vi.waitFor(() => expect(deps.loadedRows).toHaveBeenCalled())
-    api.appendLog('some trailing line')
-    const wrap = host.querySelector('[data-log]') as HTMLElement
-    expect(wrap.hidden).toBe(true)
-    expect(host.querySelector('[data-log-body]')?.textContent).toContain('some trailing line')
+    api.appendLog('dump failed: trailing error')
+    const dock = host.querySelector('.lib-dock') as HTMLElement
+    expect(dock.classList.contains('collapsed')).toBe(true)
+    expect(host.querySelector('[data-log-body]')?.textContent).toContain('dump failed: trailing error')
+  })
+})
+
+describe('native-lib-view tabbed dock (task 3)', () => {
+  it('tabs switch between artifacts and log without collapsing', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    const dock = host.querySelector('.lib-dock')!
+    ;(host.querySelector('[data-dock-collapse]') as HTMLElement).click()   // expand (default is collapsed)
+    ;(host.querySelector('[data-tab="log"]') as HTMLElement).click()
+    expect(dock.getAttribute('data-active')).toBe('log')
+    expect(dock.classList.contains('collapsed')).toBe(false)   // tab click never collapses
+  })
+
+  it('the chevron collapses and expands; tabs stay visible when collapsed', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    const dock = host.querySelector('.lib-dock')!
+    expect(dock.classList.contains('collapsed')).toBe(true)   // default collapsed
+    ;(host.querySelector('[data-dock-collapse]') as HTMLElement).click()
+    expect(dock.classList.contains('collapsed')).toBe(false)  // expanded
+    expect(host.querySelector('.lib-tabs')).not.toBeNull()      // tab bar still shown
+    ;(host.querySelector('[data-dock-collapse]') as HTMLElement).click()
+    expect(dock.classList.contains('collapsed')).toBe(true)   // collapsed again
+    expect(host.querySelector('.lib-tabs')).not.toBeNull()      // tab bar still shown
+  })
+
+  it('an error line red-dots the background tab and auto-expands a collapsed dock, without switching tab', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    const dock = host.querySelector('.lib-dock')!
+    expect(dock.classList.contains('collapsed')).toBe(true)   // default collapsed
+    api.appendLog('dump failed for pid 7: some error')
+    expect(dock.classList.contains('collapsed')).toBe(false)  // error auto-expanded
+    expect(dock.getAttribute('data-active')).toBe('artifacts') // did NOT steal the tab
+    expect((host.querySelector('[data-tab="log"] .dot-err') as HTMLElement).hidden).toBe(false) // red dot shown
+  })
+
+  it('switching to the log tab clears its error dot', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.appendLog('dump failed: boom')
+    ;(host.querySelector('[data-tab="log"]') as HTMLElement).click()
+    expect((host.querySelector('[data-tab="log"] .dot-err') as HTMLElement).hidden).toBe(true)
+  })
+
+  it('a non-error live line does not expand a collapsed dock', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    const dock = host.querySelector('.lib-dock')!
+    expect(dock.classList.contains('collapsed')).toBe(true)
+    api.appendLog('some ordinary device line')
+    expect(dock.classList.contains('collapsed')).toBe(true)   // stayed collapsed
+  })
+})
+
+describe('native-lib-view dock resize + persistence (task 4)', () => {
+  it('persists dock height/collapsed/activeTab across a re-mount', () => {
+    localStorage.clear()
+    const { host, deps } = make()
+    createLibView(host, deps)
+    ;(host.querySelector('[data-dock-collapse]') as HTMLElement).click()  // expand (default is collapsed)
+    ;(host.querySelector('[data-tab="log"]') as HTMLElement).click()
+    setDockHeight(host, 260)
+    host.innerHTML = ''                       // unmount
+    createLibView(host, deps)                 // remount reads localStorage
+    const dock = host.querySelector('.lib-dock') as HTMLElement
+    expect(dock.getAttribute('data-active')).toBe('log')
+    expect(dock.classList.contains('collapsed')).toBe(false)
+    expect(dock.style.getPropertyValue('--dock-h')).toBe('260px')
+  })
+
+  it('clamps a dragged height to MAX_H so the dock cannot crush the table', () => {
+    localStorage.clear()
+    const { host, deps } = make()
+    createLibView(host, deps)
+    ;(host.querySelector('[data-dock-collapse]') as HTMLElement).click()  // expand
+    setDockHeight(host, 9999)
+    const dock = host.querySelector('.lib-dock') as HTMLElement
+    expect(dock.style.getPropertyValue('--dock-h')).toBe('520px')
   })
 })
 
@@ -422,9 +529,10 @@ describe('native-lib-view MODIFIED / NO FILE badges from dump --check verdicts',
 })
 
 describe('native-lib-view Verify button (task 5)', () => {
-  it('calls verify with the streaming pid and every dumpable base when nothing is ticked', () => {
+  it('calls verify with the streaming pid and every dumpable base when nothing is ticked', async () => {
     const { host, deps } = make()
     const api = createLibView(host, deps); api.setSource('live')
+    await beginLiveCapture(host) // task 2: Verify now requires an actual live stream, not just source==='live'
     api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 100 })
     // a pseudo-path row is not dumpable and must be excluded from the "all" set
     api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x2', end: '0x3', library: '[anon_shmem:x]', atMs: 100 })
@@ -434,9 +542,10 @@ describe('native-lib-view Verify button (task 5)', () => {
     expect(deps.verify).toHaveBeenCalledWith(42, ['0x1', '0x3'])
   })
 
-  it('calls verify with only the ticked subset when some rows are selected', () => {
+  it('calls verify with only the ticked subset when some rows are selected', async () => {
     const { host, deps } = make()
     const api = createLibView(host, deps); api.setSource('live')
+    await beginLiveCapture(host)
     api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 100 })
     api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x2', end: '0x3', library: '/y', atMs: 100 })
     ;(host.querySelector('input[data-k="42|0x1"]') as HTMLInputElement).click()
@@ -445,18 +554,67 @@ describe('native-lib-view Verify button (task 5)', () => {
     expect(deps.verify).toHaveBeenCalledWith(42, ['0x1'])
   })
 
-  it('does nothing when there are no live rows yet', () => {
+  it('does nothing when there are no live rows yet', async () => {
     const { host, deps } = make()
     const api = createLibView(host, deps); api.setSource('live')
+    await beginLiveCapture(host)
     ;(host.querySelector('[data-verify]') as HTMLButtonElement).click()
     expect(deps.verify).not.toHaveBeenCalled()
   })
 
-  it('hides the Verify control in loaded mode and never calls verify there', async () => {
+  it('keeps the selection bar hidden in loaded mode so Verify is unreachable, and never calls verify there', async () => {
     const { host, deps } = make({ loadedRows: vi.fn(async () => [row()]) })
     const api = createLibView(host, deps)
     await vi.waitFor(() => expect(host.querySelector('.lib-tbl tbody tr')).not.toBeNull())
-    expect((host.querySelector('[data-verify]') as HTMLElement).hidden).toBe(true)
+    expect((host.querySelector('[data-selbar]') as HTMLElement).hidden).toBe(true)
     expect(deps.verify).not.toHaveBeenCalled()
+  })
+})
+
+describe('native-lib-view selection bar (task 2)', () => {
+  it('shows the selection bar only when rows are ticked, with Dump + Verify + Clear', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, start: '0x1', end: '0x2', library: '/x/liba.so', atMs: 100 })
+    // nothing ticked -> the bar exists (toggled via [hidden], not removed) but stays hidden
+    expect((host.querySelector('.lib-selbar') as HTMLElement).hidden).toBe(true)
+    ;(host.querySelector('input[data-k="7|0x1"]') as HTMLInputElement).click()
+    const bar = host.querySelector('.lib-selbar') as HTMLElement
+    expect(bar.hidden).toBe(false)
+    expect(bar.textContent).toMatch(/1 selected/)
+    expect(bar.querySelector('[data-dump]')).not.toBeNull()
+    expect(bar.querySelector('[data-verify]')).not.toBeNull()
+    expect(bar.querySelector('[data-clear]')).not.toBeNull()
+  })
+
+  it('Clear unticks every row and hides the selection bar', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, start: '0x1', end: '0x2', library: '/x/liba.so', atMs: 100 })
+    ;(host.querySelector('input[data-k="7|0x1"]') as HTMLInputElement).click()
+    ;(host.querySelector('[data-clear]') as HTMLElement).click()
+    expect((host.querySelector('.lib-selbar') as HTMLElement).hidden).toBe(true)
+  })
+
+  it('loaded mode has no selection bar and the stat row reads "N libraries"', async () => {
+    const { host, deps } = make({ loadedRows: vi.fn(async () => []) })
+    const api = createLibView(host, deps); api.setSource('loaded')
+    await vi.waitFor(() => expect(host.querySelector('[data-stat]')!.textContent).toMatch(/librar/i))
+    expect((host.querySelector('.lib-selbar') as HTMLElement).hidden).toBe(true)
+  })
+
+  it('Verify on a stopped stream gives feedback instead of a silent no-op', () => {
+    // The Phase 3 minor: after stop, liveCheckDir is null main-side so verify
+    // does nothing. Here the view is live-source but not streaming (this test
+    // never enters beginLive), so a Verify click must log rather than silently
+    // swallow.
+    const verified: unknown[] = []
+    const { host, deps } = make({ verify: async (...a) => { verified.push(a) } })
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, start: '0x1', end: '0x2', library: '/x/liba.so', atMs: 100 })
+    ;(host.querySelector('input[data-k="7|0x1"]') as HTMLInputElement).click()
+    ;(host.querySelector('[data-verify]') as HTMLElement).click()
+    expect(verified).toEqual([]) // deps.verify NOT called
+    expect(host.querySelector('[data-log-body]')!.textContent).toMatch(/verify needs a live stream/i)
   })
 })
