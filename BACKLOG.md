@@ -38,6 +38,8 @@ below.
 - The real `clean -> differ` (unpacking) transition is not proven end-to-end on a device: no self-modifying / packed fixture exists in `../ARES-Detector`. Host tests cover the differ path on synthetic images; the device pass proves only `match`. Same gap as Phases 1/2.
 - The GUI end-to-end path (badges rendering in the running Electron app, the Verify button, the 300ms debounce timing) is unit-tested only, never driven through Electron. The device pass above was CLI-level. Same carry-forward as Phase 2.
 - `startLive` eagerly `mkdir -p`'s the check device dir up front; `checkByBases`'s first slice `mkdir -p`'s the same dir again internally. Redundant but harmless - `mkdir -p` is idempotent.
+- The Verify control stays visible after the stream stops (its `hidden` gate is `source !== 'live'`, not streaming state); a click on a stopped-but-still-Live table hits the `nativelib:verify` early return (`liveCheckDir` is nulled at teardown) and silently does nothing - no log line, no feedback. Cosmetic; the control's streaming-aware placement is Phase 4's job (spec 7.1).
+- The evidence trail's baseline timestamp is the row's map time (`atMs`), not the time the baseline verdict was actually recorded - so "clean at t+4.3s" is when the library mapped, not when it was first checked. Deliberate anchor (matches the DOCUMENTATION example), consistent, but slightly imprecise as "when clean was observed."
 
 ## Shipped (2026-07-15) - Native Libraries (lib + dump)
 
