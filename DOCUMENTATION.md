@@ -573,6 +573,52 @@ binary artifacts from a trace. The **Libraries** view can run in two modes: **Lo
 (reading from an ingested run's retained library records) and **Live** (streaming
 library observations from a connected device in real time).
 
+### View chrome (header + dock)
+
+The header is three single-scope strips, stacked top to bottom. A **session
+toolbar** carries the view title, the `Loaded run` / `Live device` segmented
+control, and - Live mode only - the live dot, package name, and `Stop`, or a
+`Start live capture...` button when not streaming. Below it a **status stat
+row** reads `streaming/stopped · N mapped · M modified · K unmapped` in Live
+mode, or `N libraries` in Loaded mode. Below that, a **selection bar** renders
+only when one or more rows are ticked and hosts `Dump`, `Verify`, and `Clear`.
+Loaded mode never shows the selection bar (its table has no checkboxes) or the
+live controls, and no button anywhere in the header is ever rendered disabled -
+an action is either present because it applies, or absent, never present and
+inert.
+
+Below the table sits a single tabbed **dock**, switching between `Dumped
+artifacts (n)` and `Device log (n)` panes; the tabs never collapse the dock,
+they only switch which pane is visible. The sole collapse control is a chevron
+button at the tab strip's right edge, which flips direction via a CSS
+transform to show the current state. An expanded dock also shows a drag grip
+along its top edge that resizes it (`clampHeight` in
+`src/renderer/lib-dock-layout.ts` bounds it to 90-520px); the grip is absent
+while collapsed, since there is nothing to drag. Height, collapse state, and
+the active tab persist to `localStorage` under the key `ares.libdock`
+(`lib-dock-layout.ts`'s `parseDock`/`serializeDock`) and restore on remount -
+this is UI chrome, not run data, so it deliberately lives outside the DuckDB
+store rather than a project sidecar.
+
+A device-log line matching an error pattern (`error`, `fail`, `not found`,
+`denied`, `no such`, `cannot`, `permission`, case-insensitive) red-dots the
+`Device log` tab and, while a live stream is active, auto-expands a collapsed
+dock so the analyst notices it. It never switches the active tab to the log:
+the same regex also matches plenty of non-fatal device chatter, so stealing
+focus from whatever the analyst is looking at would cost more than the alert
+is worth - the dot carries the signal, not a forced tab switch. Clicking the
+log tab clears its dot; a non-error live line never expands a collapsed dock
+on its own, so the chevron stays the only deliberate collapse control.
+
+```mermaid
+flowchart LR
+  A[dock collapsed] -->|chevron click| B[dock expanded]
+  B -->|chevron click| A
+  A -->|error line lands in Device log, stream live| B
+  C[log tab: no dot] -->|error line, log tab not active| D[log tab: red dot]
+  D -->|analyst clicks log tab| C
+```
+
 ### Loaded mode
 
 Reads `type:lib` records from the opened run via `GraphStore.libTable`. Each row
@@ -603,10 +649,17 @@ Above ARES's 64-base cap the bases are sliced into sequential passes: `--check`'
 time rather than all at once, or an earlier slice's verdicts would be lost to a
 later one's write.
 
-Clicking **Verify** runs the same batched check on demand - the ticked selection
-if any row is selected, else every dumpable row. It is a minimal, live-only
-control for now; giving it a polished, selection-aware home in the view header is
-Phase 4 work (see `BACKLOG.md`).
+**Verify** now lives in the contextual selection bar next to `Dump` and
+`Clear` (see View chrome, above), so - like the rest of that bar - it is
+present only when one or more rows are ticked; there is no separate,
+always-visible Verify button. Clicking it re-runs the same batched check for
+the ticked selection. The selection bar's visibility tracks row selection, not
+streaming state, so it can still show `Verify` after a live stream has
+stopped (rows stay selected, `source` stays `'live'`); clicking it in that
+state does not silently no-op - it logs `verify needs a live stream (start a
+live capture first)` into the Device log instead, since the main process
+tears down `liveCheckDir` at stream end and there is nothing left to check
+against.
 
 Each returned `modcmp` verdict joins back to a table row by **`pid` and numeric
 base** (`sameBase`, a `BigInt` compare so a leading-zero formatting difference
@@ -690,9 +743,9 @@ is the only selector that reaches it.
 
 The desktop pulls the output directory and its manifest, triages each binary
 via `src/shared/elf-triage.ts` (ELF magic check, architecture, SHA-256 hash, file
-size), and displays them in a collapsible bottom **Artifacts dock**. **Reveal**
-opens the file manager at the dumped `.so`; **Export** saves a copy to the analyst's
-chosen location.
+size), and displays them in the dock's **Dumped artifacts** tab (see View
+chrome, above). **Reveal** opens the file manager at the dumped `.so`;
+**Export** saves a copy to the analyst's chosen location.
 
 ### Targeted stop
 

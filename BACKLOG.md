@@ -3,6 +3,45 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-16) - Native Libraries Phase 4 (header layout A + tabbed dock C1)
+
+Gives the Libraries view its final chrome. The header is now three
+single-scope strips: a session toolbar (title, Loaded run / Live device
+segmented control, and the live dot/package/Stop or Start live capture...),
+a status stat row (`N mapped · M modified · K unmapped`, or `N libraries` in
+Loaded mode), and a contextual selection bar that renders only when rows are
+ticked and hosts Dump / Verify / Clear - no disabled buttons, an action is
+present because it applies or absent entirely. Verify moved out of being a
+bare live-only control (Phase 3) into that selection bar, alongside Dump and
+Clear; a click after a live stream has stopped now logs a `verify needs a
+live stream` line instead of silently no-op'ing.
+
+The separate artifacts dock and device-log dock merged into one tabbed dock -
+`Dumped artifacts (n)` / `Device log (n)` - collapsed and expanded by a single
+chevron (the tabs only ever switch panes, never collapse), and resizable via
+a drag grip that exists only while expanded. Dragged height, collapse state,
+and the active tab persist to `localStorage` through the pure
+`src/renderer/lib-dock-layout.ts` module and restore on remount. An error
+line in the device log red-dots the log tab and auto-expands a collapsed dock,
+but never steals the active tab away from whatever the analyst is looking at
+- the same error regex also matches non-fatal chatter, so forcing focus would
+cost more than the alert is worth. Full detail in `DOCUMENTATION.md`'s
+"Native Libraries" section.
+
+### Known drawbacks / follow-ups
+- The merged tabbed dock trades simultaneous artifacts+log visibility for
+  cleaner chrome: the device log and the dumped-artifacts table can no longer
+  be read at the same time, only one tab is visible at once. The red dot
+  covers *noticing* an error in the log, not *correlating* it with a specific
+  dumped artifact while looking at both. A split or side-by-side dock view
+  could be added later on top of `lib-dock-layout.ts` without redoing this
+  work - the pure layout module already tracks height/collapse/active-tab
+  independently of the DOM.
+- The GUI end-to-end path for this chrome (grip drag, chevron collapse,
+  selection-bar show/hide, red-dot auto-expand) is unit- and
+  harness-tested, never driven through a live device pass - same
+  device-verification gap carried forward from Phases 1-3.
+
 ## Shipped (2026-07-16) - Native Libraries Phase 3 (integrity tags + check batching)
 
 Replaces the Phase 2 `isNew`/`NEW_LIB_SETTLE_MS` heuristic (which flagged every
