@@ -228,6 +228,26 @@ describe('checkArg / checkByBases', () => {
     rmSync(d, { recursive: true, force: true })
   })
 
+  it('creates a not-yet-existing hostDir before pulling, since a single-file pull (unlike dumpByBase\'s whole-dir pull) needs the dir to exist first', async () => {
+    // hostDir points at a subdirectory that has never been created. If
+    // checkByBases' mkdirSync guard were removed, the fake pull's writeFileSync
+    // below would throw ENOENT (no such directory) and this test would fail.
+    const base = mkdtempSync(join(tmpdir(), 'ares-check-'))
+    const hostDir = join(base, 'nested', 'deeper')
+    const adb: Adb = {
+      run: vi.fn(async (args: string[]) => {
+        if (args[0] === 'pull') {
+          writeFileSync(join(hostDir, 'check.jsonl'),
+            '{"type":"modcmp","module":"libsentinel.so","path":"/x","base":"0x1","pid":25659,"state":"match","mem_sha256":null,"file_sha256":null}\n')
+        }
+        return { code: 0, stdout: '', stderr: '' }
+      }),
+    }
+    const rs = await checkByBases(autoSpawner(0), adb, 25659, ['0x1'], '/data/local/tmp/dev', hostDir, () => {})
+    expect(rs.map(r => r.state)).toEqual(['match'])
+    rmSync(base, { recursive: true, force: true })
+  })
+
   it('slices > 64 bases into multiple device passes and loses no slice\'s verdicts', async () => {
     // -o truncates on the device (fopen "w"), so each slice must complete its
     // own run+pull+parse before the next slice runs, or an earlier slice's
