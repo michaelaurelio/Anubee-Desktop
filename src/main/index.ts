@@ -338,10 +338,13 @@ function teardownCheck(): void {
 async function runCheck(pid: number, bases: string[]): Promise<void> {
   if (!liveCheckDir) return
   const { deviceDir, hostDir } = liveCheckDir
+  // Capture liveT0 before the await too, same as the dirs above: a concurrent
+  // restart cannot swap the clock origin out from under an in-flight check.
+  const t0 = liveT0
   try {
     const results = await checkByBases(spawner, adb, pid, bases, deviceDir, hostDir,
       line => win.webContents.send('nativelib:line', line))
-    win.webContents.send('nativelib:checkResults', { results, atMs: Date.now() - liveT0 })
+    win.webContents.send('nativelib:checkResults', { results, atMs: Date.now() - t0 })
   } catch (e) {
     win.webContents.send('nativelib:line', `auto-check failed: ${e instanceof Error ? e.message : String(e)}`)
   }
@@ -430,10 +433,13 @@ ipcMain.handle('nativelib:stopLive', async () => {
 ipcMain.handle('nativelib:verify', async (_e, pid: number, bases: string[]) => {
   if (!liveCheckDir) return
   const { deviceDir, hostDir } = liveCheckDir
+  // Capture liveT0 before the await too, same as the dirs above: a concurrent
+  // restart cannot swap the clock origin out from under an in-flight check.
+  const t0 = liveT0
   try {
     const results = await checkByBases(spawner, adb, pid, bases, deviceDir, hostDir,
       line => win.webContents.send('nativelib:line', line))
-    win.webContents.send('nativelib:checkResults', { results, atMs: Date.now() - liveT0 })
+    win.webContents.send('nativelib:checkResults', { results, atMs: Date.now() - t0 })
   } catch (e) {
     win.webContents.send('nativelib:line', `verify failed: ${e instanceof Error ? e.message : String(e)}`)
   }
