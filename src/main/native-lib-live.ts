@@ -1,10 +1,11 @@
-import { readFileSync, statSync, existsSync, readdirSync } from 'node:fs'
+import { readFileSync, statSync, existsSync, readdirSync, mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { DEVICE_BIN, isSafeToken, isSafePattern, stopArgLive, stopArgWatch } from '@shared/tracer-caps'
 import { parseLibLine } from '@shared/lib-line'
 import { parseElfHeader } from '@shared/elf-triage'
-import type { LibLine, Artifact, DumpManifest } from '@shared/native-lib'
+import { parseModcmpJsonl } from '@shared/lib-modcmp'
+import type { LibLine, Artifact, DumpManifest, Modcmp } from '@shared/native-lib'
 import { startRun, type Adb, type Spawner, type RunHandle } from './tracer-control'
 
 // A live [lib]/[unlib] stream event: a parsed line with its host arrival time
@@ -77,6 +78,63 @@ export async function dumpByBase(
   const pull = await adb.run(['pull', deviceDir, hostDir])
   if (pull.code !== 0) throw new Error(`dump pull failed: ${pull.stderr.trim() || pull.stdout.trim()}`)
   return triageDir(hostDir)
+}
+
+// `ares dump --now --check -p PID --base A --base B ...`: compare each module's
+// executable memory against its on-disk baseline and emit {"type":"modcmp"}
+// records to -o, writing no .so. --check requires --now (Phase 1 argp rule).
+// Bases are 0x-hex (isSafeToken-clean, no glob metachar), so no shell quoting is
+// needed - unlike the on-map glob. -o must be a writable dir: the device default
+// outdir is cwd = / = read-only erofs.
+export function checkArg(pid: number, bases: string[], dir: string): string {
+  const baseArgs = bases.map(b => `--base ${b}`).join(' ')
+  return `su -c '${DEVICE_BIN} dump --now --check -p ${pid} ${baseArgs} -o ${dir}/check.jsonl'`
+}
+
+// Phase 1's --base cap: a single device pass tolerates at most this many.
+const CHECK_BASE_CAP = 64
+
+// Run one batched check, pull check.jsonl, parse its modcmp records. --now
+// exits 0 on success and non-zero on real failure, so code !== 0 is a correct
+// error test. An empty result (nothing matched) is NOT an error - it returns
+// []. `-o` opens with fopen(path, "w") on the device (../ARES/src/common/emit.c),
+// which TRUNCATES: a device write from an earlier pass is gone once a later
+// pass starts. Above the 64-base cap, bases are processed in slices, and each
+// slice's run+pull+parse completes in full before the next slice's device pass
+// begins - running every slice first and pulling once at the end would lose
+// every slice's verdicts but the last.
+export async function checkByBases(
+  sp: Spawner, adb: Adb, pid: number, bases: string[],
+  deviceDir: string, hostDir: string, onLine: (l: string) => void,
+): Promise<Modcmp[]> {
+  for (const b of bases) if (!isSafeToken(b)) throw new Error(`unsafe base token: ${b}`)
+  if (bases.length === 0) return []
+  // Unlike dumpByBase (pulls a whole dir, which adb creates), this pulls one
+  // FILE - adb pull fails if hostDir doesn't exist yet.
+  mkdirSync(hostDir, { recursive: true })
+  const out: Modcmp[] = []
+  for (let i = 0; i < bases.length; i += CHECK_BASE_CAP) {
+    out.push(...await checkOneSlice(sp, adb, pid, bases.slice(i, i + CHECK_BASE_CAP), deviceDir, hostDir, onLine))
+  }
+  return out
+}
+
+async function checkOneSlice(
+  sp: Spawner, adb: Adb, pid: number, bases: string[],
+  deviceDir: string, hostDir: string, onLine: (l: string) => void,
+): Promise<Modcmp[]> {
+  await adb.run(['shell', `su -c 'mkdir -p ${deviceDir}'`])
+  const run = startRun(sp, adb, checkArg(pid, bases, deviceDir), onLine)
+  const { code } = await run.done
+  if (code !== 0) throw new Error(`ares dump --now --check exited ${code}`)
+  const pull = await adb.run(['pull', `${deviceDir}/check.jsonl`, `${hostDir}/check.jsonl`])
+  if (pull.code !== 0) {
+    // A missing file after a clean exit means nothing was written (no match) -
+    // treat as empty, not a fault. A real adb error still surfaces on the log.
+    onLine(`check pull: ${pull.stderr.trim() || pull.stdout.trim()}`)
+    return []
+  }
+  return parseModcmpJsonl(readFileSync(resolve(hostDir, 'check.jsonl'), 'utf-8'))
 }
 
 // Pull the watcher's device output dir and triage it. Unlike dumpByBase, a

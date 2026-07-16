@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createLibView, type LibViewDeps } from '../src/renderer/native-lib-view'
-import type { LibRow } from '@shared/native-lib'
+import type { LibRow, Modcmp } from '@shared/native-lib'
 
 const row = (over: Partial<LibRow> = {}): LibRow => ({
   library: '/data/app/dev.ares.detector-1/lib/arm64/libsentinel.so', soname: 'libsentinel.so',
@@ -20,6 +20,7 @@ function make(over: Partial<LibViewDeps> = {}): { host: HTMLElement; deps: LibVi
     reveal: vi.fn(),
     exportArtifact: vi.fn(),
     preflight: vi.fn(async () => [{ id: 'device', label: 'device reachable', ok: true, detail: 'device' }]),
+    verify: vi.fn(async () => {}),
     ...over,
   }
   return { host, deps }
@@ -305,5 +306,157 @@ describe('native-lib-view dump checkbox eligibility (review fix 3)', () => {
     const fileRow = rows.find(r => r.getAttribute('title') === '/data/app/dev.ares.detector-1/lib/arm64/libsentinel.so')
     expect(pseudoRow?.querySelector('input[type=checkbox]')).toBeNull()
     expect(fileRow?.querySelector('input[type=checkbox]')).not.toBeNull()
+  })
+})
+
+describe('native-lib-view MODIFIED / NO FILE badges from dump --check verdicts', () => {
+  const cm = (over: Partial<Modcmp> = {}): Modcmp => ({
+    module: 'm', path: 'p', base: '0x1', pid: 7, state: 'match', memSha256: null, fileSha256: null, ...over,
+  })
+
+  it('renders MODIFIED for differ and NO FILE for nofile, nothing for the rest', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    const map = (pid: number, base: string) => api.applyMapped({ kind: 'lib', pid, ppid: 1, start: base, end: base, library: '/x', atMs: 4300 })
+    map(7, '0x1'); map(7, '0x2'); map(7, '0x3'); map(7, '0x4')
+    api.applyCheck([
+      cm({ base: '0x1', state: 'differ', memSha256: 'a', fileSha256: 'b' }),
+      cm({ base: '0x2', state: 'nofile' }),
+      cm({ base: '0x3', state: 'match', memSha256: 'a', fileSha256: 'a' }),
+      cm({ base: '0x4', state: 'unreadable' }),
+    ], 5000)
+    const html = host.querySelector('.lib-tbl tbody')!.innerHTML
+    expect(html).toContain('MODIFIED'); expect(html).toContain('NO FILE')
+    // The false-MODIFIED guard: match and unreadable get NO badge.
+    expect((html.match(/MODIFIED/g) ?? []).length).toBe(1)
+    expect((html.match(/NO FILE/g) ?? []).length).toBe(1)
+  })
+
+  it('joins a verdict to its row by pid+base numerically, not by module name', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    // APK-embedded: the row is at 0x7281a0000; the verdict.module is "base.apk".
+    api.applyMapped({ kind: 'lib', pid: 7, ppid: 1, start: '0x7281a0000', end: '0x7281c0000', library: '/data/app/base.apk', atMs: 4300 })
+    api.applyCheck([cm({ module: 'base.apk', path: '/data/app/base.apk', base: '0x7281a0000', state: 'differ', memSha256: 'a', fileSha256: 'b' })], 5000)
+    expect(host.querySelector('.lib-tbl tbody')!.innerHTML).toContain('MODIFIED')
+  })
+
+  it('a base that differs only in formatting still joins (BigInt compare)', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, ppid: 1, start: '0x0b0', end: '0xc0', library: '/x', atMs: 4300 })
+    api.applyCheck([cm({ base: '0xb0', state: 'differ', memSha256: 'a', fileSha256: 'b' })], 5000)
+    expect(host.querySelector('.lib-tbl tbody')!.innerHTML).toContain('MODIFIED')
+  })
+
+  it('records a clean -> modified transition as an evidence trail', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 4300 })
+    api.applyCheck([cm({ base: '0x1', state: 'match', memSha256: 'a', fileSha256: 'a' })], 4300)
+    api.applyCheck([cm({ base: '0x1', state: 'differ', memSha256: 'c', fileSha256: 'a' })], 31000)
+    const row = host.querySelector('.lib-tbl tbody tr[data-k="7|0x1"]') as HTMLElement
+    expect(row.title).toMatch(/clean.*->.*modified/i)
+  })
+
+  it('no longer renders a NEW badge or an "N new since start" stat', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 9999 })
+    expect(host.innerHTML).not.toMatch(/\bnew\b/i)
+  })
+
+  it('withholds the badge for a first-seen apk verdict (baseline unresolved) - the false-MODIFIED guard', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 4300 })
+    api.applyCheck([cm({ base: '0x1', state: 'apk', memSha256: null, fileSha256: null })], 5000)
+    const row = host.querySelector('.lib-tbl tbody tr[data-k="7|0x1"]') as HTMLElement
+    expect(row.querySelector('.lib-badge')).toBeNull()
+  })
+
+  it('joins a differ verdict only to its exact row - the sibling row at an adjacent base is never badged', () => {
+    // Pin the join target precisely: two rows for the same pid at adjacent
+    // bases must not cross-contaminate - only the checked row gets the badge,
+    // and the sibling row (never checked) stays unbadged.
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 4300 })
+    api.applyMapped({ kind: 'lib', pid: 7, ppid: 1, start: '0x2', end: '0x3', library: '/y', atMs: 4300 })
+    api.applyCheck([cm({ base: '0x1', state: 'differ', memSha256: 'a', fileSha256: 'b' })], 5000)
+    const checked = host.querySelector('.lib-tbl tbody tr[data-k="7|0x1"]') as HTMLElement
+    const sibling = host.querySelector('.lib-tbl tbody tr[data-k="7|0x2"]') as HTMLElement
+    expect(checked.querySelector('.lib-badge.mod')).not.toBeNull()
+    expect(sibling.querySelector('.lib-badge')).toBeNull()
+  })
+
+  it('a differ verdict that later heals to match clears the MODIFIED badge but keeps the trail honest at the first-seen differ baseline', () => {
+    // The healing transition: differ (t+5.0s) -> match (t+31.0s). checkState
+    // must move to match (badge gone), while baselineState stays frozen at
+    // the first-seen differ, so the trail reads "modified -> clean" - a
+    // genuine baseline -> latest change, not a silently erased history.
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 4300 })
+    api.applyCheck([cm({ base: '0x1', state: 'differ', memSha256: 'a', fileSha256: 'b' })], 5000)
+    const afterDiffer = host.querySelector('.lib-tbl tbody tr[data-k="7|0x1"]') as HTMLElement
+    expect(afterDiffer.querySelector('.lib-badge.mod')).not.toBeNull()
+
+    api.applyCheck([cm({ base: '0x1', state: 'match', memSha256: 'a', fileSha256: 'a' })], 31000)
+    const afterMatch = host.querySelector('.lib-tbl tbody tr[data-k="7|0x1"]') as HTMLElement
+    expect(afterMatch.querySelectorAll('.lib-badge.mod').length).toBe(0)
+    expect(afterMatch.title).toMatch(/modified.*->.*clean/i)
+  })
+
+  it('renders a "N modified" stat computed from differ rows, not a hand-fixed count', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 7, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 4300 })
+    api.applyMapped({ kind: 'lib', pid: 7, ppid: 1, start: '0x2', end: '0x3', library: '/y', atMs: 4300 })
+    api.applyCheck([
+      cm({ base: '0x1', state: 'differ', memSha256: 'a', fileSha256: 'b' }),
+      cm({ base: '0x2', state: 'match', memSha256: 'a', fileSha256: 'a' }),
+    ], 5000)
+    expect(host.querySelector('[data-stat]')!.textContent).toContain('1 modified')
+  })
+})
+
+describe('native-lib-view Verify button (task 5)', () => {
+  it('calls verify with the streaming pid and every dumpable base when nothing is ticked', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 100 })
+    // a pseudo-path row is not dumpable and must be excluded from the "all" set
+    api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x2', end: '0x3', library: '[anon_shmem:x]', atMs: 100 })
+    api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x3', end: '0x4', library: '/y', atMs: 100 })
+    ;(host.querySelector('[data-verify]') as HTMLButtonElement).click()
+    expect(deps.verify).toHaveBeenCalledTimes(1)
+    expect(deps.verify).toHaveBeenCalledWith(42, ['0x1', '0x3'])
+  })
+
+  it('calls verify with only the ticked subset when some rows are selected', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 100 })
+    api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x2', end: '0x3', library: '/y', atMs: 100 })
+    ;(host.querySelector('input[data-k="42|0x1"]') as HTMLInputElement).click()
+    ;(host.querySelector('[data-verify]') as HTMLButtonElement).click()
+    expect(deps.verify).toHaveBeenCalledTimes(1)
+    expect(deps.verify).toHaveBeenCalledWith(42, ['0x1'])
+  })
+
+  it('does nothing when there are no live rows yet', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    ;(host.querySelector('[data-verify]') as HTMLButtonElement).click()
+    expect(deps.verify).not.toHaveBeenCalled()
+  })
+
+  it('hides the Verify control in loaded mode and never calls verify there', async () => {
+    const { host, deps } = make({ loadedRows: vi.fn(async () => [row()]) })
+    const api = createLibView(host, deps)
+    await vi.waitFor(() => expect(host.querySelector('.lib-tbl tbody tr')).not.toBeNull())
+    expect((host.querySelector('[data-verify]') as HTMLElement).hidden).toBe(true)
+    expect(deps.verify).not.toHaveBeenCalled()
   })
 })

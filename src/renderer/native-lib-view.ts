@@ -1,7 +1,7 @@
 // Native Libraries view: loaded-run table + live device stream + artifacts
 // dock. Pure DOM controller, no framework - mirrors flame-view/table's style.
 
-import { NEW_LIB_SETTLE_MS, type LibRow, type LibLine, type Artifact } from '@shared/native-lib'
+import { type LibRow, type LibLine, type Artifact, type Modcmp, type ModcmpState } from '@shared/native-lib'
 import { showModal, closeModal } from './modal'
 import { isSafeToken, isSafePattern } from '@shared/tracer-caps'
 import { makeEpoch } from './selection-epoch'
@@ -10,6 +10,19 @@ import { renderPreflightRow, type PreflightCheck } from './capture-view'
 type Source = 'loaded' | 'live'
 const key = (pid: number, base: string): string => `${pid}|${base}`
 const esc = (s: string): string => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
+// Numeric base compare: a verdict's base can differ from the row's only in
+// formatting (leading zeros etc), never join by module name (an APK-embedded
+// library's module is literally "base.apk").
+const sameBase = (a: string, b: string): boolean => {
+  try { return BigInt(a) === BigInt(b) } catch { return a === b }
+}
+// One shared word table for the evidence trail, used on both sides of the
+// arrow - do not hardcode "clean" for the baseline, a nofile/unreadable
+// baseline must not be mislabeled as clean.
+const stateWord: Record<ModcmpState, string> = {
+  match: 'clean', differ: 'modified', nofile: 'no file', apk: 'apk', unreadable: 'unreadable',
+}
+type RowX = LibRow & { atMs?: number; checkState?: ModcmpState; baselineState?: ModcmpState; checkedAtMs?: number }
 
 function humanBytes(n: number): string {
   if (!n) return '-'
@@ -23,6 +36,7 @@ export interface LibViewApi {
   refresh(): void
   applyMapped(l: LibLine & { atMs: number }): void
   applyUnmapped(l: LibLine & { atMs: number }): void
+  applyCheck(results: Modcmp[], atMs: number): void
   applyPreflightCheck(c: PreflightCheck): void
   addArtifacts(a: Artifact[]): void
   appendLog(line: string): void
@@ -37,6 +51,7 @@ export interface LibViewDeps {
   reveal: (path: string) => void
   exportArtifact: (path: string) => void
   preflight: (pkg: string) => Promise<PreflightCheck[]>
+  verify: (pid: number, bases: string[]) => Promise<void>
 }
 
 export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi {
@@ -64,7 +79,10 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       </div>
       <div class="lib-row1">
         <div class="lib-stat" data-stat></div>
-        <div class="lib-ctl"><button class="btn pri" data-dump hidden>Dump selected (0)</button></div>
+        <div class="lib-ctl">
+          <button class="btn" data-verify hidden>Verify</button>
+          <button class="btn pri" data-dump hidden>Dump selected (0)</button>
+        </div>
       </div>
     </div>
     <div class="lib-tbl"><table><thead></thead><tbody></tbody></table></div>
@@ -80,16 +98,11 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   const $ = <T extends HTMLElement>(sel: string): T => host.querySelector(sel) as T
   const thead = $('.lib-tbl thead'); const tbody = $('.lib-tbl tbody')
   const dumpBtn = $<HTMLButtonElement>('[data-dump]'); const statEl = $('[data-stat]')
+  const verifyBtn = $<HTMLButtonElement>('[data-verify]')
 
   function renderHead(): void {
     const sel = source === 'live' ? '<th style="width:22px"></th>' : ''
     thead.innerHTML = `<tr>${sel}<th>Library</th><th>soname</th><th>base</th><th>size</th><th>pid</th><th>mapped</th><th>flags</th></tr>`
-  }
-
-  function isNew(r: LibRow): boolean {
-    if (source !== 'live') return false
-    const atMs = (r as LibRow & { atMs?: number }).atMs
-    return atMs !== undefined && atMs > NEW_LIB_SETTLE_MS
   }
 
   // A row is only dumpable if its `library` is an on-disk path (dump derives the
@@ -103,13 +116,21 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     const k = key(r.pid, r.base)
     const cb = source === 'live'
       ? (isDumpable(r) ? `<td><input type="checkbox" data-k="${esc(k)}" ${selected.has(k) ? 'checked' : ''}></td>` : '<td></td>') : ''
-    const atMs = (r as LibRow & { atMs?: number }).atMs
+    const atMs = (r as RowX).atMs
     const mapped = source === 'live' && atMs !== undefined ? `t+${(atMs / 1000).toFixed(1)}s` : `#${r.seq}`
+    const cs = (r as RowX).checkState
     const flags = [
-      isNew(r) ? '<span class="lib-badge new">new</span>' : '',
+      cs === 'differ' ? '<span class="lib-badge mod">MODIFIED</span>' : '',
+      cs === 'nofile' ? '<span class="lib-badge nofile">NO FILE</span>' : '',
       r.unmapped ? '<span class="lib-badge">unmapped</span>' : '',
-    ].join(' ')
-    return `<tr class="${r.unmapped ? 'unmap' : ''}" data-k="${esc(k)}" title="${esc(r.library)}">
+    ].filter(Boolean).join(' ')
+    // Only a genuine baseline -> latest change (e.g. match -> differ) shows the
+    // evidence trail; a first-seen differ shows only the MODIFIED badge.
+    const baselineState = (r as RowX).baselineState
+    const trail = baselineState && cs && baselineState !== cs
+      ? ` (${stateWord[baselineState]} at t+${((atMs ?? 0) / 1000).toFixed(1)}s -> ${stateWord[cs]} at t+${(((r as RowX).checkedAtMs ?? 0) / 1000).toFixed(1)}s)`
+      : ''
+    return `<tr class="${r.unmapped ? 'unmap' : ''}" data-k="${esc(k)}" title="${esc(r.library)}${trail}">
       ${cb}<td class="lib-name">${esc(r.library.split('/').pop() ?? r.library)}</td>
       <td>${r.soname ? esc(r.soname) : '-'}</td><td>${esc(r.base)}</td><td>${humanBytes(r.size)}</td>
       <td>${r.pid}</td><td>${mapped}</td><td>${flags}</td></tr>`
@@ -139,10 +160,10 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
 
   function renderStat(): void {
     if (source !== 'live') { statEl.innerHTML = `${rows.size} libraries`; return }
-    const news = [...rows.values()].filter(isNew).length
+    const modified = [...rows.values()].filter(r => (r as RowX).checkState === 'differ').length
     const unm = [...rows.values()].filter(r => r.unmapped).length
     statEl.innerHTML =
-      `${streaming ? '<span class="lib-dot"></span>streaming' : 'stopped'} · ${rows.size} mapped · <span class="new">${news} new since start</span> · ${unm} unmapped`
+      `${streaming ? '<span class="lib-dot"></span>streaming' : 'stopped'} · ${rows.size} mapped · <span class="mod">${modified} modified</span> · ${unm} unmapped`
   }
 
   function syncDump(): void {
@@ -150,10 +171,16 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     dumpBtn.hidden = source !== 'live' || selected.size === 0
   }
 
+  // Minimal, live-only control: Phase 4's header gives Verify its polished,
+  // selection-aware home. Here it just shows/hides with the source.
+  function syncVerify(): void {
+    verifyBtn.hidden = source !== 'live'
+  }
+
   async function loadLoaded(): Promise<void> {
     rows.clear(); selected.clear()
     for (const r of await deps.loadedRows()) rows.set(key(r.pid, r.base), r)
-    renderHead(); renderRows(); renderStat(); syncDump()
+    renderHead(); renderRows(); renderStat(); syncDump(); syncVerify()
   }
 
   function renderArtifacts(): void {
@@ -185,7 +212,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
 
   function beginLive(pkg: string, glob?: string): void {
     livePkg = pkg; rows.clear(); selected.clear(); streaming = true
-    renderLiveHeader(); renderRows(); renderStat(); syncDump()
+    renderLiveHeader(); renderRows(); renderStat(); syncDump(); syncVerify()
     void deps.startLive(pkg, glob)
   }
 
@@ -251,6 +278,19 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
 
   $<HTMLButtonElement>('[data-live-open]').onclick = () => openLiveModal()
   $<HTMLButtonElement>('[data-stop]').onclick = () => { void deps.stopLive() }
+  // Minimal on-demand re-check: the ticked subset if any row is selected,
+  // else every dumpable streaming row's base. The pid comes from any row
+  // (they all share the one streaming pid); with no rows there is nothing
+  // to check.
+  verifyBtn.onclick = () => {
+    const liveRows = [...rows.values()]
+    if (liveRows.length === 0) return
+    const pid = liveRows[0].pid
+    const bases = selected.size > 0
+      ? [...selected].map(k => k.split('|')[1]).filter((b): b is string => !!b)
+      : liveRows.filter(isDumpable).map(r => r.base)
+    void deps.verify(pid, bases)
+  }
   dumpBtn.onclick = async () => {
     const jobs = [...selected].map(k => {
       const [pidStr, base] = k.split('|')
@@ -273,7 +313,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       if (streaming) { streaming = false; void deps.stopLive() }
       $('[data-log]').hidden = true // the device log is meaningless once back on a loaded run
       await loadLoaded()
-    } else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); syncDump(); renderLiveHeader() }
+    } else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); syncDump(); syncVerify(); renderLiveHeader() }
   }
 
   function appendLog(line: string): void {
@@ -311,6 +351,20 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     applyUnmapped: l => {
       if (source !== 'live') return
       const r = rows.get(key(l.pid, l.start)); if (r) { r.unmapped = true; renderRows(); renderStat() }
+    },
+    applyCheck: (results, atMs) => {
+      if (source !== 'live') return
+      for (const m of results) {
+        // Join by pid + numeric base - never by module (APK-embedded module is
+        // "base.apk"), and numeric so a formatting difference cannot drop it.
+        const row = [...rows.values()].find(r =>
+          r.pid === m.pid && sameBase(r.base, m.base)) as RowX | undefined
+        if (!row) continue
+        if (row.baselineState === undefined) row.baselineState = m.state
+        row.checkState = m.state
+        row.checkedAtMs = atMs
+      }
+      renderRows(); renderStat()
     },
     applyPreflightCheck: c => {
       if (!checkHost) return // no modal open: nothing to render into (a Capture preflight also lands here)

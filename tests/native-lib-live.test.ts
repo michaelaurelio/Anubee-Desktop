@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { liveLibArg, dumpArg, startLive, triageDir, dumpByBase, watchArg, startWatch, pullWatchArtifacts } from '../src/main/native-lib-live'
+import { liveLibArg, dumpArg, startLive, triageDir, dumpByBase, watchArg, startWatch, pullWatchArtifacts, checkArg, checkByBases } from '../src/main/native-lib-live'
 import type { Adb, Spawner } from '../src/main/tracer-control'
 import type { LibLine } from '@shared/native-lib'
 
@@ -179,6 +179,109 @@ describe('dumpByBase', () => {
     const arts = await dumpByBase(autoSpawner(0), okAdb, 7, '0x2000', '/data/local/tmp/dev', d, () => {})
     expect(arts).toHaveLength(1)
     expect(arts[0]).toMatchObject({ module: 'libz.so', raw: true, arch: 'arm64' })
+    rmSync(d, { recursive: true, force: true })
+  })
+})
+
+describe('checkArg / checkByBases', () => {
+  it('checkArg batches every base into one --now --check pass, exits 0', () => {
+    const a = checkArg(25659, ['0x7281a0000', '0xb0'], '/data/local/tmp/ares-check-X')
+    expect(a).toContain('dump --now --check -p 25659')
+    expect(a).toContain('--base 0x7281a0000')
+    expect(a).toContain('--base 0xb0') // repeatable, not comma-joined
+    expect(a).toContain('-o /data/local/tmp/ares-check-X/check.jsonl')
+    expect(a).not.toContain('--on-map')
+    // bases are 0x-hex safe tokens: no glob metachar, so no '\'' quoting needed.
+    expect(a).not.toContain("'\\''")
+  })
+
+  it('checkArg emits balanced quotes, so the device shell can parse it', () => {
+    const a = checkArg(25659, ['0x7281a0000', '0xb0'], '/data/local/tmp/ares-check-X')
+    expect((a.match(/'/g) ?? []).length % 2).toBe(0)
+  })
+
+  it('checkByBases rejects an unsafe base token before spawning', async () => {
+    await expect(checkByBases(fakeSpawner([]).sp, okAdb, 7, ["a'; id"], '/data/local/tmp/d', '/tmp/x', () => {}))
+      .rejects.toThrow(/unsafe base token/)
+  })
+
+  it('checkByBases rejects a non-zero exit as a real error', async () => {
+    const d = mkdtempSync(join(tmpdir(), 'ares-check-'))
+    await expect(checkByBases(autoSpawner(1), okAdb, 25659, ['0x1'], '/data/local/tmp/dev', d, () => {}))
+      .rejects.toThrow(/ares dump --now --check exited 1/)
+    rmSync(d, { recursive: true, force: true })
+  })
+
+  it('parses the pulled modcmp records on a clean exit, distinguishing real states', async () => {
+    // Write a real check.jsonl into hostDir (mirroring dumpByBase's pull+triage
+    // fixture setup), then assert on the actual parsed states - not a vacuous
+    // Array.isArray check, which would pass even if parsing were broken.
+    const d = mkdtempSync(join(tmpdir(), 'ares-check-'))
+    writeFileSync(join(d, 'check.jsonl'), [
+      '{"type":"modcmp","module":"libsentinel.so","path":"/data/app/~~x/base.apk","base":"0x1","pid":25659,"state":"match","mem_sha256":"aa","file_sha256":"aa"}',
+      '{"type":"modcmp","module":"libfoo.so","path":"/data/local/tmp/libfoo.so","base":"0x2","pid":25659,"state":"differ","mem_sha256":"aa","file_sha256":"bb"}',
+      '{"type":"modcmp","module":"libbar.so","path":"/x/libbar.so","base":"0x3","pid":25659,"state":"nofile","mem_sha256":null,"file_sha256":null}',
+    ].join('\n'))
+    const rs = await checkByBases(autoSpawner(0), okAdb, 25659, ['0x1', '0x2', '0x3'], '/data/local/tmp/dev', d, () => {})
+    expect(rs.map(r => r.state)).toEqual(['match', 'differ', 'nofile'])
+    expect(rs.map(r => r.base)).toEqual(['0x1', '0x2', '0x3'])
+    rmSync(d, { recursive: true, force: true })
+  })
+
+  it('creates a not-yet-existing hostDir before pulling, since a single-file pull (unlike dumpByBase\'s whole-dir pull) needs the dir to exist first', async () => {
+    // hostDir points at a subdirectory that has never been created. If
+    // checkByBases' mkdirSync guard were removed, the fake pull's writeFileSync
+    // below would throw ENOENT (no such directory) and this test would fail.
+    const base = mkdtempSync(join(tmpdir(), 'ares-check-'))
+    const hostDir = join(base, 'nested', 'deeper')
+    const adb: Adb = {
+      run: vi.fn(async (args: string[]) => {
+        if (args[0] === 'pull') {
+          writeFileSync(join(hostDir, 'check.jsonl'),
+            '{"type":"modcmp","module":"libsentinel.so","path":"/x","base":"0x1","pid":25659,"state":"match","mem_sha256":null,"file_sha256":null}\n')
+        }
+        return { code: 0, stdout: '', stderr: '' }
+      }),
+    }
+    const rs = await checkByBases(autoSpawner(0), adb, 25659, ['0x1'], '/data/local/tmp/dev', hostDir, () => {})
+    expect(rs.map(r => r.state)).toEqual(['match'])
+    rmSync(base, { recursive: true, force: true })
+  })
+
+  it('slices > 64 bases into multiple device passes and loses no slice\'s verdicts', async () => {
+    // -o truncates on the device (fopen "w"), so each slice must complete its
+    // own run+pull+parse before the next slice runs, or an earlier slice's
+    // verdicts vanish when a later slice's pass overwrites check.jsonl.
+    const d = mkdtempSync(join(tmpdir(), 'ares-check-'))
+    const bases = Array.from({ length: 65 }, (_, i) => `0x${(i + 1).toString(16)}`)
+    const spawnCalls: string[][] = []
+    const sp: Spawner = {
+      spawn: args => {
+        spawnCalls.push(args)
+        return { onLine: () => {}, onExit: cb => { queueMicrotask(() => cb(0)) }, kill: () => {} }
+      },
+    }
+    let pullCount = 0
+    const adb: Adb = {
+      run: vi.fn(async (args: string[]) => {
+        if (args[0] === 'pull') {
+          pullCount++
+          // Simulate the device write for THIS slice only - a real device
+          // would have overwritten check.jsonl since the prior slice's pull.
+          writeFileSync(join(d, 'check.jsonl'),
+            `{"type":"modcmp","module":"lib${pullCount}.so","path":"/x","base":"0x${pullCount}","pid":25659,"state":"match","mem_sha256":null,"file_sha256":null}\n`)
+        }
+        return { code: 0, stdout: '', stderr: '' }
+      }),
+    }
+    const rs = await checkByBases(sp, adb, 25659, bases, '/data/local/tmp/dev', d, () => {})
+    const runCalls = spawnCalls.filter(a => a[0] === 'shell' && /--check/.test(a[1] ?? ''))
+    expect(runCalls).toHaveLength(2) // 65 bases at a 64 cap -> two device passes
+    expect((runCalls[0][1].match(/--base/g) ?? []).length).toBe(64)
+    expect((runCalls[1][1].match(/--base/g) ?? []).length).toBe(1)
+    // Both slices' verdicts survive in the concatenated result - neither was
+    // silently lost to the next slice's device-side truncation.
+    expect(rs.map(r => r.module)).toEqual(['lib1.so', 'lib2.so'])
     rmSync(d, { recursive: true, force: true })
   })
 })

@@ -73,6 +73,7 @@ declare global {
       startLive(pkg: string, glob?: string): Promise<void>
       stopLive(): Promise<void>
       dumpLib(pid: number, base: string): Promise<import('@shared/native-lib').Artifact[]>
+      verify(pid: number, bases: string[]): Promise<void>
       revealArtifact(path: string): Promise<void>
       exportArtifact(path: string): Promise<{ saved: boolean; path?: string }>
       onLibMapped(cb: (l: import('@shared/native-lib').LibLine & { atMs: number }) => void): void
@@ -81,6 +82,7 @@ declare global {
       onWatchLine(cb: (line: string) => void): void
       onWatchArtifacts(cb: (a: import('@shared/native-lib').Artifact[]) => void): void
       onLibStreamEnd(cb: () => void): void
+      onCheckResults(cb: (results: import('@shared/native-lib').Modcmp[], atMs: number) => void): void
     }
   }
 }

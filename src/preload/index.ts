@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Filter } from '@shared/filter'
 import type { Tag } from '@shared/project-store'
 import type { Rule, RuleScope } from '@shared/rasp-heuristics'
-import type { LibLine, Artifact } from '@shared/native-lib'
+import type { LibLine, Artifact, Modcmp } from '@shared/native-lib'
 
 // The typed surface the renderer sees as `window.ares`. Raw events never cross
 // this bridge except the single record fetched by id for the inspector.
@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld('ares', {
   startLive: (pkg: string, glob?: string) => ipcRenderer.invoke('nativelib:startLive', pkg, glob),
   stopLive: () => ipcRenderer.invoke('nativelib:stopLive'),
   dumpLib: (pid: number, base: string) => ipcRenderer.invoke('nativelib:dumpLib', pid, base),
+  verify: (pid: number, bases: string[]) => ipcRenderer.invoke('nativelib:verify', pid, bases),
   revealArtifact: (path: string) => ipcRenderer.invoke('nativelib:revealArtifact', path),
   exportArtifact: (path: string) => ipcRenderer.invoke('nativelib:exportArtifact', path),
   onLibMapped: (cb: (l: LibLine & { atMs: number }) => void) =>
@@ -85,4 +86,9 @@ contextBridge.exposeInMainWorld('ares', {
   onWatchArtifacts: (cb: (a: Artifact[]) => void) =>
     ipcRenderer.on('nativelib:watchArtifacts', (_e, a) => cb(a as Artifact[])),
   onLibStreamEnd: (cb: () => void) => ipcRenderer.on('nativelib:streamEnd', () => cb()),
+  onCheckResults: (cb: (results: Modcmp[], atMs: number) => void) =>
+    ipcRenderer.on('nativelib:checkResults', (_e, p) => {
+      const { results, atMs } = p as { results: Modcmp[]; atMs: number }
+      cb(results, atMs)
+    }),
 })
