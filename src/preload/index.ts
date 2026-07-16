@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Filter } from '@shared/filter'
 import type { Tag } from '@shared/project-store'
 import type { Rule, RuleScope } from '@shared/rasp-heuristics'
-import type { LibLine } from '@shared/native-lib'
+import type { LibLine, Artifact } from '@shared/native-lib'
 
 // The typed surface the renderer sees as `window.ares`. Raw events never cross
 // this bridge except the single record fetched by id for the inspector.
@@ -82,5 +82,7 @@ contextBridge.exposeInMainWorld('ares', {
     ipcRenderer.on('nativelib:unmapped', (_e, l) => cb(l as LibLine & { atMs: number })),
   onLibLine: (cb: (line: string) => void) => ipcRenderer.on('nativelib:line', (_e, l) => cb(l as string)),
   onWatchLine: (cb: (line: string) => void) => ipcRenderer.on('nativelib:watchLine', (_e, l) => cb(l as string)),
+  onWatchArtifacts: (cb: (a: Artifact[]) => void) =>
+    ipcRenderer.on('nativelib:watchArtifacts', (_e, a) => cb(a as Artifact[])),
   onLibStreamEnd: (cb: () => void) => ipcRenderer.on('nativelib:streamEnd', () => cb()),
 })

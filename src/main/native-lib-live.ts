@@ -52,13 +52,13 @@ export function startLive(sp: Spawner, adb: Adb, pkg: string, onEvent: (e: LiveE
 // second_stage_resources storage sys system system_dlkm system_ext`: one wrong
 // -l plus six stray positional args that dump.c folds in as extra patterns via
 // ARGP_KEY_ARG, silently, with no error. Quoted, ares receives the glob intact.
-export function watchArg(pid: number, glob: string): string {
-  return `su -c '${DEVICE_BIN} dump -p ${pid} --on-map -l '\\''${glob}'\\'''`
+export function watchArg(pid: number, glob: string, dir: string): string {
+  return `su -c '${DEVICE_BIN} dump -p ${pid} --on-map -l '\\''${glob}'\\''' -d ${dir} -o ${dir}/manifest.jsonl'`
 }
 
-export function startWatch(sp: Spawner, adb: Adb, pid: number, glob: string, onLine: (l: string) => void): RunHandle {
+export function startWatch(sp: Spawner, adb: Adb, pid: number, glob: string, dir: string, onLine: (l: string) => void): RunHandle {
   if (!isSafePattern(glob)) throw new Error(`unsafe on-map glob: ${glob}`)
-  return startRun(sp, adb, watchArg(pid, glob), onLine, stopArgWatch(pid))
+  return startRun(sp, adb, watchArg(pid, glob, dir), onLine, stopArgWatch(pid))
 }
 
 // Snapshot one module by base, pull the output dir, triage every rebuilt .so.
@@ -76,6 +76,19 @@ export async function dumpByBase(
   if (code !== 0) throw new Error(`ares dump --now exited ${code}`)
   const pull = await adb.run(['pull', deviceDir, hostDir])
   if (pull.code !== 0) throw new Error(`dump pull failed: ${pull.stderr.trim() || pull.stdout.trim()}`)
+  return triageDir(hostDir)
+}
+
+// Pull the watcher's device output dir and triage it. Unlike dumpByBase, a
+// failed pull must NOT throw: the watcher legitimately produces nothing when
+// no library ever matched the glob during the whole live session (the device
+// dir is never created), and this runs on the stream-teardown path (stopLive /
+// activeLive.done) where a throw would surface as an unhandled rejection
+// instead of a clean "nothing caught" result. Callers log a [] result if they
+// want to note it.
+export async function pullWatchArtifacts(adb: Adb, deviceDir: string, hostDir: string): Promise<Artifact[]> {
+  const pull = await adb.run(['pull', deviceDir, hostDir])
+  if (pull.code !== 0) return []
   return triageDir(hostDir)
 }
 

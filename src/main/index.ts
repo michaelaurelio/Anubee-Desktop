@@ -18,7 +18,7 @@ import { mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { readFile, open } from 'node:fs/promises'
 import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
-import { startLive, dumpByBase, startWatch, type LiveEvent } from './native-lib-live'
+import { startLive, dumpByBase, startWatch, pullWatchArtifacts, type LiveEvent } from './native-lib-live'
 import { loadConfig, saveConfig } from './tracer-config'
 import { capById, composeRunArg, outJsonlPath, resolveSavePath, isSafePattern } from '@shared/tracer-caps'
 import { isElf, specNames, type PathCheck, type PathStatus } from './path-check'
@@ -36,6 +36,10 @@ const spawner = realSpawner()
 let activeRun: RunHandle | null = null
 let activeLive: RunHandle | null = null
 let activeWatch: RunHandle | null = null
+// Device+host dirs for the current watcher run, set at nativelib:startLive
+// (when a glob is given) so either teardown path (stopLive, or activeLive's
+// own stream end) can pull and triage whatever the watcher caught.
+let activeWatchDirs: { deviceDir: string; hostDir: string } | null = null
 
 async function fileMd5(path: string): Promise<string> {
   try {
@@ -281,32 +285,65 @@ ipcMain.handle('graph:nodeOffsets', (_e, nodeId: string, filter: Filter, runId?:
 
 ipcMain.handle('nativelib:table', (_e, runId?: number) => store.libTable(runId))
 
+// Stop the watcher (if any) then pull + triage its device output dir and push
+// whatever it caught to the renderer. activeWatchDirs is cleared synchronously
+// before the pull's await, so a concurrent call from the other teardown path
+// (stopLive vs. activeLive.done) sees it already null and no-ops - no double
+// pull, no double push. pullWatchArtifacts itself never throws (by contract:
+// a failed pull just means nothing was caught), but this still wraps the call
+// so a rejection anywhere in the chain (e.g. adb.run itself rejecting) cannot
+// escape as an unhandled rejection on this fire-and-forget teardown path.
+async function pullAndPushWatchArtifacts(): Promise<void> {
+  if (!activeWatchDirs) return
+  const { deviceDir, hostDir } = activeWatchDirs
+  activeWatchDirs = null
+  try {
+    const arts = await pullWatchArtifacts(adb, deviceDir, hostDir)
+    if (arts.length > 0) win.webContents.send('nativelib:watchArtifacts', arts)
+  } catch {
+    // best-effort: the watcher's catches are a bonus, not a requirement
+  }
+}
+
 // The glob is validated here, at the IPC boundary, before anything is spawned:
 // startWatch also guards internally (defence in depth for a pure module), but
 // that guard fires from inside the [lib] stdout callback below - throwing there
 // would surface as an unhandled error mid-stream, not a clean IPC rejection.
-ipcMain.handle('nativelib:startLive', (_e, pkg: string, glob?: string) => {
+ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => {
   if (glob && !isSafePattern(glob)) throw new Error(`unsafe on-map glob: ${glob}`)
+  // The watcher dir does not depend on the pid (unlike dumpLib's per-base
+  // dir), so it is created here, up front - not inside the [lib] callback
+  // below, since startWatch is synchronous and called from stdout handling.
+  let watchDeviceDir: string | undefined
+  if (glob) {
+    const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
+    watchDeviceDir = `/data/local/tmp/ares-onmap-${ts}`
+    const watchHostDir = resolve(runsDir(), `ares-onmap-${ts}`)
+    await adb.run(['shell', `su -c 'mkdir -p ${watchDeviceDir}'`])
+    activeWatchDirs = { deviceDir: watchDeviceDir, hostDir: watchHostDir }
+  }
   activeLive = startLive(spawner, adb, pkg, (ev: LiveEvent) => {
     if ('raw' in ev) win.webContents.send('nativelib:line', ev.raw)
     else if (ev.line.kind === 'lib') {
       win.webContents.send('nativelib:mapped', { ...ev.line, atMs: ev.atMs })
       // Attach the watcher on the first [lib] line: that is where the pid becomes known.
-      if (glob && !activeWatch) {
-        activeWatch = startWatch(spawner, adb, ev.line.pid, glob, line => win.webContents.send('nativelib:watchLine', line))
+      if (glob && watchDeviceDir && !activeWatch) {
+        activeWatch = startWatch(spawner, adb, ev.line.pid, glob, watchDeviceDir, line => win.webContents.send('nativelib:watchLine', line))
       }
     } else win.webContents.send('nativelib:unmapped', { ...ev.line, atMs: ev.atMs })
   })
-  activeLive.done.then(() => {
+  activeLive.done.then(async () => {
     activeLive = null
-    if (activeWatch) { void activeWatch.stop(); activeWatch = null }
+    if (activeWatch) { await activeWatch.stop(); activeWatch = null }
+    await pullAndPushWatchArtifacts()
     win.webContents.send('nativelib:streamEnd')
-  })
+  }).catch(() => {})
 })
 
 ipcMain.handle('nativelib:stopLive', async () => {
   if (activeLive) await activeLive.stop()
   if (activeWatch) { await activeWatch.stop(); activeWatch = null }
+  await pullAndPushWatchArtifacts()
 })
 
 ipcMain.handle('nativelib:dumpLib', async (_e, pid: number, base: string) => {

@@ -568,6 +568,7 @@ window.ares.onLibUnmapped(l => libView.applyUnmapped(l))
 window.ares.onLibStreamEnd(() => libView.streamEnded())
 window.ares.onLibLine(l => libView.appendLog(l))
 window.ares.onWatchLine(l => libView.appendLog(l))
+window.ares.onWatchArtifacts(a => libView.addArtifacts(a))
 window.ares.onPreflightCheck(c => libView.applyPreflightCheck(c))
 
 async function refreshDiff(): Promise<void> {

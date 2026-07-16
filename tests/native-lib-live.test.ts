@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { liveLibArg, dumpArg, startLive, triageDir, dumpByBase, watchArg, startWatch } from '../src/main/native-lib-live'
+import { liveLibArg, dumpArg, startLive, triageDir, dumpByBase, watchArg, startWatch, pullWatchArtifacts } from '../src/main/native-lib-live'
 import type { Adb, Spawner } from '../src/main/tracer-control'
 import type { LibLine } from '@shared/native-lib'
 
@@ -56,30 +56,54 @@ function autoSpawner(exitCode: number): Spawner {
 const okAdb: Adb = { run: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })) }
 
 describe('watchArg / startWatch', () => {
-  it('watchArg single-quotes the glob so the device shell cannot expand it', () => {
+  it('watchArg single-quotes the glob and writes to the given dir, so the device shell cannot expand it', () => {
     // `su -c '<str>'` is re-parsed: the device's OUTER shell strips these quotes
     // and hands <str> to su, which runs it via `sh -c`. That INNER shell then
     // globs an unquoted * ? [ ] against its cwd, which is `/`. Measured on
     // device: `su -c 'echo -l s*'` -> `-l sdcard second_stage_resources storage
     // sys system system_dlkm system_ext`. So the glob must carry its own quotes
-    // through the outer shell, via the '\'' close-escape-reopen idiom.
-    expect(watchArg(25659, 'libexample*'))
-      .toBe("su -c '/data/local/tmp/ares dump -p 25659 --on-map -l '\\''libexample*'\\'''")
+    // through the outer shell, via the '\'' close-escape-reopen idiom. -d/-o are
+    // required too: the default outdir is cwd, and root (`/`) is read-only.
+    expect(watchArg(25659, 'libexample*', '/data/local/tmp/ares-onmap-20260101000000'))
+      .toBe("su -c '/data/local/tmp/ares dump -p 25659 --on-map -l '\\''libexample*'\\'''" +
+        " -d /data/local/tmp/ares-onmap-20260101000000 -o /data/local/tmp/ares-onmap-20260101000000/manifest.jsonl'")
   })
 
   it('startWatch rejects an unsafe glob before spawning', () => {
-    expect(() => startWatch(fakeSpawner([]).sp, okAdb, 1, "lib'; rm -rf /", () => {})).toThrow(/unsafe/)
+    expect(() => startWatch(fakeSpawner([]).sp, okAdb, 1, "lib'; rm -rf /", '/data/local/tmp/d', () => {})).toThrow(/unsafe/)
   })
 
   it('startWatch stops with the scoped watch pattern, not the global kill', async () => {
     // okAdb is a vi.fn; inspect its .mock.calls (the real harness has no
     // .calls array). fakeSpawner([]) returns { sp, fire }.
     const adb: Adb = { run: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })) }
-    const h = startWatch(fakeSpawner([]).sp, adb, 25659, 'libexample*', () => {})
+    const h = startWatch(fakeSpawner([]).sp, adb, 25659, 'libexample*', '/data/local/tmp/d', () => {})
     await h.stop()
     const calls = (adb.run as unknown as { mock: { calls: string[][][] } }).mock.calls.map(c => c[0].join(' '))
     expect(calls.some(c => c.includes('dump -p 25659 --on-map'))).toBe(true)
     expect(calls.some(c => c.includes("pkill -INT -f /data/local/tmp/ares'"))).toBe(false) // not the global
+  })
+})
+
+describe('pullWatchArtifacts', () => {
+  it('returns [] when the pull fails, instead of throwing (no match caught is a legitimate outcome)', async () => {
+    const failAdb: Adb = { run: vi.fn(async () => ({ code: 1, stdout: '', stderr: 'no such file or directory' })) }
+    const d = mkdtempSync(join(tmpdir(), 'ares-onmap-'))
+    await expect(pullWatchArtifacts(failAdb, '/data/local/tmp/ares-onmap-x', d)).resolves.toEqual([])
+    rmSync(d, { recursive: true, force: true })
+  })
+
+  it('pulls and triages a populated dir on success', async () => {
+    const d = mkdtempSync(join(tmpdir(), 'ares-onmap-'))
+    // the fake adb "pull" is a no-op, so pre-populate hostDir as if pulled
+    const elf = Buffer.alloc(64); elf.set([0x7f, 0x45, 0x4c, 0x46]); elf[4] = 2; elf[5] = 1; elf[18] = 0xb7
+    writeFileSync(join(d, 'libcaught.so'), elf)
+    writeFileSync(join(d, 'manifest.jsonl'),
+      '{"type":"dump","module":"libcaught.so","path":"/proc/7/libcaught.so","base":"0x3000","pid":7,"raw":false}\n')
+    const arts = await pullWatchArtifacts(okAdb, '/data/local/tmp/ares-onmap-x', d)
+    expect(arts).toHaveLength(1)
+    expect(arts[0]).toMatchObject({ module: 'libcaught.so', raw: false, arch: 'arm64' })
+    rmSync(d, { recursive: true, force: true })
   })
 })
 

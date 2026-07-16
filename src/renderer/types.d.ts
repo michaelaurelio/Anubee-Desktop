@@ -79,6 +79,7 @@ declare global {
       onLibUnmapped(cb: (l: import('@shared/native-lib').LibLine & { atMs: number }) => void): void
       onLibLine(cb: (line: string) => void): void
       onWatchLine(cb: (line: string) => void): void
+      onWatchArtifacts(cb: (a: import('@shared/native-lib').Artifact[]) => void): void
       onLibStreamEnd(cb: () => void): void
     }
   }
