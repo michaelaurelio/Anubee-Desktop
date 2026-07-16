@@ -31,6 +31,10 @@ describe('native-lib-live argv', () => {
     expect(a).toContain('-o /data/local/tmp/out/manifest.jsonl')
     expect(a).not.toContain('--on-map')
   })
+  it('dumpArg emits balanced quotes, so the device shell can parse it', () => {
+    const a = dumpArg(25659, '0x7281a0000', '/data/local/tmp/out')
+    expect((a.match(/'/g) ?? []).length % 2).toBe(0)
+  })
 })
 
 describe('startLive', () => {
@@ -65,8 +69,18 @@ describe('watchArg / startWatch', () => {
     // through the outer shell, via the '\'' close-escape-reopen idiom. -d/-o are
     // required too: the default outdir is cwd, and root (`/`) is read-only.
     expect(watchArg(25659, 'libexample*', '/data/local/tmp/ares-onmap-20260101000000'))
-      .toBe("su -c '/data/local/tmp/ares dump -p 25659 --on-map -l '\\''libexample*'\\'''" +
+      .toBe("su -c '/data/local/tmp/ares dump -p 25659 --on-map -l '\\''libexample*'\\''" +
         " -d /data/local/tmp/ares-onmap-20260101000000 -o /data/local/tmp/ares-onmap-20260101000000/manifest.jsonl'")
+  })
+
+  it('watchArg emits balanced quotes, so the device shell can parse it', () => {
+    // A hand-written .toBe expectation cannot catch an unbalanced quote: the
+    // expectation just gets written to match the broken output. The device
+    // rejects an odd count outright with "sh: no closing quote", so count them.
+    for (const glob of ['libexample*', 'blob_[0-9]*', 'lib?.so']) {
+      const a = watchArg(25659, glob, '/data/local/tmp/ares-onmap-X')
+      expect((a.match(/'/g) ?? []).length % 2).toBe(0)
+    }
   })
 
   it('startWatch rejects an unsafe glob before spawning', () => {

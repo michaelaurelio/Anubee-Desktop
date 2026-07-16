@@ -53,7 +53,7 @@ export function startLive(sp: Spawner, adb: Adb, pkg: string, onEvent: (e: LiveE
 // -l plus six stray positional args that dump.c folds in as extra patterns via
 // ARGP_KEY_ARG, silently, with no error. Quoted, ares receives the glob intact.
 export function watchArg(pid: number, glob: string, dir: string): string {
-  return `su -c '${DEVICE_BIN} dump -p ${pid} --on-map -l '\\''${glob}'\\''' -d ${dir} -o ${dir}/manifest.jsonl'`
+  return `su -c '${DEVICE_BIN} dump -p ${pid} --on-map -l '\\''${glob}'\\'' -d ${dir} -o ${dir}/manifest.jsonl'`
 }
 
 export function startWatch(sp: Spawner, adb: Adb, pid: number, glob: string, dir: string, onLine: (l: string) => void): RunHandle {
