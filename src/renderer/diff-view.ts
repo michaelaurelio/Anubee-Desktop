@@ -5,7 +5,7 @@ import { truncateLabel } from './graph-view'
 export function presenceColor(p: Presence): string {
   if (p === 'A-only') return '#c0392b'
   if (p === 'B-only') return '#27ae60'
-  return '#95a5a6'
+  return '#9a928a'
 }
 
 export type DiffMode = 'all' | 'only-in-A' | 'only-in-B' | 'tagged'

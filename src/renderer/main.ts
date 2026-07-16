@@ -81,7 +81,7 @@ const cy = cytoscape({
     },
     { selector: 'node[presence = "A-only"]', style: { 'background-color': '#c0392b' } },
     { selector: 'node[presence = "B-only"]', style: { 'background-color': '#27ae60' } },
-    { selector: 'node[presence = "both"]', style: { 'background-color': '#95a5a6' } },
+    { selector: 'node[presence = "both"]', style: { 'background-color': '#9a928a' } },
     { selector: 'edge[presence = "A-only"]', style: { 'line-color': '#c0392b', 'target-arrow-color': '#c0392b' } },
     { selector: 'edge[presence = "B-only"]', style: { 'line-color': '#27ae60', 'target-arrow-color': '#27ae60' } },
     { selector: '.dimmed', style: { 'opacity': 0.12 } },

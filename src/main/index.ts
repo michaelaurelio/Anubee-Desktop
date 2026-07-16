@@ -73,9 +73,13 @@ function runsDir(): string {
 let allowClose = false
 
 function createWindow(): void {
+  // Dev window/taskbar icon. Absent from the packaged bundle (out/** only), where
+  // electron-builder's baked-in icon from build/icon.png takes over.
+  const iconPath = resolve(__dirname, '../../build/icon.png')
   win = new BrowserWindow({
     width: 1400,
     height: 900,
+    ...(existsSync(iconPath) ? { icon: iconPath } : {}),
     webPreferences: {
       preload: resolve(__dirname, '../preload/index.js'),
       contextIsolation: true,

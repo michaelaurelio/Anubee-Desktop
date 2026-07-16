@@ -3,6 +3,21 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-16) - Brand palette + logo integration
+
+Recolored the whole app to the ARES logo palette (war red / night / bone) and
+dropped the `A`-mark into the left-rail brand slot + the window/builder icon.
+Chrome, kind colors (reharmonized warm), RASP categories, log lines, and flame
+neutrals all moved; single-source tokens in `index.html` `:root` + `theme.ts`.
+See `DOCUMENTATION.md` "Theme".
+
+Known follow-ups (deliberately out of scope this pass):
+- Graph badge border for non-native badged nodes is still the old purple
+  `#8e44ad` (`src/renderer/main.ts`) - a generic RASP marker, not a kind/category
+  color, so left as-is; retune into the warm family if it reads off-brand.
+- App icon is wired for `--linux dir` (`build/icon.png`) only; Windows `.ico` /
+  macOS `.icns` build inputs not set up (assets exist in `../assets`).
+
 ## Shipped (2026-07-16) - Native Libraries Phase 4 (header layout A + tabbed dock C1)
 
 Gives the Libraries view its final chrome. The header is now three

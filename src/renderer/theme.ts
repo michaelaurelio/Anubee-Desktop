@@ -17,13 +17,13 @@ export interface KindColors {
 }
 
 const DARK: KindColors = {
-  java: '#5fd28f', native: '#6fa8ff', syscall: '#ff8b7a', func: '#d9a441',
-  // edge lifted from the near-invisible #3a4556 so lines + arrowheads read on the dark canvas
-  labelBacking: '#1a1f2b', labelText: '#c9d1e0', edge: '#6b7a91',
+  java: '#8fbe7a', native: '#7fa0c8', syscall: '#e8845c', func: '#e0a94a',
+  // warm edge tuned to read on the night canvas without fighting the war-red accent
+  labelBacking: '#211f26', labelText: '#e7e3d9', edge: '#6e6a63',
 }
 const LIGHT: KindColors = {
-  java: '#27ae60', native: '#2980b9', syscall: '#c0392b', func: '#b8860b',
-  labelBacking: '#ffffff', labelText: '#1e2530', edge: '#b0b0b0',
+  java: '#4f8a3f', native: '#3c6e9e', syscall: '#c25a34', func: '#b07c1e',
+  labelBacking: '#fbfaf6', labelText: '#201e1b', edge: '#c3bcaf',
 }
 
 export function themeColors(theme: Theme): KindColors {
@@ -41,12 +41,12 @@ export function serializeTheme(theme: Theme): string {
 // Per-category RASP colors for native block nodes (root check / debugger / ...).
 // Single source like KindColors; cytoscape consumes these (can't read CSS vars).
 const CAT_DARK: Record<RaspCategory, string> = {
-  root: '#e5484d', debugger: '#e08c3b', emulator: '#b072e0',
-  integrity: '#4aa3ff', hook: '#26c2a6', custom: '#8b97a4',
+  root: '#e5544b', debugger: '#e39a3d', emulator: '#b888c8',
+  integrity: '#7fa0c8', hook: '#4fb6a0', custom: '#9a928a',
 }
 const CAT_LIGHT: Record<RaspCategory, string> = {
-  root: '#c0392b', debugger: '#b9770e', emulator: '#8e44ad',
-  integrity: '#2980b9', hook: '#0e8f7e', custom: '#5c6773',
+  root: '#c0392b', debugger: '#b9770e', emulator: '#8e5aa8',
+  integrity: '#3c6e9e', hook: '#1e8f7e', custom: '#6b6358',
 }
 
 export function categoryColors(theme: Theme): Record<RaspCategory, string> {

@@ -6,7 +6,7 @@ import { themeColors, type Theme } from './theme'
 // fixed neutral grey across both themes.
 export function kindFill(theme: Theme): Record<string, string> {
   const c = themeColors(theme)
-  return { root: '#7f8c8d', java: c.java, native: c.native, syscall: c.syscall }
+  return { root: '#8a847c', java: c.java, native: c.native, syscall: c.syscall }
 }
 const SVG = 'http://www.w3.org/2000/svg'
 const ROW_H = 22
@@ -56,7 +56,7 @@ export function renderFlame(host: HTMLElement, tree: FlameTree, truncated: boole
       rect.setAttribute('y', String(r.y))
       rect.setAttribute('width', String(Math.max(0, r.w - 1)))
       rect.setAttribute('height', String(r.h - 1))
-      rect.setAttribute('fill', fill[r.kind] ?? '#95a5a6')
+      rect.setAttribute('fill', fill[r.kind] ?? '#9a928a')
       rect.style.cursor = r.node.children.length ? 'pointer' : 'default'
 
       const pct = ((r.value / current.value) * 100).toFixed(1)

@@ -18,6 +18,8 @@
   "type": "commonjs",
   "build": {
     "appId": "com.ares.desktop",
+    "productName": "ARES",
+    "icon": "build/icon.png",
     "asarUnpack": [
       "**/node_modules/@duckdb/**"
     ],

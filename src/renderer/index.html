@@ -17,29 +17,31 @@
         --font: 13px/1.45 'Inter', system-ui, sans-serif;
         --mono: 'JetBrains Mono', ui-monospace, "SF Mono", Menlo, monospace;
       }
+      /* Brand palette: war red #C8322B, night #131316, bone #F5F3EE. Chrome maps to
+         these; kind + RASP colors reharmonized into a warm family, still separable. */
       :root[data-theme="dark"] {
-        --surface: #0e1219; --panel: #12151c; --panel-2: #151922; --bar: #1a1f2b;
-        --border: #262d3d; --border-soft: #202634;
-        --text: #c9d1e0; --muted: #8b96a8; --stripe: #181d27; --hover: #1b2230;
-        --accent: #2647a8; --accent-bd: #3159c9; --accent-soft: #1e3a8a33; --accent-fg: #7aa2ff;
-        --k-java: #5fd28f; --k-native: #6fa8ff; --k-syscall: #ff8b7a; --k-func: #d9a441;
+        --surface: #0f0e11; --panel: #16151a; --panel-2: #1c1a20; --bar: #211f26;
+        --border: #322e38; --border-soft: #29262f;
+        --text: #e7e3d9; --muted: #97918a; --stripe: #1a181e; --hover: #23202a;
+        --accent: #c8322b; --accent-bd: #d8443b; --accent-soft: #c8322b33; --accent-fg: #f08a80;
+        --k-java: #8fbe7a; --k-native: #7fa0c8; --k-syscall: #e8845c; --k-func: #e0a94a;
         --warn-bg: #3a2f12; --warn-bd: #5c4a1a; --warn-fg: #e8c977;
-        --input-bg: #0e1219; --input-bd: #2a3346;
+        --input-bg: #0f0e11; --input-bd: #322e38;
         --shadow: 0 2px 10px rgba(0,0,0,.35);
-        --cat-root: #e5484d; --cat-debugger: #e08c3b; --cat-emulator: #b072e0;
-        --cat-integrity: #4aa3ff; --cat-hook: #26c2a6; --cat-custom: #8b97a4;
+        --cat-root: #e5544b; --cat-debugger: #e39a3d; --cat-emulator: #b888c8;
+        --cat-integrity: #7fa0c8; --cat-hook: #4fb6a0; --cat-custom: #9a928a;
       }
       :root[data-theme="light"] {
-        --surface: #ffffff; --panel: #ffffff; --panel-2: #fafbfc; --bar: #f6f8fa;
-        --border: #e2e6ea; --border-soft: #eef1f4;
-        --text: #1e2530; --muted: #6b7684; --stripe: #f7f9fb; --hover: #f2f7ff;
-        --accent: #1a56db; --accent-bd: #1a56db; --accent-soft: #e8f0fe; --accent-fg: #1a56db;
-        --k-java: #27ae60; --k-native: #2980b9; --k-syscall: #c0392b; --k-func: #b8860b;
+        --surface: #f5f3ee; --panel: #fbfaf6; --panel-2: #f1eee7; --bar: #ede9e0;
+        --border: #dcd6c9; --border-soft: #e8e3d8;
+        --text: #201e1b; --muted: #6e675c; --stripe: #f2efe8; --hover: #f6ecea;
+        --accent: #c8322b; --accent-bd: #b02a24; --accent-soft: #f6e7e5; --accent-fg: #c8322b;
+        --k-java: #4f8a3f; --k-native: #3c6e9e; --k-syscall: #c25a34; --k-func: #b07c1e;
         --warn-bg: #fff3cd; --warn-bd: #ffe08a; --warn-fg: #7a5c00;
-        --input-bg: #ffffff; --input-bd: #cbd2da;
+        --input-bg: #fbfaf6; --input-bd: #dcd6c9;
         --shadow: 0 1px 4px rgba(0,0,0,.12);
-        --cat-root: #c0392b; --cat-debugger: #b9770e; --cat-emulator: #8e44ad;
-        --cat-integrity: #2980b9; --cat-hook: #0e8f7e; --cat-custom: #5c6773;
+        --cat-root: #c0392b; --cat-debugger: #b9770e; --cat-emulator: #8e5aa8;
+        --cat-integrity: #3c6e9e; --cat-hook: #1e8f7e; --cat-custom: #6b6358;
       }
 
       html, body { margin: 0; height: 100%; font: var(--font); background: var(--surface); color: var(--text); }
@@ -62,8 +64,15 @@
         border-right:1px solid var(--border); display:flex; flex-direction:column; padding:8px 0; gap:2px; z-index:10;
         overflow:hidden; transition:width .12s; }
       #rail:hover { width:172px; }
-      #rail .brand { display:flex; justify-content:center; padding:4px 0 10px; color:var(--accent-fg); }
-      #rail .brand svg { width:20px; height:20px; fill:var(--accent-fg); }
+      /* mark pinned at 12px (== the 46px collapsed rail's centered inset) in both
+         states, so switching width never re-aligns it - only the wordmark grows */
+      #rail .brand { display:flex; align-items:center; justify-content:flex-start; padding:4px 0 10px 12px; }
+      #rail .brand svg { width:22px; height:22px; fill:var(--accent); flex:0 0 auto; }
+      /* wordmark collapses to zero width so it never pushes the mark off the clipped rail */
+      #rail .brand .wordmark { font-weight:700; letter-spacing:.16em; font-size:15px; color:var(--text);
+        white-space:nowrap; max-width:0; margin-left:0; opacity:0; overflow:hidden;
+        transition:opacity .12s, max-width .12s, margin-left .12s; }
+      #rail:hover .brand .wordmark { max-width:120px; margin-left:9px; opacity:1; }
       .rail-item { display:flex; align-items:center; gap:11px; height:36px; padding:0 0 0 13px;
         border:0; border-left:2px solid transparent; background:transparent; color:var(--muted); cursor:pointer; }
       .rail-item:hover { color:var(--text); background:#ffffff08; }
@@ -166,7 +175,7 @@
       #graph-empty .ge-title { color:var(--text); font-size:14px; }
       #graph-empty .ge-sub { font-size:12px; }
       #ingest-progress.hidden { display: none; }
-      #ingest-progress #ingest-bar { height: 4px; background: var(--accent, #6fa8ff); width: 0%;
+      #ingest-progress #ingest-bar { height: 4px; background: var(--accent, #c8322b); width: 0%;
         border-radius: 2px; transition: width 0.1s linear; }
       #ingest-progress #ingest-pct { font-size: 11px; color: var(--muted, #7f8ba0); }
 
@@ -201,7 +210,7 @@
       .cap-section-hd { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
         color: var(--muted); display: flex; align-items: center; gap: 7px; margin-top: 4px; }
       .cap-n { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;
-        border-radius: 50%; background: var(--accent, #4b8bf5); color: #fff; font-size: 10px; font-weight: 700; }
+        border-radius: 50%; background: var(--accent, #c8322b); color: #fff; font-size: 10px; font-weight: 700; }
       #capture-run-row { display: flex; gap: 8px; align-items: center; }
       .path-dot { font-size: 13px; width: 12px; display: inline-block; text-align: center; }
       .cap-input-err { display: block; font-size: 11px; color: var(--k-syscall); min-height: 14px; }
@@ -334,7 +343,7 @@
       .rule-btns { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
       .rule-sw { width:30px; height:17px; border-radius:9px; background:var(--accent); position:relative; cursor:pointer; flex:0 0 auto; border:0; }
       .rule-sw::after { content:''; position:absolute; top:2px; left:15px; width:13px; height:13px; border-radius:50%; background:#fff; transition:left .12s; }
-      .rule-sw.off { background:#39435a; } .rule-sw.off::after { left:2px; }
+      .rule-sw.off { background:#3a3640; } .rule-sw.off::after { left:2px; }
       .rule-row.disabled { opacity:.55; }
       .rule-form { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px;
                    display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; }
@@ -357,9 +366,9 @@
         border: 1px solid var(--border, #2a2f3a); border-radius: 6px; padding: 8px;
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; }
       .log-line { white-space: pre-wrap; word-break: break-all; color: var(--text); }
-      .log-line.log-success { color: #5fd28f; }
-      .log-line.log-warn { color: #d9a441; }
-      .log-line.log-error { color: #ff8b7a; }
+      .log-line.log-success { color: #8fbe7a; }
+      .log-line.log-warn { color: #e0a94a; }
+      .log-line.log-error { color: #e8845c; }
       .log-empty { color: var(--muted, #7f8ba0); font-style: italic; }
       .log-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 
@@ -521,7 +530,6 @@
   </head>
   <body>
     <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
-      <g id="i-diamond"><path d="M12 2 22 12 12 22 2 12z"/></g>
       <g id="i-graph"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></g>
       <g id="i-flame"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2-1-3-1-2.1-.2-4 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.2.4-2.3 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></g>
       <g id="i-bulb"><path d="M15 14c.2-1 .7-1.7 1.5-2.5C17.7 10.6 18 9.3 18 8A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.8.8 1.3 1.5 1.5 2.5"/><path d="M9 18h6M10 22h4"/></g>
@@ -552,7 +560,7 @@
     </defs></svg>
 
     <nav id="rail">
-      <span class="brand"><svg viewBox="0 0 24 24"><use href="#i-diamond"/></svg></span>
+      <span class="brand" title="ARES"><svg viewBox="0 0 100 100" aria-label="ARES"><path fill-rule="evenodd" d="M50 4 L80 82 L92 92 L66 92 L60 78 L40 78 L34 92 L8 92 L20 82 Z M50 34 L60 62 L40 62 Z M46 70 L54 70 L54 92 L46 92 Z"/></svg><span class="wordmark">ARES</span></span>
       <button id="tab-graph" class="rail-item on" title="Graph"><svg class="ic" viewBox="0 0 24 24"><use href="#i-graph"/></svg><span class="lbl">Graph</span></button>
       <button id="tab-flame" class="rail-item" title="Flame"><svg class="ic" viewBox="0 0 24 24"><use href="#i-flame"/></svg><span class="lbl">Flame</span></button>
       <button id="tab-libs" class="rail-item" title="Libraries"><svg class="ic" viewBox="0 0 24 24"><use href="#i-lib"/></svg><span class="lbl">Libraries</span></button>

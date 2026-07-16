@@ -323,6 +323,17 @@ constants that had drifted across those three call sites. The graph's label
 backing color switches with the theme so node labels stay legible against
 both the dark and light canvas.
 
+**Brand palette.** The chrome tokens map to the ARES logo: war red `#C8322B`
+accent, a warm near-black *night* surface ramp (dark), and a *bone* `#F5F3EE`
+surface ramp (light) - replacing the earlier cool blue-accent scheme. The four
+kind colors are reharmonized into a warm family that stays separable while
+sitting under the red accent: java sage, native slate-blue, syscall terracotta
+(moved off pure red so it does not collide with the accent), func amber; the
+RASP category colors follow the same warming. The `A`-mark logo renders as an
+inline SVG path in the left-rail `.brand` slot (war-red fill via `--accent`).
+The window/taskbar icon is `build/icon.png` (electron-builder auto-detects it;
+`src/main` also sets it on the dev `BrowserWindow` when present).
+
 The bottom-pinned toggle (`#theme-toggle`) is **rail-aware**: while the left
 rail is collapsed it shows a single `.theme-mini` glyph of the *current* theme
 (moon in dark, sun in light), aligned with the other rail icons; hovering the

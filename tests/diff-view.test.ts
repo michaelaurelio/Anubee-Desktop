@@ -10,7 +10,7 @@ describe('diff-view helpers', () => {
   it('colors presence red/green/grey', () => {
     expect(presenceColor('A-only')).toBe('#c0392b')
     expect(presenceColor('B-only')).toBe('#27ae60')
-    expect(presenceColor('both')).toBe('#95a5a6')
+    expect(presenceColor('both')).toBe('#9a928a')
   })
 
   it('filters only-in-A', () => {
