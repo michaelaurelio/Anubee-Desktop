@@ -10,8 +10,9 @@ source switch and a collapsible bottom artifacts dock. Loaded mode reads retaine
 `type:lib`/`unlib` records via `GraphStore.libTable` (unlib flags unmapped frames).
 Live mode streams `ares lib -P <pkg>` stdout parsed by `src/shared/lib-line.ts`,
 stamping each library with host arrival time and flagging post-setup loads (after
-`NEW_LIB_SETTLE_MS`, 1500ms) as `new` - the packer-decrypt signal. Dumping attaches
-to the live pid (`ares dump -p <pid> <pattern>`), pulls the output dir + manifest,
+`NEW_LIB_SETTLE_MS`, 1500ms) as `new` - the packer-decrypt signal. Dumping snapshots
+an exact `pid|base` selection via `ares dump --now -p <pid> --base <addr>`,
+attaching no BPF and exiting 0 on success, then pulls the output dir + manifest
 and triages each `.so` via `src/shared/elf-triage.ts` (ELF magic/arch/sha-256/size).
 Reveal opens the file manager; Export saves a copy. `lib` and `dump` are no longer
 selectable engines in the Capture modal.
@@ -23,7 +24,7 @@ selectable engines in the Capture modal.
 - Live stream + dump use the default adb device; multi-device `-s` selection is deferred (matches the rest of the app).
 - Two concurrent ares processes (lib stream + `dump --now`) - device-VERIFIED (`dev.ares.detector`): a `dump --now -p <pid> --base <addr>` run against an APK-embedded library (maps path `base.apk`) completed with `DUMP_EXIT=0` while the separate live `ares lib` stream pid kept running underneath it (unaffected), and the target app process survived. The pulled artifact rebuilt as a valid arm64 ELF. `dump --now` acceptance by ares' argp is confirmed; no stop-then-resume workaround is needed.
 - The on-map watcher's file-path-only boundary is a maps-path limitation in ares' `-l`, not a Desktop bug: it matches the resolved `/proc/<pid>/maps` path of a mapped library, so it can only ever catch a file-backed transient. It cannot match an APK-embedded library (maps path is `base.apk`, there is no standalone file it decrypted to) or an anonymous mapping (no path at all) - those remain reachable only through the table (once mapped) or by dumping their base directly.
-- The on-map watcher was NOT fired against a real transient on device: `dev.ares.detector` has no decrypt-to-a-file-then-`dlopen` payload, and its one library is APK-embedded, which on-map cannot match by design (see above). What IS proven: the built command delivers the glob literally through `su -c` (measured on device), and its stop pattern is the same anchored form verified for the live stream. Closing this needs a target that maps a file-backed transient library.
+- The on-map watcher was NOT fired against a real transient on device: `dev.ares.detector` has no decrypt-to-a-file-then-`dlopen` payload, and its libraries are APK-embedded, which on-map cannot match by design (see above). What IS proven: the built command delivers the glob literally through `su -c` (measured on device), and its stop pattern is the same anchored form verified for the live stream. For the same reason, the pull-and-triage-into-the-dock path added after this bullet was written (own device dir, pulled + triaged into the Artifacts dock on stream stop) is likewise unverified on device - it is covered by unit tests only. Closing this needs a target that maps a file-backed transient library.
 - The GUI live+dump path has still not been driven end-to-end through the app UI; the device pass above was at the CLI level, exercising the exact strings the Desktop builds directly over adb, not through Electron.
 - Check-batching and the `MODIFIED`/`NO FILE` tags on repeated dumps are Phase 3, not shipped here.
 - `startLive` has no double-start guard in the main process: invoking it while a stream is live still orphans the previous RunHandle. The renderer now closes both practical paths - the header hides "Start live capture" while streaming, and leaving Live mode calls `stopLive` - so this is defence-in-depth only, not a live risk today.

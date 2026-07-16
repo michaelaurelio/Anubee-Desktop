@@ -616,18 +616,24 @@ chosen location.
 
 ### Targeted stop
 
-Every run started from the Libraries view - the live stream, the on-map
-watcher, and (implicitly, since it runs to completion on its own) a dump -
-carries its own stop pattern instead of one shared kill switch. `stopArgLive`
-and `stopArgWatch` (`src/shared/tracer-caps.ts`) build an anchored,
-ERE-escaped `pkill -INT -f "^/data/local/tmp/ares ..."` scoped to that run's
-exact package (live) or pid (watcher). The leading `^` anchor is what excludes
-the run's own `su -c '...'` wrapper process: its cmdline also contains the
-matched command as a substring, but does not *start* with it, so the anchor
-keeps the pattern from also killing its own launcher. Previously one global
-`pkill -INT -f /data/local/tmp/ares` was used to stop anything, so stopping a
-dump or the watcher could SIGINT an unrelated live stream sharing the device;
-targeted patterns make stopping one run a no-op for every other.
+The live stream and the on-map watcher each carry their own stop pattern
+instead of sharing one global kill switch. `stopArgLive` and `stopArgWatch`
+(`src/shared/tracer-caps.ts`) build an anchored, ERE-escaped `pkill -INT -f
+"^/data/local/tmp/ares ..."` scoped to that run's exact package (live) or pid
+(watcher). The leading `^` anchor is what excludes the run's own `su -c
+'...'` wrapper process: its cmdline also contains the matched command as a
+substring, but does not *start* with it, so the anchor keeps the pattern from
+also killing its own launcher. A dump carries no stop pattern at all, because
+it needs none: `--now` is a synchronous `/proc` snapshot that runs to
+completion and exits 0 on its own, `dumpByBase` (`src/main/native-lib-live.ts`)
+only ever awaits its `RunHandle`'s `done`, and `RunHandle.stop()` is never
+called on it anywhere - `startRun`'s default `stopArg` (the old global
+`STOP_ARG`) is inherited but sits unused. Previously, before `stopArgLive` and
+`stopArgWatch` existed, that one global `pkill -INT -f /data/local/tmp/ares`
+was the only stop path in the app: it applied to the live stream and the
+wait-for-Ctrl-C dump mechanism this feature later replaced with `dump --now`,
+so stopping one could SIGINT the other. The per-run patterns make stopping
+the live stream or the watcher a no-op for every other run.
 
 The `lib` and `dump` capability outputs are no longer selectable engines in the
 Capture modal (feature 9) - they are now integrated as exclusive features of the
@@ -655,9 +661,21 @@ in `ares`'s `-l`, not a Desktop shortcoming**: the watcher matches the
 resolved `/proc/<pid>/maps` path only, so it cannot match an APK-embedded
 library (whose path is `base.apk`) or an anonymous mapping (no path at all) -
 those remain visible in the table and reachable by dumping their base once
-mapped (see Dumping binaries, above). Stopping the live capture stops both
-the stream and the watcher, each via its own anchored stop pattern (see
-Targeted stop, above).
+mapped (see Dumping binaries, above).
+
+The watcher writes each catch into its own device directory (with a paired
+host directory under the runs dir, named parallel to a dump's
+`ares-dump-<ts>`), not inline into the UI - that directory is not polled
+while the stream runs. Stopping the live capture, either via the Stop control
+or the stream ending on its own, stops both the stream and the watcher, each
+via its own anchored stop pattern (see Targeted stop, above), then pulls and
+triages the watcher's directory through the same `elf-triage.ts` path as a
+dump and pushes any non-empty result to the Artifacts dock over
+`nativelib:watchArtifacts`. So a genuine on-map catch does reach the dock,
+but only once the stream tears down - never live, as it maps. A pull that
+finds nothing (no glob match all session, the common case) returns quietly;
+a pull that fails for another reason is reported on the Device log strip
+instead of throwing on this teardown path.
 
 Raw device stdout and errors (a missing binary, a denied `su`, a stream that
 exits) appear in a collapsible **Device log** strip below the table, which
@@ -672,8 +690,11 @@ flowchart LR
   C[Live device: ares lib -P pkg] -->|[lib]/[unlib] stream| D[Libraries view: Live]
   C -->|first lib line: pid known, glob set| G[ares dump -p pid --on-map -l glob]
   D -->|tick + Dump| E[ares dump --now -p pid --base addr]
-  G -->|matched file-backed maps| F[Artifacts dock: ELF / arch / sha-256]
-  E -->|pull dir + manifest| F
+  D -->|Stop| H[pull + triage watcher dir]
+  C -->|stream ends| H
+  G -->|writes matches to its own device dir| H
+  E -->|pull dir + manifest| F[Artifacts dock: ELF / arch / sha-256]
+  H -->|non-empty result| F
 ```
 
 ## Render caps (`src/shared/caps.ts`)
