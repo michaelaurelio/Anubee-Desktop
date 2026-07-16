@@ -18,7 +18,8 @@ import { mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { readFile, open } from 'node:fs/promises'
 import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
-import { startLive, dumpByBase, startWatch, pullWatchArtifacts, type LiveEvent } from './native-lib-live'
+import { startLive, dumpByBase, startWatch, pullWatchArtifacts, checkByBases, type LiveEvent } from './native-lib-live'
+import { makeBatcher, type Batcher } from '@shared/batcher'
 import { loadConfig, saveConfig } from './tracer-config'
 import { capById, composeRunArg, outJsonlPath, resolveSavePath, isSafePattern } from '@shared/tracer-caps'
 import { isElf, specNames, type PathCheck, type PathStatus } from './path-check'
@@ -40,6 +41,16 @@ let activeWatch: RunHandle | null = null
 // (when a glob is given) so either teardown path (stopLive, or activeLive's
 // own stream end) can pull and triage whatever the watcher caught.
 let activeWatchDirs: { deviceDir: string; hostDir: string } | null = null
+// Auto-check state for the current live capture: a per-run device+host check
+// dir (created unconditionally, unlike the watcher's glob-gated dir), the
+// batcher that coalesces mapped bases into one dump --now --check pass, the
+// stream-clock origin checkedAtMs is stamped against (kept in sync with the
+// map atMs origin - see nativelib:startLive), and the pid learned from the
+// first [lib] line (no pid exists yet at startLive time).
+let activeCheckBatcher: Batcher<string> | null = null
+let liveCheckDir: { deviceDir: string; hostDir: string } | null = null
+let liveT0 = 0
+let livePid = 0
 
 async function fileMd5(path: string): Promise<string> {
   try {
@@ -306,6 +317,36 @@ async function pullAndPushWatchArtifacts(): Promise<void> {
   }
 }
 
+// Cancels any pending auto-check flush and clears the check-dir/pid state.
+// Synchronous, before any await - mirrors activeWatchDirs' null-before-await
+// discipline so the other teardown path (stopLive vs. activeLive.done) sees
+// it already cleared and no-ops, no double fire. cancel() drops a pending
+// batch outright; an already-in-flight runCheck captured its dirs as
+// checkByBases arguments before this runs, so nulling liveCheckDir here is
+// safe for it too.
+function teardownCheck(): void {
+  activeCheckBatcher?.cancel()
+  activeCheckBatcher = null
+  liveCheckDir = null
+  livePid = 0
+}
+
+// One batched dump --now --check pass over the given bases, fire-and-forget:
+// a failure lands on the device log, not as a thrown error, since this runs
+// off the debounce timer (auto-check) or the Verify button - neither has a
+// caller ready to catch a rejection.
+async function runCheck(pid: number, bases: string[]): Promise<void> {
+  if (!liveCheckDir) return
+  const { deviceDir, hostDir } = liveCheckDir
+  try {
+    const results = await checkByBases(spawner, adb, pid, bases, deviceDir, hostDir,
+      line => win.webContents.send('nativelib:line', line))
+    win.webContents.send('nativelib:checkResults', { results, atMs: Date.now() - liveT0 })
+  } catch (e) {
+    win.webContents.send('nativelib:line', `auto-check failed: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
 // The glob is validated here, at the IPC boundary, before anything is spawned:
 // startWatch also guards internally (defence in depth for a pure module), but
 // that guard fires from inside the [lib] stdout callback below - throwing there
@@ -324,6 +365,22 @@ ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => 
     await adb.run(['shell', `su -c 'mkdir -p ${watchDeviceDir}'`])
     watchDirs = { deviceDir: watchDeviceDir, hostDir: watchHostDir }
   }
+  // Unlike the watcher's dir, the auto-check dir is created on EVERY live
+  // capture, glob or no glob - every mapped library is a candidate to check.
+  const checkTs = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
+  const checkDeviceDir = `/data/local/tmp/ares-check-${checkTs}`
+  const checkHostDir = resolve(runsDir(), `ares-check-${checkTs}`)
+  await adb.run(['shell', `su -c 'mkdir -p ${checkDeviceDir}'`])
+  const checkDirs = { deviceDir: checkDeviceDir, hostDir: checkHostDir }
+  // Coalesces a mapped-library burst into one batched check pass. livePid is
+  // read at flush time (not capture time): no pid exists yet at startLive,
+  // only once the first [lib] line arrives below.
+  const checkBatcher = makeBatcher<string>(300, bases => { void runCheck(livePid, bases) })
+  // liveT0 sits immediately before startLive (not at handler entry, above the
+  // two mkdir awaits): startLive stamps its own t0 right before spawning, so
+  // placing this here keeps the map atMs and checkedAtMs clocks in sync -
+  // an entry-time liveT0 would drift by a device round-trip.
+  liveT0 = Date.now()
   // startLive throws synchronously on an unsafe pkg token. Assign
   // activeWatchDirs only once startLive has returned without throwing, so a
   // rejected start does not orphan this run's freshly-mkdir'd dir - the next
@@ -332,6 +389,11 @@ ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => 
     if ('raw' in ev) win.webContents.send('nativelib:line', ev.raw)
     else if (ev.line.kind === 'lib') {
       win.webContents.send('nativelib:mapped', { ...ev.line, atMs: ev.atMs })
+      // The pid becomes known on the first [lib] line, same as the watcher below.
+      livePid = ev.line.pid
+      // Queue only dumpable rows: a bracketed pseudo-path has no on-disk file
+      // to compare and would just waste a slot against the 64-base cap.
+      if (ev.line.library?.startsWith('/')) checkBatcher.add(ev.line.start)
       // Attach the watcher on the first [lib] line: that is where the pid becomes known.
       if (glob && watchDeviceDir && !activeWatch) {
         activeWatch = startWatch(spawner, adb, ev.line.pid, glob, watchDeviceDir, line => win.webContents.send('nativelib:watchLine', line))
@@ -339,8 +401,11 @@ ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => 
     } else win.webContents.send('nativelib:unmapped', { ...ev.line, atMs: ev.atMs })
   })
   activeWatchDirs = watchDirs ?? null
+  liveCheckDir = checkDirs
+  activeCheckBatcher = checkBatcher
   activeLive.done.then(async () => {
     activeLive = null
+    teardownCheck()
     // Ack Stop immediately: artifacts arrive on their own nativelib:watchArtifacts
     // channel and the dock is independent of streaming state, so nothing depends
     // on streamEnd waiting for the watcher stop + adb pull below. Sending it here
@@ -353,9 +418,25 @@ ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => 
 })
 
 ipcMain.handle('nativelib:stopLive', async () => {
+  teardownCheck()
   if (activeLive) await activeLive.stop()
   if (activeWatch) { await activeWatch.stop(); activeWatch = null }
   await pullAndPushWatchArtifacts()
+})
+
+// On-demand re-check of specific bases (Verify button / re-check all). Reuses
+// the same batched check; results arrive on nativelib:checkResults, stamped
+// against the same stream clock as the map events.
+ipcMain.handle('nativelib:verify', async (_e, pid: number, bases: string[]) => {
+  if (!liveCheckDir) return
+  const { deviceDir, hostDir } = liveCheckDir
+  try {
+    const results = await checkByBases(spawner, adb, pid, bases, deviceDir, hostDir,
+      line => win.webContents.send('nativelib:line', line))
+    win.webContents.send('nativelib:checkResults', { results, atMs: Date.now() - liveT0 })
+  } catch (e) {
+    win.webContents.send('nativelib:line', `verify failed: ${e instanceof Error ? e.message : String(e)}`)
+  }
 })
 
 ipcMain.handle('nativelib:dumpLib', async (_e, pid: number, base: string) => {

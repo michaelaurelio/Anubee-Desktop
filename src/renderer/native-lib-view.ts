@@ -51,6 +51,7 @@ export interface LibViewDeps {
   reveal: (path: string) => void
   exportArtifact: (path: string) => void
   preflight: (pkg: string) => Promise<PreflightCheck[]>
+  verify: (pid: number, bases: string[]) => Promise<void>
 }
 
 export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi {
@@ -78,7 +79,10 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       </div>
       <div class="lib-row1">
         <div class="lib-stat" data-stat></div>
-        <div class="lib-ctl"><button class="btn pri" data-dump hidden>Dump selected (0)</button></div>
+        <div class="lib-ctl">
+          <button class="btn" data-verify hidden>Verify</button>
+          <button class="btn pri" data-dump hidden>Dump selected (0)</button>
+        </div>
       </div>
     </div>
     <div class="lib-tbl"><table><thead></thead><tbody></tbody></table></div>
@@ -94,6 +98,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   const $ = <T extends HTMLElement>(sel: string): T => host.querySelector(sel) as T
   const thead = $('.lib-tbl thead'); const tbody = $('.lib-tbl tbody')
   const dumpBtn = $<HTMLButtonElement>('[data-dump]'); const statEl = $('[data-stat]')
+  const verifyBtn = $<HTMLButtonElement>('[data-verify]')
 
   function renderHead(): void {
     const sel = source === 'live' ? '<th style="width:22px"></th>' : ''
@@ -166,10 +171,16 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
     dumpBtn.hidden = source !== 'live' || selected.size === 0
   }
 
+  // Minimal, live-only control: Phase 4's header gives Verify its polished,
+  // selection-aware home. Here it just shows/hides with the source.
+  function syncVerify(): void {
+    verifyBtn.hidden = source !== 'live'
+  }
+
   async function loadLoaded(): Promise<void> {
     rows.clear(); selected.clear()
     for (const r of await deps.loadedRows()) rows.set(key(r.pid, r.base), r)
-    renderHead(); renderRows(); renderStat(); syncDump()
+    renderHead(); renderRows(); renderStat(); syncDump(); syncVerify()
   }
 
   function renderArtifacts(): void {
@@ -201,7 +212,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
 
   function beginLive(pkg: string, glob?: string): void {
     livePkg = pkg; rows.clear(); selected.clear(); streaming = true
-    renderLiveHeader(); renderRows(); renderStat(); syncDump()
+    renderLiveHeader(); renderRows(); renderStat(); syncDump(); syncVerify()
     void deps.startLive(pkg, glob)
   }
 
@@ -267,6 +278,19 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
 
   $<HTMLButtonElement>('[data-live-open]').onclick = () => openLiveModal()
   $<HTMLButtonElement>('[data-stop]').onclick = () => { void deps.stopLive() }
+  // Minimal on-demand re-check: the ticked subset if any row is selected,
+  // else every dumpable streaming row's base. The pid comes from any row
+  // (they all share the one streaming pid); with no rows there is nothing
+  // to check.
+  verifyBtn.onclick = () => {
+    const liveRows = [...rows.values()]
+    if (liveRows.length === 0) return
+    const pid = liveRows[0].pid
+    const bases = selected.size > 0
+      ? [...selected].map(k => k.split('|')[1]).filter((b): b is string => !!b)
+      : liveRows.filter(isDumpable).map(r => r.base)
+    void deps.verify(pid, bases)
+  }
   dumpBtn.onclick = async () => {
     const jobs = [...selected].map(k => {
       const [pidStr, base] = k.split('|')
@@ -289,7 +313,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       if (streaming) { streaming = false; void deps.stopLive() }
       $('[data-log]').hidden = true // the device log is meaningless once back on a loaded run
       await loadLoaded()
-    } else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); syncDump(); renderLiveHeader() }
+    } else { rows.clear(); selected.clear(); renderHead(); renderRows(); renderStat(); syncDump(); syncVerify(); renderLiveHeader() }
   }
 
   function appendLog(line: string): void {

@@ -562,6 +562,7 @@ const libView: LibViewApi = createLibView(document.getElementById('libs')!, {
   reveal: path => window.ares.revealArtifact(path),
   exportArtifact: path => void window.ares.exportArtifact(path),
   preflight: pkg => window.ares.tracerPreflight(pkg),
+  verify: (pid, bases) => window.ares.verify(pid, bases),
 })
 window.ares.onLibMapped(l => libView.applyMapped(l))
 window.ares.onLibUnmapped(l => libView.applyUnmapped(l))
@@ -570,6 +571,7 @@ window.ares.onLibLine(l => libView.appendLog(l))
 window.ares.onWatchLine(l => libView.appendLog(l))
 window.ares.onWatchArtifacts(a => libView.addArtifacts(a))
 window.ares.onPreflightCheck(c => libView.applyPreflightCheck(c))
+window.ares.onCheckResults((results, atMs) => libView.applyCheck(results, atMs))
 
 async function refreshDiff(): Promise<void> {
   const host = document.getElementById('diff-table')

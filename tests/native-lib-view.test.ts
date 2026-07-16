@@ -20,6 +20,7 @@ function make(over: Partial<LibViewDeps> = {}): { host: HTMLElement; deps: LibVi
     reveal: vi.fn(),
     exportArtifact: vi.fn(),
     preflight: vi.fn(async () => [{ id: 'device', label: 'device reachable', ok: true, detail: 'device' }]),
+    verify: vi.fn(async () => {}),
     ...over,
   }
   return { host, deps }
@@ -417,5 +418,45 @@ describe('native-lib-view MODIFIED / NO FILE badges from dump --check verdicts',
       cm({ base: '0x2', state: 'match', memSha256: 'a', fileSha256: 'a' }),
     ], 5000)
     expect(host.querySelector('[data-stat]')!.textContent).toContain('1 modified')
+  })
+})
+
+describe('native-lib-view Verify button (task 5)', () => {
+  it('calls verify with the streaming pid and every dumpable base when nothing is ticked', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 100 })
+    // a pseudo-path row is not dumpable and must be excluded from the "all" set
+    api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x2', end: '0x3', library: '[anon_shmem:x]', atMs: 100 })
+    api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x3', end: '0x4', library: '/y', atMs: 100 })
+    ;(host.querySelector('[data-verify]') as HTMLButtonElement).click()
+    expect(deps.verify).toHaveBeenCalledTimes(1)
+    expect(deps.verify).toHaveBeenCalledWith(42, ['0x1', '0x3'])
+  })
+
+  it('calls verify with only the ticked subset when some rows are selected', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 100 })
+    api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x2', end: '0x3', library: '/y', atMs: 100 })
+    ;(host.querySelector('input[data-k="42|0x1"]') as HTMLInputElement).click()
+    ;(host.querySelector('[data-verify]') as HTMLButtonElement).click()
+    expect(deps.verify).toHaveBeenCalledTimes(1)
+    expect(deps.verify).toHaveBeenCalledWith(42, ['0x1'])
+  })
+
+  it('does nothing when there are no live rows yet', () => {
+    const { host, deps } = make()
+    const api = createLibView(host, deps); api.setSource('live')
+    ;(host.querySelector('[data-verify]') as HTMLButtonElement).click()
+    expect(deps.verify).not.toHaveBeenCalled()
+  })
+
+  it('hides the Verify control in loaded mode and never calls verify there', async () => {
+    const { host, deps } = make({ loadedRows: vi.fn(async () => [row()]) })
+    const api = createLibView(host, deps)
+    await vi.waitFor(() => expect(host.querySelector('.lib-tbl tbody tr')).not.toBeNull())
+    expect((host.querySelector('[data-verify]') as HTMLElement).hidden).toBe(true)
+    expect(deps.verify).not.toHaveBeenCalled()
   })
 })
