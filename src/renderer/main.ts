@@ -9,7 +9,7 @@ import { applyWidths, nextWidth } from './column-resize'
 import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector, showRecordDetail, showFuncsNodeInspector, showFuncsRecordDetail } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
-import { highlightNeighborhood, clearHighlight } from './graph-highlight'
+import { applyHighlight, clearHighlight } from './graph-highlight'
 import { showOffsetPopup, closeOffsetPopup, eventForOffset, type NodeBox } from './offset-popup'
 import { showNodeMenu, closeNodeMenu, showTagPopup, closeTagPopup } from './node-menu'
 import { renderSuggestions } from './suggestions-view'
@@ -456,7 +456,10 @@ cy.on('tap', 'node', evt => {
   const e = selEpoch.bump()
   const node = evt.target
   const nodeId = node.id()
-  highlightNeighborhood(cy, node)
+  void window.anubee.highlightSets(nodeId, currentFilter(), activeRunId).then(sets => {
+    if (!selEpoch.isCurrent(e)) return // stale: another node selected / deselected mid-round-trip
+    applyHighlight(cy, sets)
+  })
   showSide(true)
   const nodeKind = node.data('kind') as string | undefined
   const nodeCats = [...new Set(tagsByTarget(tags, nodeId).map(t => t.category))]
