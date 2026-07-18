@@ -1,5 +1,5 @@
 import type { Filter } from '@shared/filter'
-import type { GraphSlice } from '@shared/graph-shape'
+import type { GraphSlice, HighlightSets } from '@shared/graph-shape'
 import type { StackRollup } from '@shared/flame-shape'
 import type { TableRow } from '@shared/table'
 import type { SyscallEvent, CoverageEvent, FuncEvent } from '@shared/events'
@@ -29,6 +29,7 @@ declare global {
       eventById(id: number, runId?: number): Promise<SyscallEvent | FuncEvent | undefined>
       coverage(runId?: number): Promise<CoverageEvent | undefined>
       nodeEvents(nodeId: string, filter: Filter, runId?: number): Promise<(SyscallEvent | FuncEvent)[]>
+      highlightSets(nodeId: string, filter: Filter, runId?: number): Promise<HighlightSets>
       nodeOffsets(nodeId: string, filter: Filter, runId?: number): Promise<import('@shared/origins').OffsetRow[]>
       suggest: (runId?: number) => Promise<import('@shared/rasp-heuristics').Suggestion[]>
       rulesGet(runId?: number): Promise<{

@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('anubee', {
   coverage: (runId?: number) => ipcRenderer.invoke('graph:coverage', runId),
   nodeEvents: (nodeId: string, filter: Filter, runId?: number) =>
     ipcRenderer.invoke('graph:nodeEvents', nodeId, filter, runId),
+  highlightSets: (nodeId: string, filter: Filter, runId?: number) =>
+    ipcRenderer.invoke('graph:highlightSets', nodeId, filter, runId),
   nodeOffsets: (nodeId: string, filter: Filter, runId?: number) =>
     ipcRenderer.invoke('graph:nodeOffsets', nodeId, filter, runId),
   suggest: (runId?: number) => ipcRenderer.invoke('rasp:suggest', runId),
