@@ -3,6 +3,34 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-17) - Native Libraries live-device fixes + Anubee rename
+
+Fixed the "Live device" mode end to end. Two fixes live in the tracer
+(`../Anubee`, merged there): `dump --base` now range-matches any address inside
+a module - so the executable-segment base the `[lib]` stream reports (what the
+viewer shows and sends) is dumpable - and stdout is line-buffered so `[lib]`
+lines stream live under the `adb shell` pipe instead of flushing only on Stop.
+Desktop side: `triageDir` locates the pulled `.so` by the manifest `path`
+basename (`<name>.<pid>.<basehex>.so`) not the module name, so the "Dumped
+artifacts" tab renders; and `Verify` runs an on-demand `dump --now --check` so
+it works on a stopped capture. All device-verified except the Desktop E2E (see
+below). Host suite green (576).
+
+Known follow-ups (deliberately out of scope this pass):
+- **`DEVICE_BIN` still `/data/local/tmp/ares`** (`src/shared/tracer-caps.ts`).
+  The renamed tracer's `make push` deploys to `/data/local/tmp/anubee`; switch
+  `DEVICE_BIN` (and update the command-string test expectations) **when the
+  renamed binary is built + deployed** - changing it before then breaks the
+  running app. The device temp-dir prefixes (`ares-dump-`, `ares-check-`,
+  `ares-onmap-`) also still read `ares`; cosmetic, retune alongside.
+- **Phase B device E2E pending.** The device dropped offline mid-session, so the
+  Desktop live-device flow was not re-run end to end on hardware. B1's filename
+  fix was validated against the real device manifest format, and B3's substance
+  is covered by the `checkByBases` unit tests; only the ipcMain wrapper glue and
+  the full click-through remain to confirm on device.
+- **Sidecar extension `.ares-desktop.json` -> `.anubee-desktop.json`** is a
+  data-migration follow-up (renames touch saved user files); not done here.
+
 ## Shipped (2026-07-16) - Brand palette + logo integration
 
 Recolored the whole app to the ARES logo palette (war red / night / bone) and

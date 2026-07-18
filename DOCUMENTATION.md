@@ -666,11 +666,12 @@ present only when one or more rows are ticked; there is no separate,
 always-visible Verify button. Clicking it re-runs the same batched check for
 the ticked selection. The selection bar's visibility tracks row selection, not
 streaming state, so it can still show `Verify` after a live stream has
-stopped (rows stay selected, `source` stays `'live'`); clicking it in that
-state does not silently no-op - it logs `verify needs a live stream (start a
-live capture first)` into the Device log instead, since the main process
-tears down `liveCheckDir` at stream end and there is nothing left to check
-against.
+stopped (rows stay selected, `source` stays `'live'`). Clicking it after a
+capture has stopped now runs an **on-demand** `dump --now --check` against the
+selected bases into a freshly allocated check directory - mirroring `Dump` -
+rather than reusing the live stream's `liveCheckDir`. Verify therefore works on
+a stopped capture, not only mid-stream; the memory-vs-disk comparison is
+point-in-time and needs no active stream.
 
 Each returned `modcmp` verdict joins back to a table row by **`pid` and numeric
 base** (`sameBase`, a `BigInt` compare so a leading-zero formatting difference
