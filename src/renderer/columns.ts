@@ -69,18 +69,37 @@ export function columnsForEngine(engine: 'syscall' | 'func', saved: string | nul
 }
 
 // --- New layout model (Task 2): stacked/split call-site mode + persisted widths ---
-// Stacked-mode key sets (the merged call-site cell) per engine.
-const SYSCALL_STACKED: ColumnKey[] = ['id', 'syscall', 'callSite', 'arg', 'tags']
-const FUNCS_STACKED: ColumnKey[] = ['id', 'callSite', 'retval', 'elapsed', 'arg']
-// Split-mode key sets (java/native or function/caller as separate columns).
-const SYSCALL_SPLIT: ColumnKey[] = ['id', 'syscall', 'java', 'topJava', 'topNative', 'arg', 'tags']
-const FUNCS_SPLIT: ColumnKey[] = ['id', 'fn', 'caller', 'retval', 'elapsed', 'arg']
 
 export type CallSiteMode = 'stacked' | 'split'
 
+// Two roles per engine+mode:
+//  - CATALOGUE: the keys the column picker OFFERS, in display order.
+//  - DEFAULT-VISIBLE: the subset shown when nothing is persisted.
+// They diverge for syscall so tid/retval are offer-able but off by default.
+const SYSCALL_STACKED_CAT: ColumnKey[] = ['id', 'tid', 'syscall', 'callSite', 'retval', 'arg', 'tags']
+const SYSCALL_SPLIT_CAT: ColumnKey[]   = ['id', 'tid', 'syscall', 'java', 'topJava', 'topNative', 'retval', 'arg', 'tags']
+const SYSCALL_STACKED_DEF: ColumnKey[] = ['id', 'syscall', 'callSite', 'arg', 'tags']
+const SYSCALL_SPLIT_DEF: ColumnKey[]   = ['id', 'syscall', 'java', 'topJava', 'topNative', 'arg', 'tags']
+const FUNCS_STACKED: ColumnKey[] = ['id', 'callSite', 'retval', 'elapsed', 'arg']
+const FUNCS_SPLIT: ColumnKey[]   = ['id', 'fn', 'caller', 'retval', 'elapsed', 'arg']
+
+// Offered catalogue (picker list + column order).
 function engineKeys(engine: 'syscall' | 'func', mode: CallSiteMode): ColumnKey[] {
   if (engine === 'func') return mode === 'split' ? FUNCS_SPLIT : FUNCS_STACKED
-  return mode === 'split' ? SYSCALL_SPLIT : SYSCALL_STACKED
+  return mode === 'split' ? SYSCALL_SPLIT_CAT : SYSCALL_STACKED_CAT
+}
+
+// Default-visible subset (funcs: identical to its catalogue).
+function engineDefaultKeys(engine: 'syscall' | 'func', mode: CallSiteMode): ColumnKey[] {
+  if (engine === 'func') return mode === 'split' ? FUNCS_SPLIT : FUNCS_STACKED
+  return mode === 'split' ? SYSCALL_SPLIT_DEF : SYSCALL_STACKED_DEF
+}
+
+// The default-visible columns for an engine+mode (used for a fresh layout and
+// the call-site mode-switch reset). Distinct from engineColumnKeys, which is the
+// full offered catalogue.
+export function engineDefaultColumns(engine: 'syscall' | 'func', mode: CallSiteMode): ColumnKey[] {
+  return [...engineDefaultKeys(engine, mode)]
 }
 
 export interface ColumnLayout {
@@ -90,7 +109,7 @@ export interface ColumnLayout {
 }
 
 function defaultLayout(engine: 'syscall' | 'func'): ColumnLayout {
-  return { columns: [...engineKeys(engine, 'stacked')], widths: {}, callSite: 'stacked' }
+  return { columns: [...engineDefaultKeys(engine, 'stacked')], widths: {}, callSite: 'stacked' }
 }
 
 export function serializeLayout(layout: ColumnLayout): string {
@@ -98,8 +117,8 @@ export function serializeLayout(layout: ColumnLayout): string {
 }
 
 function coerceColumns(arr: unknown, engine: 'syscall' | 'func', mode: CallSiteMode): ColumnKey[] {
-  const valid = new Set(engineKeys(engine, mode))
-  const def = engineKeys(engine, mode)
+  const valid = new Set(engineKeys(engine, mode))          // catalogue: tid/retval are valid
+  const def = engineDefaultKeys(engine, mode)              // fallback: default-visible
   if (!Array.isArray(arr)) return [...def]
   const keys = (arr as unknown[]).filter((k): k is ColumnKey => typeof k === 'string' && valid.has(k as ColumnKey))
   if (!keys.includes('id')) keys.unshift('id')
