@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
-import { parseJsonl, isSyscall } from '@shared/ares-parse'
+import { parseJsonl, isSyscall } from '@shared/anubee-parse'
 import { foldEvents, foldFuncEvents, mergeGraphs } from '@shared/graph-shape'
 import { presenceOf } from '../src/shared/diff'
 import type { StackRollup } from '../src/shared/flame-shape'
@@ -11,7 +11,7 @@ import { compileWhere, scoreWith, resolveRules, BUILTIN_RULES } from '../src/sha
 import type { SyscallEvent, FuncEvent } from '@shared/events'
 
 // oracle.jsonl is the tiny deterministic fixture these exact-value assertions pin
-// to. detector_snap.jsonl is a real dev.ares.detector capture (see REAL_FIXTURE)
+// to. detector_snap.jsonl is a real dev.anubee.detector capture (see REAL_FIXTURE)
 // used by the screenshot harness and the real-data smoke below; it is too
 // large/nondeterministic to assert exact ids/counts against.
 const FIXTURE = resolve(__dirname, 'fixtures/oracle.jsonl')
@@ -57,7 +57,7 @@ describe('integration: load the fixture end to end', () => {
   })
 
   it('ingests the real capture and the DuckDB slice still matches the foldEvents oracle', async () => {
-    // Content-agnostic invariant run over a real dev.ares.detector capture: the
+    // Content-agnostic invariant run over a real dev.anubee.detector capture: the
     // SQL slice and the pure-TS fold must agree on any input, not just the toy one.
     const real = new GraphStore()
     const r = await real.ingest(REAL_FIXTURE)
@@ -87,7 +87,7 @@ describe('integration: load the fixture end to end', () => {
 })
 
 function fixture(lines: object[]): string {
-  const dir = mkdtempSync(join(tmpdir(), 'ares-'))
+  const dir = mkdtempSync(join(tmpdir(), 'anubee-'))
   const p = join(dir, 'run.jsonl')
   writeFileSync(p, lines.map(l => JSON.stringify(l)).join('\n'))
   return p

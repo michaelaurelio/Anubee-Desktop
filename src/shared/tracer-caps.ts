@@ -1,5 +1,5 @@
 // Capability registry for feature 9 (tracer control). Pure: turns a chosen
-// engine + form values into an ares argv. Device paths and the su -c wrapping
+// engine + form values into an anubee argv. Device paths and the su -c wrapping
 // live in composeRunArg (Task 2); this module owns only the per-engine argv.
 // Verified against ../Anubee src/*/*.c argp tables (see spec s2).
 
@@ -11,7 +11,7 @@ export interface CapInput {
   label: string
   kind: InputKind
   required?: boolean
-  default?: number   // int inputs: ares default, shown as placeholder ("use default")
+  default?: number   // int inputs: anubee default, shown as placeholder ("use default")
   min?: number       // int inputs: minimum accepted whole number (defaults to 1)
   advanced?: boolean // render inside the collapsible Advanced disclosure
 }
@@ -48,8 +48,8 @@ function intVal(v: CapValues[string]): number | undefined {
 }
 
 // Shared common_args flags for a `common` capability. Emit -b/-Q only when the
-// value is set and diverges from ares' own default (4 / 256) so the argv stays
-// minimal and ares owns the defaults; emit -v when verbose is checked.
+// value is set and diverges from anubee' own default (4 / 256) so the argv stays
+// minimal and anubee owns the defaults; emit -v when verbose is checked.
 export function commonArgv(vals: CapValues): string[] {
   const a: string[] = []
   const b = intVal(vals.bufmb)
@@ -61,7 +61,7 @@ export function commonArgv(vals: CapValues): string[] {
 }
 
 // Shared common_args tuning knobs, appended to every `common` capability. -b/-Q
-// are sized in MB; blank means "let ares use its default" (4 / 256).
+// are sized in MB; blank means "let anubee use its default" (4 / 256).
 export const COMMON_TUNING_INPUTS: CapInput[] = [
   { key: 'bufmb', label: 'ring buffer (MB)', kind: 'int', default: 4, min: 1, advanced: true },
   { key: 'queuemb', label: 'worker queue (MB)', kind: 'int', default: 256, min: 1, advanced: true },
@@ -98,7 +98,7 @@ export const CAPABILITIES: Capability[] = [
       if (v.snapshot) a.push('--snapshot')
       return a
     },
-    // ares rejects `syscalls -P <pkg>` alone: a stack-origin library filter (-l)
+    // anubee rejects `syscalls -P <pkg>` alone: a stack-origin library filter (-l)
     // or capture-all (-a) is mandatory. Enforce it before a run is dispatched.
     validate(v) {
       return v.lib || v.all ? [] : ['provide a library filter or check "capture all libraries"']
@@ -216,7 +216,7 @@ export const STOP_ARG = "su -c 'pkill -INT -f /data/local/tmp/anubee'"
 
 // Escape ERE metacharacters so a literal string is matched literally by
 // `pkill -f` (which takes an extended regex). Package names contain dots;
-// unescaped, `dev.ares.detector` would also match `devXaresYdetector`.
+// unescaped, `dev.anubee.detector` would also match `devXanubeeYdetector`.
 export function ereEscape(s: string): string {
   return s.replace(/[.[\]{}()*+?^$|\\]/g, '\\$&')
 }

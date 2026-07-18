@@ -93,7 +93,7 @@ describe('applyFieldErrors', () => {
 describe('renderDot', () => {
   it('marks ok and bad with the right class and title', () => {
     const dot = document.createElement('span')
-    renderDot(dot, { ok: true, detail: 'ares' })
+    renderDot(dot, { ok: true, detail: 'anubee' })
     expect(dot.className).toContain('preflight-ok')
     renderDot(dot, { ok: false, detail: 'not set' })
     expect(dot.className).toContain('preflight-bad')

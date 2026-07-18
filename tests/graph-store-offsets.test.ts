@@ -18,7 +18,7 @@ let dir: string
 let store: GraphStore | undefined
 
 function fixture(): string {
-  dir = mkdtempSync(join(tmpdir(), 'ares-offsets-'))
+  dir = mkdtempSync(join(tmpdir(), 'anubee-offsets-'))
   const p = join(dir, 'run.jsonl')
   writeFileSync(p, LINES.join('\n') + '\n')
   return p
@@ -76,7 +76,7 @@ describe('GraphStore.nodeOffsets', () => {
     const noBaseLines = [
       JSON.stringify({ type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 56, syscall: 'openat', args: [], retval: 3, string_args: {}, fd_args: {}, decoded_args: {}, java_stack: [], backtrace: [{ frame: 0, addr: '0x500', symbol: 'libother.so!bar+0x10' }] }),
     ]
-    dir = mkdtempSync(join(tmpdir(), 'ares-offsets-nobase-'))
+    dir = mkdtempSync(join(tmpdir(), 'anubee-offsets-nobase-'))
     const p = join(dir, 'run.jsonl')
     writeFileSync(p, noBaseLines.join('\n') + '\n')
 
@@ -105,7 +105,7 @@ const MIXED_LINES = [
 
 describe('GraphStore.nodeOffsets - bare-module node vs symbolized node', () => {
   it('bare-module node only includes the unsymbolized call site', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'ares-offsets-mixed-'))
+    dir = mkdtempSync(join(tmpdir(), 'anubee-offsets-mixed-'))
     const p = join(dir, 'run.jsonl')
     writeFileSync(p, MIXED_LINES.join('\n') + '\n')
 

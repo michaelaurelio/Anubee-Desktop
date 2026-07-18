@@ -1,11 +1,11 @@
-// Vendored contract for the ARES JSONL event schema - the coupling surface
+// Vendored contract for the Anubee JSONL event schema - the coupling surface
 // (design §4). These are the top-level keys the `syscall` record emits, read
 // from ../Anubee/src/syscalls/syscalls.c `json_emit`. The schema-drift test
 // (tests/schema-drift.test.ts) fails when the emitter stops emitting one of
 // these, so a tracer-side rename can't silently break the parser.
 //
-// Verified against ARES commit:
-export const ARES_COMMIT = 'aefb1508dd790a8c3385c0ed4432ced0ae3eed6d'
+// Verified against Anubee commit:
+export const ANUBEE_COMMIT = 'aefb1508dd790a8c3385c0ed4432ced0ae3eed6d'
 
 // Top-level keys on a `syscall` record. `sock_addr`, `stack_id`, `java_stack`
 // are conditional but still appear in the emitter source.
@@ -43,14 +43,14 @@ export const FUNCS_KEYS = [
 ] as const
 
 // Top-level keys on a `cfi_stack` record, read from ../Anubee/src/common/symbolize.c
-// (ares_emit_cfi_stack_json). Emitted to the `<run>.jsonl.stacks` sidecar.
+// (anubee_emit_cfi_stack_json). Emitted to the `<run>.jsonl.stacks` sidecar.
 export const CFI_STACK_KEYS = ['type', 'pid', 'tid', 'stack_id', 'cfi_backtrace'] as const
 
 // Keys on each object in the `cfi_backtrace` array. `kind` is the interleaving
 // discriminator (native / managed / interp / jni-trampoline).
 export const CFI_BACKTRACE_KEYS = ['frame', 'addr', 'symbol', 'kind'] as const
 
-// `lib` / `unlib` records - ares_libtrace_emit_lib / _emit_unlib in
+// `lib` / `unlib` records - anubee_libtrace_emit_lib / _emit_unlib in
 // ../Anubee/src/common/lib_trace.c. Consumed by GraphStore.libTable + the live
 // [lib] line parser.
 export const LIB_KEYS = ['type', 'pid', 'tid', 'ppid', 'library', 'start', 'end', 'pgoff', 'inode', 'soname'] as const

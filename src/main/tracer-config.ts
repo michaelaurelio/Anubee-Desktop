@@ -1,4 +1,4 @@
-// Persisted host-side tracer config (paths to the pre-built ares binary + specs
+// Persisted host-side tracer config (paths to the pre-built anubee binary + specs
 // dir). Stored under Electron userData so real paths never touch the repo.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -8,12 +8,12 @@ const FILE = 'tracer-config.json'
 
 export function loadConfig(dir: string): TracerConfig {
   const p = join(dir, FILE)
-  if (!existsSync(p)) return { aresBinary: '', specsDir: '' }
+  if (!existsSync(p)) return { anubeeBinary: '', specsDir: '' }
   try {
     const j = JSON.parse(readFileSync(p, 'utf8'))
-    return { aresBinary: String(j.aresBinary ?? ''), specsDir: String(j.specsDir ?? '') }
+    return { anubeeBinary: String(j.anubeeBinary ?? ''), specsDir: String(j.specsDir ?? '') }
   } catch {
-    return { aresBinary: '', specsDir: '' }
+    return { anubeeBinary: '', specsDir: '' }
   }
 }
 

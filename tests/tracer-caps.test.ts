@@ -49,7 +49,7 @@ describe('tracer-caps registry', () => {
   })
 
   it('rejects syscalls with neither a library filter nor capture-all', () => {
-    // ares errors "-l <lib-selector> is required (or use -a)" if given just -P.
+    // anubee errors "-l <lib-selector> is required (or use -a)" if given just -P.
     expect(validateInputs(capById('syscalls')!, { pkg: 'com.android.deskclock' }))
       .toContain('provide a library filter or check "capture all libraries"')
   })
@@ -86,7 +86,7 @@ describe('tracer-caps registry', () => {
     }
   })
 
-  it('marks the tuning inputs advanced with ares defaults', () => {
+  it('marks the tuning inputs advanced with anubee defaults', () => {
     const buf = capById('syscalls')!.inputs.find(i => i.key === 'bufmb')!
     const q = capById('syscalls')!.inputs.find(i => i.key === 'queuemb')!
     const v = capById('syscalls')!.inputs.find(i => i.key === 'verbose')!
@@ -151,13 +151,13 @@ describe('composeRunArg', () => {
   })
 
   it('stopArgLive targets only the lib stream, anchored and ERE-escaped', () => {
-    const a = stopArgLive('dev.ares.detector')
+    const a = stopArgLive('dev.anubee.detector')
     // Anchored on the binary path so it cannot match its own su/sh parent,
     // whose cmdline contains the pattern but does not start with the binary.
     expect(a).toContain('pkill -INT -f')
-    expect(a).toContain('^/data/local/tmp/anubee lib -P dev\\.ares\\.detector$')
-    // A dot must be escaped: unescaped it would also match devXaresYdetector.
-    expect(a).not.toContain('dev.ares.detector$')
+    expect(a).toContain('^/data/local/tmp/anubee lib -P dev\\.anubee\\.detector$')
+    // A dot must be escaped: unescaped it would also match devXanubeeYdetector.
+    expect(a).not.toContain('dev.anubee.detector$')
   })
 
   it('stopArgWatch targets only the on-map watcher for one pid', () => {
@@ -168,12 +168,12 @@ describe('composeRunArg', () => {
   })
 
   it('neither anchored stop pattern matches its own wrapper shell', () => {
-    // Measured on device (dev.ares.detector): `su -c '<cmd>'` does not strip the
+    // Measured on device (dev.anubee.detector): `su -c '<cmd>'` does not strip the
     // quotes before running <cmd> - it re-invokes it through a fresh shell, so
     // the wrapper ps actually reports is `/system/bin/sh -c su -c '<cmd>'`, quotes
     // intact:
-    //   24011 [/system/bin/sh -c su -c '/data/local/tmp/anubee lib -P dev.ares.detector']
-    //   24015 [/data/local/tmp/anubee lib -P dev.ares.detector]
+    //   24011 [/system/bin/sh -c su -c '/data/local/tmp/anubee lib -P dev.anubee.detector']
+    //   24015 [/data/local/tmp/anubee lib -P dev.anubee.detector]
     // That wrapper never starts with the binary path, so ^ excludes it from both
     // patterns. It also never ends right after the command (it ends with the
     // trailing quote), so stopArgLive's trailing $ excludes it too - on this
@@ -187,11 +187,11 @@ describe('composeRunArg', () => {
     // substring: stripping ^ from stopArgWatch turns its pattern into a bare
     // substring search that matches both wrapper shapes below - ^ is the sole
     // thing keeping the watcher off its own launcher.
-    const liveWrapper = "/system/bin/sh -c su -c '/data/local/tmp/anubee lib -P dev.ares.detector'"
+    const liveWrapper = "/system/bin/sh -c su -c '/data/local/tmp/anubee lib -P dev.anubee.detector'"
     const watchWrapper = "/system/bin/sh -c su -c '/data/local/tmp/anubee dump -p 1 --on-map -l libexample*'"
     const watchWrapperUnquoted = 'su -c /data/local/tmp/anubee dump -p 1 --on-map -l libexample*'
     const cases: Array<[string, string]> = [
-      [stopArgLive('dev.ares.detector'), liveWrapper],
+      [stopArgLive('dev.anubee.detector'), liveWrapper],
       [stopArgWatch(1), watchWrapper],
       [stopArgWatch(1), watchWrapperUnquoted],
     ]
@@ -218,7 +218,7 @@ describe('composeRunArg', () => {
     // relationship: tighten or widen SAFE_TOKEN without SAFE_PATTERN and this
     // fails instead of the two silently diverging.
     const samples = ['A', 'z', 'Z', 'a', '0', '9', '.', '_', ':', '/', ',', '+', '-',
-                     'dev.ares.detector', 'libsentinel.so', '/data/local/tmp/anubee']
+                     'dev.anubee.detector', 'libsentinel.so', '/data/local/tmp/anubee']
     // Guard against a vacuous pass: every sample must really be a safe token.
     expect(samples.every(s => isSafeToken(s))).toBe(true)
     for (const s of samples) expect(isSafePattern(s)).toBe(true)
@@ -256,7 +256,7 @@ describe('commonArgv', () => {
     expect(commonArgv({ bufmb: '4', queuemb: '256' })).toEqual([])
   })
 
-  it('emits -b/-Q only when diverging from the ares default', () => {
+  it('emits -b/-Q only when diverging from the anubee default', () => {
     expect(commonArgv({ bufmb: '8' })).toEqual(['-b', '8'])
     expect(commonArgv({ queuemb: '512' })).toEqual(['-Q', '512'])
     expect(commonArgv({ bufmb: '8', queuemb: '512', verbose: true }))

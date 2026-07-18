@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "run": {
+    "file": "/home/lyo/self-project/migration/Anubee-Desktop/tests/fixtures/detector_snap.jsonl",
+    "ingestedAt": "2026-07-16T11:40:59.486Z"
+  },
+  "tags": [
+    {
+      "target": "nat:base.apk -> libsentinel.so!sentinel_check_props",
+      "category": "custom",
+      "source": "manual",
+      "createdAt": "2026-07-09T04:36:52.633Z",
+      "note": "environment"
+    },
+    {
+      "target": "nat:base.apk -> libsentinel.so!sentinel_check_antidebug",
+      "category": "debugger",
+      "source": "heuristic",
+      "createdAt": "2026-07-10T11:22:52.538Z",
+      "confidence": 0.6,
+      "rationale": "open of /proc/self/status - likely TracerPid debugger check"
+    },
+    {
+      "target": "nat:libperfetto_hprof.so!ArtPlugin_Initialize",
+      "category": "root",
+      "source": "manual",
+      "createdAt": "2026-07-14T23:56:59.907Z"
+    },
+    {
+      "target": "nat:libperfetto_hprof.so!_ZNSt3__114__thread_proxyB8nn220000INS_5tupleIJNS_10unique_ptrINS_15__thread_structENS_14default_d",
+      "category": "root",
+      "source": "manual",
+      "createdAt": "2026-07-15T00:33:49.736Z"
+    },
+    {
+      "target": "nat:libc.so!pthread_create",
+      "category": "root",
+      "source": "manual",
+      "createdAt": "2026-07-16T10:21:08.984Z"
+    },
+    {
+      "target": "nat:libc.so!__cxa_atexit",
+      "category": "root",
+      "source": "manual",
+      "createdAt": "2026-07-16T11:31:23.713Z"
+    },
+    {
+      "target": "nat:libdl.so!dlopen",
+      "category": "root",
+      "source": "manual",
+      "createdAt": "2026-07-16T11:35:20.818Z"
+    },
+    {
+      "target": "nat:libart.so!_ZN3art13SignalCatcher3RunEPv",
+      "category": "root",
+      "source": "manual",
+      "createdAt": "2026-07-16T11:41:05.819Z"
+    }
+  ],
+  "rules": [],
+  "enabledOverrides": {},
+  "dismissed": []
+}

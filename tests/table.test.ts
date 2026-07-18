@@ -55,7 +55,7 @@ describe('call-site cell', () => {
   it('syscall paired row shows the full original string on hover, not the leaf', () => {
     const fullRow: TableRow = {
       ...row, id: 10,
-      topJava: 'dev.ares.detector.ChecksKt.CHECK_REGISTRY',
+      topJava: 'dev.anubee.detector.ChecksKt.CHECK_REGISTRY',
       topNative: 'libsentinel.so!maps_iterate+0x44',
     }
     renderTable([fullRow], ['callSite'], () => {})
@@ -63,7 +63,7 @@ describe('call-site cell', () => {
     const javaEl = cell.querySelector('.cs-java')!
     const nativeEl = cell.querySelector('.cs-native')!
     expect(javaEl.textContent).toBe('CHECK_REGISTRY')
-    expect(javaEl.getAttribute('title')).toBe('dev.ares.detector.ChecksKt.CHECK_REGISTRY')
+    expect(javaEl.getAttribute('title')).toBe('dev.anubee.detector.ChecksKt.CHECK_REGISTRY')
     expect(nativeEl.textContent).toBe('libsentinel.so!maps_iterate')
     expect(nativeEl.getAttribute('title')).toBe('libsentinel.so!maps_iterate+0x44')
   })

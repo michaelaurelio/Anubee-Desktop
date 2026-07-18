@@ -107,7 +107,7 @@ function coerceColumns(arr: unknown, engine: 'syscall' | 'func', mode: CallSiteM
 }
 
 // Parse a persisted layout string. Back-compatible: a bare array (the legacy
-// ares.columns format) becomes {columns, stacked, no widths}. Foreign/stale keys
+// anubee.columns format) becomes {columns, stacked, no widths}. Foreign/stale keys
 // dropped against the resolved mode's key set; id forced present.
 export function parseLayout(engine: 'syscall' | 'func', raw: string | null): ColumnLayout {
   if (!raw) return defaultLayout(engine)

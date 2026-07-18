@@ -4,7 +4,7 @@ import { createLibView, type LibViewDeps } from '../src/renderer/native-lib-view
 import type { LibRow, Modcmp } from '@shared/native-lib'
 
 const row = (over: Partial<LibRow> = {}): LibRow => ({
-  library: '/data/app/dev.ares.detector-1/lib/arm64/libsentinel.so', soname: 'libsentinel.so',
+  library: '/data/app/dev.anubee.detector-1/lib/arm64/libsentinel.so', soname: 'libsentinel.so',
   base: '0x1000', end: '0x2000', size: 0x1000, pgoff: 0, inode: 5, pid: 7420, tid: null,
   ppid: 1, seq: 0, unmapped: false, ...over,
 })
@@ -47,7 +47,7 @@ function setDockHeight(host: HTMLElement, target: number): void {
 // alone does not stream). Used by the Verify tests below to populate rows via
 // a real Begin -> [lib] flow, though Verify itself no longer requires
 // `streaming` to be true (task B3).
-async function beginLiveCapture(host: HTMLElement, pkg = 'dev.ares.detector'): Promise<void> {
+async function beginLiveCapture(host: HTMLElement, pkg = 'dev.anubee.detector'): Promise<void> {
   ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
   ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = pkg
   ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
@@ -92,7 +92,7 @@ describe('native-lib-view live modal', () => {
     api.setSource('live')
     ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
     const pkg = document.body.querySelector('[data-modal-pkg]') as HTMLInputElement
-    pkg.value = 'dev.ares.detector'
+    pkg.value = 'dev.anubee.detector'
     ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
     await vi.waitFor(() =>
       expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
@@ -105,7 +105,7 @@ describe('native-lib-view live modal', () => {
     const api = createLibView(host, deps)
     api.setSource('live')
     ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
-    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.anubee.detector'
     ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
     await new Promise(r => setTimeout(r, 0))
     expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(true)
@@ -116,12 +116,12 @@ describe('native-lib-view live modal', () => {
     const api = createLibView(host, deps)
     api.setSource('live')
     ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
-    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.anubee.detector'
     ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
     await vi.waitFor(() =>
       expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
     ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
-    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector', undefined)
+    expect(deps.startLive).toHaveBeenCalledWith('dev.anubee.detector', undefined)
     expect((host.querySelector('[data-live-on]') as HTMLElement).hidden).toBe(false)
   })
 })
@@ -141,13 +141,13 @@ describe('native-lib-view on-map glob field', () => {
     const api = createLibView(host, deps)
     api.setSource('live')
     ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
-    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.anubee.detector'
     ;(document.body.querySelector('[data-modal-glob]') as HTMLInputElement).value = 'libexample*'
     ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
     await vi.waitFor(() =>
       expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
     ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
-    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector', 'libexample*')
+    expect(deps.startLive).toHaveBeenCalledWith('dev.anubee.detector', 'libexample*')
   })
 
   it('keeps Begin disabled when the glob has unsafe characters, even after a clean preflight', async () => {
@@ -155,7 +155,7 @@ describe('native-lib-view on-map glob field', () => {
     const api = createLibView(host, deps)
     api.setSource('live')
     ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
-    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.anubee.detector'
     ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
     await vi.waitFor(() =>
       expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
@@ -170,12 +170,12 @@ describe('native-lib-view on-map glob field', () => {
     const api = createLibView(host, deps)
     api.setSource('live')
     ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
-    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.anubee.detector'
     ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
     await vi.waitFor(() =>
       expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
     ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
-    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector', undefined)
+    expect(deps.startLive).toHaveBeenCalledWith('dev.anubee.detector', undefined)
   })
 })
 
@@ -184,10 +184,10 @@ describe('native-lib-view device log', () => {
     const { host, deps } = make()
     const api = createLibView(host, deps)
     api.setSource('live')
-    api.appendLog('su: ares: not found')
+    api.appendLog('su: anubee: not found')
     const dock = host.querySelector('.lib-dock') as HTMLElement
     expect(dock.classList.contains('collapsed')).toBe(false)
-    expect(host.querySelector('[data-log-body]')?.textContent).toContain('su: ares: not found')
+    expect(host.querySelector('[data-log-body]')?.textContent).toContain('su: anubee: not found')
   })
 
   it('auto-expands the dock on an error-like line', () => {
@@ -315,7 +315,7 @@ describe('native-lib-view empty states', () => {
     const api = createLibView(host, deps)
     api.setSource('live')
     ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
-    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.anubee.detector'
     ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
     await vi.waitFor(() =>
       expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
@@ -338,12 +338,12 @@ describe('native-lib-view source switching (review fix 1)', () => {
     const api = createLibView(host, deps)
     api.setSource('live')
     ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
-    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.ares.detector'
+    ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = 'dev.anubee.detector'
     ;(document.body.querySelector('[data-modal-refresh]') as HTMLButtonElement).click()
     await vi.waitFor(() =>
       expect((document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).disabled).toBe(false))
     ;(document.body.querySelector('[data-modal-begin]') as HTMLButtonElement).click()
-    expect(deps.startLive).toHaveBeenCalledWith('dev.ares.detector', undefined)
+    expect(deps.startLive).toHaveBeenCalledWith('dev.anubee.detector', undefined)
 
     api.setSource('loaded')
     await vi.waitFor(() => expect(deps.stopLive).toHaveBeenCalled())
@@ -351,7 +351,7 @@ describe('native-lib-view source switching (review fix 1)', () => {
     // A [lib] event that arrives after the switch (stream-end already in flight)
     // must not inject a row into what is now the Loaded table.
     api.applyMapped({
-      kind: 'lib', library: '/data/app/dev.ares.detector-1/lib/arm64/libc.so', soname: 'libc.so',
+      kind: 'lib', library: '/data/app/dev.anubee.detector-1/lib/arm64/libc.so', soname: 'libc.so',
       start: '0x3000', end: '0x4000', pid: 7420, ppid: 1, atMs: 2000,
     })
     expect(host.querySelectorAll('.lib-tbl tbody tr').length).toBe(0)
@@ -406,12 +406,12 @@ describe('native-lib-view dump checkbox eligibility (review fix 3)', () => {
       pid: 7420, ppid: 1, atMs: 2000,
     })
     api.applyMapped({
-      kind: 'lib', library: '/data/app/dev.ares.detector-1/lib/arm64/libsentinel.so', soname: 'libsentinel.so',
+      kind: 'lib', library: '/data/app/dev.anubee.detector-1/lib/arm64/libsentinel.so', soname: 'libsentinel.so',
       start: '0x7000', end: '0x8000', pid: 7420, ppid: 1, atMs: 2000,
     })
     const rows = [...host.querySelectorAll('.lib-tbl tbody tr')]
     const pseudoRow = rows.find(r => r.getAttribute('title') === '[anon_shmem:dalvik-jit-code-cache]')
-    const fileRow = rows.find(r => r.getAttribute('title') === '/data/app/dev.ares.detector-1/lib/arm64/libsentinel.so')
+    const fileRow = rows.find(r => r.getAttribute('title') === '/data/app/dev.anubee.detector-1/lib/arm64/libsentinel.so')
     expect(pseudoRow?.querySelector('input[type=checkbox]')).toBeNull()
     expect(fileRow?.querySelector('input[type=checkbox]')).not.toBeNull()
   })

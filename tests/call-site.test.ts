@@ -3,7 +3,7 @@ import { javaLeaf, nativeLeaf, formatDuration } from '../src/renderer/call-site'
 
 describe('javaLeaf', () => {
   it('takes the final dotted segment', () => {
-    expect(javaLeaf('dev.ares.detector.ChecksKt.CHECK_REGISTRY')).toBe('CHECK_REGISTRY')
+    expect(javaLeaf('dev.anubee.detector.ChecksKt.CHECK_REGISTRY')).toBe('CHECK_REGISTRY')
   })
   it('strips a trailing +0x offset before the split', () => {
     expect(javaLeaf('a.b.run+0x1c')).toBe('run')

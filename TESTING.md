@@ -32,7 +32,7 @@ subgraph, the node inspector, and a filtered view.
   the standard way to drive an Electron app end to end.
 - **Fixed viewport (1400x900)** so screenshots are stable across runs (a visual-
   regression prerequisite).
-- **`ARES_OPEN_FILE` env** auto-loads a run on launch, so the harness never has to
+- **`ANUBEE_OPEN_FILE` env** auto-loads a run on launch, so the harness never has to
   drive the native file dialog (which automation can't reach). It doubles as a
   real "open a file from the CLI" affordance.
 - **Deterministic node clicks:** the renderer exposes the cytoscape instance as

@@ -63,7 +63,7 @@ export async function renderRules(
   activeRunId: number | undefined,
   onChange: () => void,
 ): Promise<void> {
-  const data = await window.ares.rulesGet(activeRunId)
+  const data = await window.anubee.rulesGet(activeRunId)
   host.innerHTML = ''
 
   const head = document.createElement('div')
@@ -135,7 +135,7 @@ export async function renderRules(
 
   // --- persistence: pick the scope object to mutate, then save it ---
   async function persist(scope: 'global' | 'project', next: RuleScope): Promise<void> {
-    await window.ares.rulesSave(scope, next, activeRunId)
+    await window.anubee.rulesSave(scope, next, activeRunId)
     onChange()
     await renderRules(host, activeRunId, onChange) // re-fetch + re-render
   }
@@ -156,8 +156,8 @@ export async function renderRules(
 
   async function resetBuiltin(id: string): Promise<void> {
     // clear the id from both writable scopes (shadow rule + any override)
-    await window.ares.rulesSave('global', deleteRule(data.global, id), activeRunId)
-    await window.ares.rulesSave('project', deleteRule(data.project, id), activeRunId)
+    await window.anubee.rulesSave('global', deleteRule(data.global, id), activeRunId)
+    await window.anubee.rulesSave('project', deleteRule(data.project, id), activeRunId)
     onChange()
     await renderRules(host, activeRunId, onChange)
   }
@@ -213,7 +213,7 @@ export async function renderRules(
       const { rule, error } = validateRule(draftFromForm(values()), scopeSel.value === 'global' ? 'global' : 'project')
       if (!rule) { preview.textContent = `⚠ ${error}`; return }
       previewTimer = setTimeout(() => {
-        void window.ares.rulesPreview(rule, activeRunId).then(res => {
+        void window.anubee.rulesPreview(rule, activeRunId).then(res => {
           preview.textContent = 'error' in res
             ? `⚠ ${res.error}`
             : `matches ${res.events} events → ${res.targets} targets`
@@ -243,7 +243,7 @@ export async function renderRules(
       }
       edits[scope] = upsertRule(edits[scope], rule)
       try {
-        for (const s of changed) await window.ares.rulesSave(s, edits[s], activeRunId)
+        for (const s of changed) await window.anubee.rulesSave(s, edits[s], activeRunId)
         onChange()
         await renderRules(host, activeRunId, onChange)
       } catch (e) {

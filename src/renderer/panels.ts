@@ -37,7 +37,7 @@ export function parseLayout(raw: string | null): LayoutState {
   }
 }
 
-const LS_KEY = 'ares.layout'
+const LS_KEY = 'anubee.layout'
 
 // Restore + wire the adjustable body panels. Widths drive CSS vars on #main;
 // collapse toggles a `.collapsed` class. State persists to localStorage (UI chrome

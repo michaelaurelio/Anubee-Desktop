@@ -1,5 +1,5 @@
 // GUI screenshot harness: launches the built Electron app, auto-loads the
-// sample fixture (via ARES_OPEN_FILE), drives the renderer, and captures PNGs of
+// sample fixture (via ANUBEE_OPEN_FILE), drives the renderer, and captures PNGs of
 // each state so they can be reviewed. Run: node scripts/screenshot.mjs
 //
 // Requires a prior `npm run build` (uses out/main/index.js) and a display
@@ -18,11 +18,11 @@ const fixture = resolve(root, 'tests/fixtures/detector_snap.jsonl')
 // Fresh userData dir per run: otherwise localStorage (panel widths, theme) persists
 // across invocations and the resize-drag step below can start already clamped at
 // MAX_W, making the "did it move" assertion a false failure on a re-run.
-const userDataDir = mkdtempSync(resolve(tmpdir(), 'ares-desktop-shots-'))
+const userDataDir = mkdtempSync(resolve(tmpdir(), 'anubee-desktop-shots-'))
 
 const app = await electron.launch({
   args: [resolve(root, 'out/main/index.js'), '--no-sandbox', '--disable-gpu', `--user-data-dir=${userDataDir}`],
-  env: { ...process.env, ARES_OPEN_FILE: fixture },
+  env: { ...process.env, ANUBEE_OPEN_FILE: fixture },
 })
 
 const win = await app.firstWindow()
@@ -108,7 +108,7 @@ await shot('02-subgraph.png')
 // the run's suggestions, filter the table by the suggested block's symbol (free
 // text matches backtrace symbols), select that bridge, and assert the class.
 const sugTarget = await win.evaluate(async () => {
-  const s = await window.ares.suggest()
+  const s = await window.anubee.suggest()
   if (!s.length) return null
   const id = s[0].target // 'nat:<module>!<symbol>' or 'nat:<module>'
   const rest = id.slice(4)
@@ -159,7 +159,7 @@ await win.evaluate(async () => {
   // a native tap's inspector/offset-popup query DuckDB by exact node id, and a
   // made-up id never appears in any real event's causal chain, so the inspector
   // assertion below would see zero records.
-  const slice = await window.ares.slice({}, 500)
+  const slice = await window.anubee.slice({}, 500)
   const byKind = k => slice.nodes.filter(n => n.kind === k)
   const j = byKind('java'), n = byKind('native'), s = byKind('syscall')
   if (j.length < 2 || n.length < 2 || s.length < 1) {
@@ -406,10 +406,10 @@ await shot('09-resized-zoomed.png')
 // exercise the populated table - a fresh app + userData dir keeps it decoupled
 // from the stateful walkthrough above (which stays open for the quit step below).
 const libFixture = resolve(root, 'tests/fixtures/lib-sample.jsonl')
-const libUserDataDir = mkdtempSync(resolve(tmpdir(), 'ares-desktop-shots-libs-'))
+const libUserDataDir = mkdtempSync(resolve(tmpdir(), 'anubee-desktop-shots-libs-'))
 const libApp = await electron.launch({
   args: [resolve(root, 'out/main/index.js'), '--no-sandbox', '--disable-gpu', `--user-data-dir=${libUserDataDir}`],
-  env: { ...process.env, ARES_OPEN_FILE: libFixture },
+  env: { ...process.env, ANUBEE_OPEN_FILE: libFixture },
 })
 const libWin = await libApp.firstWindow()
 await libWin.setViewportSize({ width: 1400, height: 900 })

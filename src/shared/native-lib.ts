@@ -1,7 +1,7 @@
 // Shared types for the Native Libraries feature (lib + dump engines). Pure,
 // Electron-free: consumed by the main process, preload, and renderer alike.
 
-// A parsed [lib]/[unlib] stdout line from a live `ares lib` stream.
+// A parsed [lib]/[unlib] stdout line from a live `anubee lib` stream.
 export interface LibLine {
   kind: 'lib' | 'unlib'
   pid: number
@@ -62,7 +62,7 @@ export interface Artifact {
 
 export type ModcmpState = 'match' | 'differ' | 'nofile' | 'apk' | 'unreadable'
 
-// One `ares dump --check` verdict for a module, joined to a table row by
+// One `anubee dump --check` verdict for a module, joined to a table row by
 // pid+base (NOT module: an APK-embedded lib's module is "base.apk").
 export interface Modcmp {
   module: string

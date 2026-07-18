@@ -6,7 +6,7 @@ import type { SyscallEvent, CoverageEvent, FuncEvent } from '@shared/events'
 
 declare global {
   interface Window {
-    ares: {
+    anubee: {
       openFile(): Promise<{ runId: number; eventCount: number; errors: number } | null>
       openFileForCompare(): Promise<{ runId: number; eventCount: number; errors: number } | null>
       saveProject(runId: number, layout?: unknown): Promise<{ path?: string; canceled?: boolean; error?: string }>
@@ -53,8 +53,8 @@ declare global {
       logSave(text: string): Promise<string | null>
       onProgress(cb: (pct: number) => void): void
       onLoaded(cb: (s: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }) => void): void
-      getTracerConfig(): Promise<{ aresBinary: string; specsDir: string }>
-      setTracerConfig(cfg: { aresBinary: string; specsDir: string }): Promise<void>
+      getTracerConfig(): Promise<{ anubeeBinary: string; specsDir: string }>
+      setTracerConfig(cfg: { anubeeBinary: string; specsDir: string }): Promise<void>
       tracerPreflight(pkg: string): Promise<{ id: string; label: string; ok: boolean; detail: string }[]>
       tracerStart(capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string):
         Promise<{ code: number; kind: string; runId?: number }>

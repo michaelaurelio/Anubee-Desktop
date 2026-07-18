@@ -48,8 +48,8 @@ function blockLabel(f: Finding): string {
 }
 
 export function renderMarkdown(findings: Finding[]): string {
-  if (findings.length === 0) return '# ARES findings\n\nNo findings.\n'
-  const lines = ['# ARES findings', '']
+  if (findings.length === 0) return '# Anubee findings\n\nNo findings.\n'
+  const lines = ['# Anubee findings', '']
   for (const f of findings) {
     const caller = f.javaCaller ? `, called from \`${f.javaCaller}\`` : ''
     const hit = f.syscall && f.hitPath ? `, hits \`${f.syscall}(${f.hitPath})\`` : ''

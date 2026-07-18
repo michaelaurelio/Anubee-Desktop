@@ -22,7 +22,7 @@ const noAdb: Adb = { run: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' }
 
 describe('native-lib-live argv', () => {
   it('builds the live lib stream command', () => {
-    expect(liveLibArg('dev.ares.detector')).toBe("su -c '/data/local/tmp/anubee lib -P dev.ares.detector'")
+    expect(liveLibArg('dev.anubee.detector')).toBe("su -c '/data/local/tmp/anubee lib -P dev.anubee.detector'")
   })
   it('dumpArg selects by exact base via --now, and exits 0 (no wait-for-Ctrl-C)', () => {
     const a = dumpArg(25659, '0x7281a0000', '/data/local/tmp/out')
@@ -41,10 +41,10 @@ describe('startLive', () => {
   it('emits parsed lib lines with an arrival timestamp and raw for the rest', async () => {
     const { sp, fire } = fakeSpawner([
       'libbpf: loading',
-      '[lib] pid 7420 /data/app/dev.ares.detector-1/lib/arm64/libsentinel.so [0x1000, 0x2000) off=0x0 inode=5 ppid=1',
+      '[lib] pid 7420 /data/app/dev.anubee.detector-1/lib/arm64/libsentinel.so [0x1000, 0x2000) off=0x0 inode=5 ppid=1',
     ])
     const events: Array<{ line?: LibLine; raw?: string; atMs?: number }> = []
-    startLive(sp, noAdb, 'dev.ares.detector', e => events.push(e))
+    startLive(sp, noAdb, 'dev.anubee.detector', e => events.push(e))
     fire()
     expect(events[0]).toEqual({ raw: 'libbpf: loading' })
     expect(events[1].line?.kind).toBe('lib')
@@ -102,7 +102,7 @@ describe('watchArg / startWatch', () => {
 describe('pullWatchArtifacts', () => {
   it('returns [] when the pull fails, despite a populated dir (failed pull discriminator)', async () => {
     const failAdb: Adb = { run: vi.fn(async () => ({ code: 1, stdout: '', stderr: 'no such file or directory' })) }
-    const d = mkdtempSync(join(tmpdir(), 'ares-onmap-'))
+    const d = mkdtempSync(join(tmpdir(), 'anubee-onmap-'))
     // pre-populate hostDir with manifest and ELF, as if a prior pull succeeded.
     // calling pullWatchArtifacts with failAdb should still return [],
     // proving the code branches on pull failure (not just empty dir).
@@ -115,7 +115,7 @@ describe('pullWatchArtifacts', () => {
   })
 
   it('pulls and triages a populated dir on success', async () => {
-    const d = mkdtempSync(join(tmpdir(), 'ares-onmap-'))
+    const d = mkdtempSync(join(tmpdir(), 'anubee-onmap-'))
     // the fake adb "pull" is a no-op, so pre-populate hostDir as if pulled
     const elf = Buffer.alloc(64); elf.set([0x7f, 0x45, 0x4c, 0x46]); elf[4] = 2; elf[5] = 1; elf[18] = 0xb7
     writeFileSync(join(d, 'libcaught.so'), elf)
@@ -130,12 +130,12 @@ describe('pullWatchArtifacts', () => {
 
 describe('triageDir', () => {
   it('returns [] when the manifest is absent', () => {
-    const d = mkdtempSync(join(tmpdir(), 'ares-triage-'))
+    const d = mkdtempSync(join(tmpdir(), 'anubee-triage-'))
     expect(triageDir(d)).toEqual([])
     rmSync(d, { recursive: true, force: true })
   })
   it('triages listed modules from real bytes and skips a malformed manifest line', () => {
-    const d = mkdtempSync(join(tmpdir(), 'ares-triage-'))
+    const d = mkdtempSync(join(tmpdir(), 'anubee-triage-'))
     const elf = Buffer.alloc(64); elf.set([0x7f, 0x45, 0x4c, 0x46]); elf[4] = 2; elf[5] = 1; elf[18] = 0xb7
     writeFileSync(join(d, 'libgood.so'), elf)
     writeFileSync(join(d, 'manifest.jsonl'),
@@ -180,13 +180,13 @@ describe('input validation', () => {
 
 describe('dumpByBase', () => {
   it('treats a non-zero exit as a real error (not the old false alarm)', async () => {
-    const d = mkdtempSync(join(tmpdir(), 'ares-dump-'))
+    const d = mkdtempSync(join(tmpdir(), 'anubee-dump-'))
     await expect(dumpByBase(autoSpawner(1), okAdb, 7, '0x1000', '/data/local/tmp/dev', d, () => {}))
-      .rejects.toThrow(/ares dump --now exited 1/)
+      .rejects.toThrow(/anubee dump --now exited 1/)
     rmSync(d, { recursive: true, force: true })
   })
   it('pulls and triages on a clean exit 0', async () => {
-    const d = mkdtempSync(join(tmpdir(), 'ares-dump-'))
+    const d = mkdtempSync(join(tmpdir(), 'anubee-dump-'))
     // the fake adb "pull" is a no-op, so pre-populate hostDir as if pulled
     const elf = Buffer.alloc(64); elf.set([0x7f, 0x45, 0x4c, 0x46]); elf[4] = 2; elf[5] = 1; elf[18] = 0xb7
     writeFileSync(join(d, 'libz.so'), elf)
@@ -222,9 +222,9 @@ describe('checkArg / checkByBases', () => {
   })
 
   it('checkByBases rejects a non-zero exit as a real error', async () => {
-    const d = mkdtempSync(join(tmpdir(), 'ares-check-'))
+    const d = mkdtempSync(join(tmpdir(), 'anubee-check-'))
     await expect(checkByBases(autoSpawner(1), okAdb, 25659, ['0x1'], '/data/local/tmp/dev', d, () => {}))
-      .rejects.toThrow(/ares dump --now --check exited 1/)
+      .rejects.toThrow(/anubee dump --now --check exited 1/)
     rmSync(d, { recursive: true, force: true })
   })
 
@@ -232,7 +232,7 @@ describe('checkArg / checkByBases', () => {
     // Write a real check.jsonl into hostDir (mirroring dumpByBase's pull+triage
     // fixture setup), then assert on the actual parsed states - not a vacuous
     // Array.isArray check, which would pass even if parsing were broken.
-    const d = mkdtempSync(join(tmpdir(), 'ares-check-'))
+    const d = mkdtempSync(join(tmpdir(), 'anubee-check-'))
     writeFileSync(join(d, 'check.jsonl'), [
       '{"type":"modcmp","module":"libsentinel.so","path":"/data/app/~~x/base.apk","base":"0x1","pid":25659,"state":"match","mem_sha256":"aa","file_sha256":"aa"}',
       '{"type":"modcmp","module":"libfoo.so","path":"/data/local/tmp/libfoo.so","base":"0x2","pid":25659,"state":"differ","mem_sha256":"aa","file_sha256":"bb"}',
@@ -248,7 +248,7 @@ describe('checkArg / checkByBases', () => {
     // hostDir points at a subdirectory that has never been created. If
     // checkByBases' mkdirSync guard were removed, the fake pull's writeFileSync
     // below would throw ENOENT (no such directory) and this test would fail.
-    const base = mkdtempSync(join(tmpdir(), 'ares-check-'))
+    const base = mkdtempSync(join(tmpdir(), 'anubee-check-'))
     const hostDir = join(base, 'nested', 'deeper')
     const adb: Adb = {
       run: vi.fn(async (args: string[]) => {
@@ -268,7 +268,7 @@ describe('checkArg / checkByBases', () => {
     // -o truncates on the device (fopen "w"), so each slice must complete its
     // own run+pull+parse before the next slice runs, or an earlier slice's
     // verdicts vanish when a later slice's pass overwrites check.jsonl.
-    const d = mkdtempSync(join(tmpdir(), 'ares-check-'))
+    const d = mkdtempSync(join(tmpdir(), 'anubee-check-'))
     const bases = Array.from({ length: 65 }, (_, i) => `0x${(i + 1).toString(16)}`)
     const spawnCalls: string[][] = []
     const sp: Spawner = {

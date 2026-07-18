@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { loadRules, saveRules } from '../src/main/rasp-rules-store'
 import type { Rule } from '../src/shared/rasp-heuristics'
 
-const dir = () => mkdtempSync(join(tmpdir(), 'ares-rules-'))
+const dir = () => mkdtempSync(join(tmpdir(), 'anubee-rules-'))
 const rule: Rule = { id: 'u-1', category: 'custom', confidence: 0.5, rationale: 'r', enabled: true, source: 'global',
   match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo' } }
 

@@ -51,7 +51,7 @@ export function renderLogModal(host: HTMLElement): () => void {
   const save = document.createElement('button')
   save.className = 'btn'; save.textContent = 'Save'
   save.onclick = () => {
-    void window.ares.logSave(formatLog(logGetAll())).then(p => {
+    void window.anubee.logSave(formatLog(logGetAll())).then(p => {
       if (p) logAppend('success', 'log', `Saved ${p}`)
     })
   }

@@ -1,7 +1,7 @@
 {
-  "name": "ares-desktop",
+  "name": "anubee-desktop",
   "version": "1.0.0",
-  "description": "Desktop viewer for ARES trace runs - renders the syscall -> native -> Java call-chain mapping.",
+  "description": "Desktop viewer for Anubee trace runs - renders the syscall -> native -> Java call-chain mapping.",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -17,8 +17,8 @@
   "license": "ISC",
   "type": "commonjs",
   "build": {
-    "appId": "com.ares.desktop",
-    "productName": "ARES",
+    "appId": "com.anubee.desktop",
+    "productName": "Anubee",
     "icon": "build/icon.png",
     "asarUnpack": [
       "**/node_modules/@duckdb/**"

@@ -11,7 +11,7 @@ const UNLIB_RE = /^(?:\d{2}:\d{2}:\d{2} )?\[unlib\] pid (\d+) \[(0x[0-9a-f]+), (
 
 // Parse one live-stream stdout line into a LibLine, or null when the line is
 // neither a [lib] nor an [unlib] record (e.g. libbpf chatter). Grammar mirrors
-// ares_libtrace_format_lib in ../Anubee/src/common/lib_trace.c.
+// anubee_libtrace_format_lib in ../Anubee/src/common/lib_trace.c.
 export function parseLibLine(line: string): LibLine | null {
   const lib = LIB_RE.exec(line)
   if (lib) {

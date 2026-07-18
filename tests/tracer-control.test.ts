@@ -18,7 +18,7 @@ function fakeAdb(routes: Array<[RegExp, { code?: number; stdout?: string; stderr
   }
 }
 
-const cfg = { aresBinary: '/host/build/ares', specsDir: '/host/specs' }
+const cfg = { anubeeBinary: '/host/build/anubee', specsDir: '/host/specs' }
 
 describe('preflight', () => {
   it('passes all checks and skips push when md5 matches', async () => {
@@ -53,13 +53,13 @@ describe('preflight', () => {
       [/md5sum \/data\/local\/tmp\/anubee/, { stdout: 'stale  /data/local/tmp/anubee' }],
     ])
     const checks = await preflight(adb, cfg, 'com.android.deskclock', async () => 'fresh')
-    expect(adb.calls.some(c => c.startsWith('push /host/build/ares'))).toBe(true)
+    expect(adb.calls.some(c => c.startsWith('push /host/build/anubee'))).toBe(true)
     expect(adb.calls.some(c => /pkill -KILL -f \/data\/local\/tmp\/anubee/.test(c))).toBe(true)
     expect(checks.find(c => c.id === 'binary')!.ok).toBe(true)
   })
 
   // Guard the stale-binary push branch against an unconfigured host: an empty or
-  // unreadable aresBinary (md5 '') must NOT fall through to `adb push`, and an
+  // unreadable anubeeBinary (md5 '') must NOT fall through to `adb push`, and an
   // empty specsDir must NOT become `adb push /.` (the whole host filesystem).
   it('fails the binary check without pushing when the host binary is unreadable (md5 empty)', async () => {
     const adb = fakeAdb([
@@ -71,7 +71,7 @@ describe('preflight', () => {
     const checks = await preflight(adb, cfg, 'com.android.deskclock', async () => '')
     const binary = checks.find(c => c.id === 'binary')!
     expect(binary.ok).toBe(false)
-    expect(binary.detail).toMatch(/host ares binary/i)
+    expect(binary.detail).toMatch(/host anubee binary/i)
     expect(adb.calls.some(c => c.startsWith('push'))).toBe(false)
   })
 
@@ -83,10 +83,10 @@ describe('preflight', () => {
       [/pm path/, { stdout: 'package:/data/app/base.apk' }],
       [/md5sum \/data\/local\/tmp\/anubee/, { stdout: 'stale  /data/local/tmp/anubee' }],
     ])
-    const checks = await preflight(adb, { aresBinary: '/host/build/ares', specsDir: '' }, 'com.android.deskclock', async () => 'fresh')
+    const checks = await preflight(adb, { anubeeBinary: '/host/build/anubee', specsDir: '' }, 'com.android.deskclock', async () => 'fresh')
     const binary = checks.find(c => c.id === 'binary')!
     expect(binary.ok).toBe(true)
-    expect(adb.calls.some(c => c.startsWith('push /host/build/ares'))).toBe(true)
+    expect(adb.calls.some(c => c.startsWith('push /host/build/anubee'))).toBe(true)
     expect(adb.calls.some(c => c.startsWith('push /.'))).toBe(false)
     expect(adb.calls.some(c => /push .*\/data\/local\/tmp\/specs/.test(c))).toBe(false)
   })
@@ -203,9 +203,9 @@ describe('startRun', () => {
 describe('pullResult', () => {
   it('pulls a jsonl run to the host', async () => {
     const adb = fakeAdb([[/^pull /, { code: 0 }]])
-    const r = await pullResult(adb, 'jsonl', '/data/local/tmp/anubee-X.jsonl', '/host/runs/ares-X.jsonl')
-    expect(r).toEqual({ kind: 'jsonl', hostPath: '/host/runs/ares-X.jsonl' })
-    expect(adb.calls).toContain('pull /data/local/tmp/anubee-X.jsonl /host/runs/ares-X.jsonl')
+    const r = await pullResult(adb, 'jsonl', '/data/local/tmp/anubee-X.jsonl', '/host/runs/anubee-X.jsonl')
+    expect(r).toEqual({ kind: 'jsonl', hostPath: '/host/runs/anubee-X.jsonl' })
+    expect(adb.calls).toContain('pull /data/local/tmp/anubee-X.jsonl /host/runs/anubee-X.jsonl')
   })
 
   it('does not pull for a stdout run', async () => {

@@ -34,7 +34,7 @@ import { makeEpoch } from './selection-epoch'
 import type { SyscallEvent, FuncEvent } from '@shared/events'
 import { createLibView, type LibViewApi } from './native-lib-view'
 
-let theme: Theme = parseTheme(localStorage.getItem('ares.theme'))
+let theme: Theme = parseTheme(localStorage.getItem('anubee.theme'))
 document.documentElement.setAttribute('data-theme', theme)
 const tc = themeColors(theme)
 
@@ -128,7 +128,7 @@ const RASP_CLASSES = ['suggested', 'confirmed', ...Object.keys(categoryColors('d
 // not the syscall aggregate or java frames).
 async function recolorRasp(): Promise<void> {
   if (activeRunId === undefined) return
-  const suggestions = (await window.ares.suggest(activeRunId))
+  const suggestions = (await window.anubee.suggest(activeRunId))
     .filter(s => !isDismissed(dismissed, s.target, s.category))
   const states = raspNodeStates(suggestions, tags)
   cy.nodes().forEach(n => {
@@ -141,13 +141,13 @@ async function recolorRasp(): Promise<void> {
 let activeRunId: number | undefined
 let activeEngine: 'syscall' | 'func' = 'syscall'
 
-// Per-engine column preference key. The legacy `ares.columns` (syscall-only) is
+// Per-engine column preference key. The legacy `anubee.columns` (syscall-only) is
 // read as the syscall fallback so a returning user keeps their saved columns.
 function columnsKey(engine: 'syscall' | 'func'): string {
-  return `ares.columns.${engine}`
+  return `anubee.columns.${engine}`
 }
 function savedColumns(engine: 'syscall' | 'func'): string | null {
-  return localStorage.getItem(columnsKey(engine)) ?? (engine === 'syscall' ? localStorage.getItem('ares.columns') : null)
+  return localStorage.getItem(columnsKey(engine)) ?? (engine === 'syscall' ? localStorage.getItem('anubee.columns') : null)
 }
 
 let tags: Tag[] = []
@@ -162,14 +162,14 @@ let dirty = false
 async function refreshTags(): Promise<void> {
   const rid = activeRunId
   if (rid === undefined) return
-  const [r, dm] = await Promise.all([window.ares.loadTags(rid), window.ares.dismissedGet(rid)])
+  const [r, dm] = await Promise.all([window.anubee.loadTags(rid), window.anubee.dismissedGet(rid)])
   if (activeRunId === rid) { tags = r.tags; dismissed = dm }
 }
 
 async function persistTags(): Promise<void> {
   if (activeRunId === undefined) return
   try {
-    await window.ares.saveTags(activeRunId, tags)
+    await window.anubee.saveTags(activeRunId, tags)
     dirty = true
     logAppend('success', 'tags', 'Tags saved')
   } catch (e) {
@@ -247,8 +247,8 @@ function tableBadgeFor(row: TableRow): string {
 async function refreshTable(): Promise<void> {
   const filter = currentFilter()
   const [rows, total] = await Promise.all([
-    window.ares.table(filter, { limit: TABLE_PAGE, offset: tableOffset }, activeRunId),
-    window.ares.count(filter, activeRunId),
+    window.anubee.table(filter, { limit: TABLE_PAGE, offset: tableOffset }, activeRunId),
+    window.anubee.count(filter, activeRunId),
   ])
   currentLayout = parseLayout(activeEngine, savedColumns(activeEngine))
   const elapsedMax = rows.reduce((m, r) => Math.max(m, r.elapsed ?? 0), 0)
@@ -300,7 +300,7 @@ function wireColGrips(scroll: HTMLElement): void {
 // (dismissed) - both persisted, so it never returns.
 async function renderSuggestionsInto(host: HTMLElement): Promise<void> {
   if (activeRunId === undefined) return
-  const all = await window.ares.suggest(activeRunId)
+  const all = await window.anubee.suggest(activeRunId)
   const open = all.filter(s =>
     !isDismissed(dismissed, s.target, s.category) &&
     !tags.some(t => t.target === s.target && t.category === s.category))
@@ -314,7 +314,7 @@ async function renderSuggestionsInto(host: HTMLElement): Promise<void> {
     },
     async s => {
       dismissed = addDismissed(dismissed, s.target, s.category)
-      await window.ares.dismissedSave(activeRunId!, dismissed)
+      await window.anubee.dismissedSave(activeRunId!, dismissed)
       dirty = true
       void recolorRasp()
     })
@@ -345,7 +345,7 @@ async function refreshOrphans(): Promise<void> {
   const host = document.getElementById('orphans')
   if (!host || activeRunId === undefined) return
   const targets = [...new Set(tags.map(t => t.target))]
-  const orphanSet = new Set(targets.length ? await window.ares.orphans(activeRunId, targets) : [])
+  const orphanSet = new Set(targets.length ? await window.anubee.orphans(activeRunId, targets) : [])
   // Orphan warnings live in the (now selection-gated) side panel; reveal it when
   // there are any, so they aren't silently hidden until a row/node is clicked.
   if (orphanedTags(tags, orphanSet).length) showSide(true)
@@ -370,7 +370,7 @@ async function refreshOrphans(): Promise<void> {
 async function refreshFlame(): Promise<void> {
   const host = document.getElementById('flame')
   if (!host || activeRunId === undefined) return
-  const rollup = await window.ares.stackRollup(currentFilter(), FLAME_CHAIN_CAP, activeRunId)
+  const rollup = await window.anubee.stackRollup(currentFilter(), FLAME_CHAIN_CAP, activeRunId)
   const tree = buildFlame(rollup.rows, FLAME_NODE_CAP)
   renderFlame(host, tree, rollup.truncated || tree.truncated, theme)
 }
@@ -425,7 +425,7 @@ async function selectRow(row: TableRow): Promise<void> {
   highlightTableRow(row.id)
   showSide(true)
   const host = document.getElementById('inspector')
-  const ev = await window.ares.eventById(row.id, activeRunId)
+  const ev = await window.anubee.eventById(row.id, activeRunId)
   if (!selEpoch.isCurrent(e)) return // a newer selection superseded this row; drop the stale detail
   if (host && ev) {
     if (activeEngine === 'func') showFuncsRecordDetail(host, ev as FuncEvent)
@@ -433,7 +433,7 @@ async function selectRow(row: TableRow): Promise<void> {
   }
 
   showView('graph')
-  const slice = await window.ares.slice(filterForRow(row, currentFilter()), GRAPH_SLICE_CAP, activeRunId)
+  const slice = await window.anubee.slice(filterForRow(row, currentFilter()), GRAPH_SLICE_CAP, activeRunId)
   if (!selEpoch.isCurrent(e)) return // stale slice; do not repaint the graph for a row the user left
   await renderSlice(slice)
 }
@@ -460,7 +460,7 @@ cy.on('tap', 'node', evt => {
   const nodeCats = [...new Set(tagsByTarget(tags, nodeId).map(t => t.category))]
   if (activeEngine === 'func') {
     closeOffsetPopup()
-    void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(records => {
+    void window.anubee.nodeEvents(nodeId, currentFilter(), activeRunId).then(records => {
       if (!selEpoch.isCurrent(e)) return // stale inspector repaint
       showFuncsNodeInspector(nodeId, records as FuncEvent[], { kind: nodeKind, cats: nodeCats })
     })
@@ -469,8 +469,8 @@ cy.on('tap', 'node', evt => {
   if (nodeKind === 'native') {
     const box = nodeBox(node)
     void Promise.all([
-      window.ares.nodeOffsets(nodeId, currentFilter(), activeRunId),
-      window.ares.nodeEvents(nodeId, currentFilter(), activeRunId),
+      window.anubee.nodeOffsets(nodeId, currentFilter(), activeRunId),
+      window.anubee.nodeEvents(nodeId, currentFilter(), activeRunId),
     ]).then(([rows, rawEvents]) => {
       if (!selEpoch.isCurrent(e)) return // node deselected / another selected during the round-trip
       const events = rawEvents as SyscallEvent[]
@@ -479,7 +479,7 @@ cy.on('tap', 'node', evt => {
     })
   } else {
     closeOffsetPopup()
-    void window.ares.nodeEvents(nodeId, currentFilter(), activeRunId).then(rawEvents => {
+    void window.anubee.nodeEvents(nodeId, currentFilter(), activeRunId).then(rawEvents => {
       if (!selEpoch.isCurrent(e)) return // stale inspector repaint
       const events = rawEvents as SyscallEvent[]
       showNodeInspector(nodeId, events, { kind: nodeKind, cats: nodeCats })
@@ -494,7 +494,7 @@ cy.on('cxttap', 'node', evt => {
   showNodeMenu({
     nodeId,
     anchor,
-    onCopy: text => void window.ares.copyToClipboard(text),
+    onCopy: text => void window.anubee.copyToClipboard(text),
     onAddTag: () => showTagPopup({
       nodeId,
       anchor,
@@ -545,7 +545,7 @@ updateThemePill() // init from the restored theme
 document.getElementById('theme-toggle')?.addEventListener('click', () => {
   theme = theme === 'dark' ? 'light' : 'dark'
   document.documentElement.setAttribute('data-theme', theme)
-  localStorage.setItem('ares.theme', serializeTheme(theme))
+  localStorage.setItem('anubee.theme', serializeTheme(theme))
   updateThemePill()
   applyGraphTheme(theme)
   styleRaspCategories(theme)
@@ -555,28 +555,28 @@ document.getElementById('theme-toggle')?.addEventListener('click', () => {
 wirePanels(document.body)
 
 const libView: LibViewApi = createLibView(document.getElementById('libs')!, {
-  loadedRows: () => window.ares.libTable(activeRunId),
-  startLive: (pkg, glob) => window.ares.startLive(pkg, glob),
-  stopLive: () => window.ares.stopLive(),
-  dumpLib: (pid, base) => window.ares.dumpLib(pid, base),
-  reveal: path => window.ares.revealArtifact(path),
-  exportArtifact: path => void window.ares.exportArtifact(path),
-  preflight: pkg => window.ares.tracerPreflight(pkg),
-  verify: (pid, bases) => window.ares.verify(pid, bases),
+  loadedRows: () => window.anubee.libTable(activeRunId),
+  startLive: (pkg, glob) => window.anubee.startLive(pkg, glob),
+  stopLive: () => window.anubee.stopLive(),
+  dumpLib: (pid, base) => window.anubee.dumpLib(pid, base),
+  reveal: path => window.anubee.revealArtifact(path),
+  exportArtifact: path => void window.anubee.exportArtifact(path),
+  preflight: pkg => window.anubee.tracerPreflight(pkg),
+  verify: (pid, bases) => window.anubee.verify(pid, bases),
 })
-window.ares.onLibMapped(l => libView.applyMapped(l))
-window.ares.onLibUnmapped(l => libView.applyUnmapped(l))
-window.ares.onLibStreamEnd(() => libView.streamEnded())
-window.ares.onLibLine(l => libView.appendLog(l))
-window.ares.onWatchLine(l => libView.appendLog(l))
-window.ares.onWatchArtifacts(a => libView.addArtifacts(a))
-window.ares.onPreflightCheck(c => libView.applyPreflightCheck(c))
-window.ares.onCheckResults((results, atMs) => libView.applyCheck(results, atMs))
+window.anubee.onLibMapped(l => libView.applyMapped(l))
+window.anubee.onLibUnmapped(l => libView.applyUnmapped(l))
+window.anubee.onLibStreamEnd(() => libView.streamEnded())
+window.anubee.onLibLine(l => libView.appendLog(l))
+window.anubee.onWatchLine(l => libView.appendLog(l))
+window.anubee.onWatchArtifacts(a => libView.addArtifacts(a))
+window.anubee.onPreflightCheck(c => libView.applyPreflightCheck(c))
+window.anubee.onCheckResults((results, atMs) => libView.applyCheck(results, atMs))
 
 async function refreshDiff(): Promise<void> {
   const host = document.getElementById('diff-table')
   if (!host || activeRunId === undefined || runB === undefined) return
-  const rows = await window.ares.diffTable(activeRunId, runB, currentFilter(), 1000)
+  const rows = await window.anubee.diffTable(activeRunId, runB, currentFilter(), 1000)
   const taggedIds = new Set(tags.map(t => t.target))
   const shown = filterDiffRows(rows, diffMode, taggedIds)
   // The diff table renders into the selection-gated side panel; reveal it so a
@@ -586,7 +586,7 @@ async function refreshDiff(): Promise<void> {
     id => badgeText(tagsByTarget(tags, id)),
     async id => {
       const e = selEpoch.bump()
-      const merged = await window.ares.diffSlice(activeRunId!, runB!, id, currentFilter())
+      const merged = await window.anubee.diffSlice(activeRunId!, runB!, id, currentFilter())
       if (!selEpoch.isCurrent(e)) return // superseded by a newer selection; don't repaint the graph
       const els = mergedToElements(merged)
       cy.elements().remove()
@@ -621,7 +621,7 @@ function wireLoadRunB(host: HTMLElement): void {
   document.getElementById('load-run-b')?.addEventListener('click', async () => {
     // Compare-load: ingests run B without the trace:loaded broadcast, so it never
     // steals activeRunId or repaints the primary panels with B's data.
-    const summary = await runLogged('compare', () => window.ares.openFileForCompare(),
+    const summary = await runLogged('compare', () => window.anubee.openFileForCompare(),
       s => (s ? { level: s.errors > 0 ? 'warn' : 'success', message: `Compare loaded ${s.eventCount} events (${s.errors} parse errors)` } : null))
     if (summary) {
       runB = summary.runId
@@ -644,7 +644,7 @@ function wireCapture(): void {
   if (!sel || !formHost || !statusHost || !consoleHost || !startBtn || !stopBtn || !binIn) return
 
   document.getElementById('cap-browse')?.addEventListener('click', async () => {
-    const p = await window.ares.pickSavePath()
+    const p = await window.anubee.pickSavePath()
     if (p && saveIn) saveIn.value = p
   })
 
@@ -655,13 +655,13 @@ function wireCapture(): void {
   let specNames: string[] = [] // discovered .spec basenames for the current specsDir
 
   const refreshBinary = async (): Promise<void> => {
-    const r = await window.ares.tracerCheckPaths(binIn.value, specsDir)
+    const r = await window.anubee.tracerCheckPaths(binIn.value, specsDir)
     if (binDot) renderDot(binDot, r.binary)
     if (binErr) binErr.textContent = r.binary.ok ? '' : `Required - ${r.binary.detail}`
   }
 
   document.getElementById('cfg-binary-browse')?.addEventListener('click', async () => {
-    const p = await window.ares.tracerPickBinary()
+    const p = await window.anubee.tracerPickBinary()
     if (p) { binIn.value = p; saveCfg(); void refreshBinary() }
   })
   binIn.addEventListener('input', () => void refreshBinary())
@@ -698,7 +698,7 @@ function wireCapture(): void {
     const dot = formHost.querySelector<HTMLElement>('[data-role="specsDot"]')
     const err = formHost.querySelector<HTMLElement>('[data-err="specsDir"]')
     if (!dot && !err) return
-    const r = await window.ares.tracerCheckPaths(binIn.value, specsDir)
+    const r = await window.anubee.tracerCheckPaths(binIn.value, specsDir)
     if (dot) renderDot(dot, r.specs)
     if (err) err.textContent = r.specs.ok ? '' : `Required - ${r.specs.detail}`
   }
@@ -706,7 +706,7 @@ function wireCapture(): void {
   // Reload the .spec list for the current specsDir and repopulate the select in
   // place; drop a now-invalid selection and re-run the field-error pass.
   const refreshSpecList = async (cap: Capability): Promise<void> => {
-    specNames = await window.ares.tracerListSpecs(specsDir)
+    specNames = await window.anubee.tracerListSpecs(specsDir)
     if (typeof vals.spec === 'string' && vals.spec && !specNames.includes(vals.spec)) {
       vals = { ...vals, spec: '' }
     }
@@ -729,7 +729,7 @@ function wireCapture(): void {
       invalidatePreflight()
     }
     formHost.querySelector('[data-role="specsBrowse"]')?.addEventListener('click', async () => {
-      const p = await window.ares.tracerPickSpecsDir()
+      const p = await window.anubee.tracerPickSpecsDir()
       if (p) { dir.value = p; await onDirChange() }
     })
     dir.addEventListener('input', () => void onDirChange())
@@ -752,8 +752,8 @@ function wireCapture(): void {
   drawForm()
 
   let configLoaded = false
-  void window.ares.getTracerConfig().then(async cfg => {
-    binIn.value = cfg.aresBinary
+  void window.anubee.getTracerConfig().then(async cfg => {
+    binIn.value = cfg.anubeeBinary
     specsDir = cfg.specsDir
     configLoaded = true
     void refreshBinary()
@@ -762,7 +762,7 @@ function wireCapture(): void {
   })
   const saveCfg = (): void => {
     if (!configLoaded) return
-    void window.ares.setTracerConfig({ aresBinary: binIn.value, specsDir })
+    void window.anubee.setTracerConfig({ anubeeBinary: binIn.value, specsDir })
   }
   binIn.addEventListener('change', saveCfg)
 
@@ -777,7 +777,7 @@ function wireCapture(): void {
     startBtn.disabled = true
     preflightBtn.disabled = true
     try {
-      const checks = await window.ares.tracerPreflight(pkg)
+      const checks = await window.anubee.tracerPreflight(pkg)
       logAppend(checks.some(c => !c.ok) ? 'warn' : 'success', 'preflight',
         `Preflight: ${checks.length} checks, ${checks.filter(c => !c.ok).length} failing`)
       if (!preflightEpoch.isCurrent(token)) return // superseded by an edit or another run; don't enable Start for stale inputs
@@ -804,7 +804,7 @@ function wireCapture(): void {
     startBtn.disabled = true; stopBtn.disabled = false
     const timeout = binTimeout()
     try {
-      const r = await runLogged('capture', () => window.ares.tracerStart(cap.id, vals, timeout, saveIn?.value || undefined),
+      const r = await runLogged('capture', () => window.anubee.tracerStart(cap.id, vals, timeout, saveIn?.value || undefined),
         res => ({ level: res.code === 0 ? 'success' : 'error', message: `Capture ${cap.id} finished (${res.kind}, code ${res.code})` }))
       appendConsoleLine(consoleHost, `--- done (exit ${r.code}, kind ${r.kind}) ---`)
       if (r.kind === 'jsonl' && r.runId !== undefined) showView('graph')
@@ -815,7 +815,7 @@ function wireCapture(): void {
     }
   })
 
-  stopBtn.addEventListener('click', () => { logAppend('info', 'capture', 'Stop requested'); void window.ares.tracerStop() })
+  stopBtn.addEventListener('click', () => { logAppend('info', 'capture', 'Stop requested'); void window.anubee.tracerStop() })
 
   function binTimeout(): number | undefined {
     const t = parseInt((document.getElementById('cap-timeout') as HTMLInputElement).value, 10)
@@ -839,16 +839,16 @@ function wireExport(): void {
   const md = document.getElementById('export-md')
   const json = document.getElementById('export-json')
   md?.addEventListener('click', () => {
-    if (activeRunId !== undefined) void runLogged('export', () => window.ares.exportFindings(activeRunId!, 'md'),
+    if (activeRunId !== undefined) void runLogged('export', () => window.anubee.exportFindings(activeRunId!, 'md'),
       p => (p ? { level: 'success', message: `Exported ${p}` } : null))
   })
   json?.addEventListener('click', () => {
-    if (activeRunId !== undefined) void runLogged('export', () => window.ares.exportFindings(activeRunId!, 'json'),
+    if (activeRunId !== undefined) void runLogged('export', () => window.anubee.exportFindings(activeRunId!, 'json'),
       p => (p ? { level: 'success', message: `Exported ${p}` } : null))
   })
 }
 
-window.ares.onProgress(pct => {
+window.anubee.onProgress(pct => {
   const wrap = document.getElementById('ingest-progress')
   const bar = document.getElementById('ingest-bar')
   const label = document.getElementById('ingest-pct')
@@ -857,7 +857,7 @@ window.ares.onProgress(pct => {
   bar.style.width = `${pct}%`
   label.textContent = `Loading... ${pct}%`
 })
-window.ares.onLoaded(s => {
+window.anubee.onLoaded(s => {
   closeModal() // any successful load closes the open (run / project / capture) modal that triggered it
   activeRunId = s.runId
   activeEngine = s.kinds.includes('funcs') && !s.kinds.includes('syscall') ? 'func' : 'syscall'
@@ -879,7 +879,7 @@ window.ares.onLoaded(s => {
   })
   // Coverage health text (not graph data) - stored, not shown, until a row
   // is selected and renderSlice surfaces it via the chip.
-  void window.ares.coverage(s.runId).then(cov => {
+  void window.anubee.coverage(s.runId).then(cov => {
     coverageChip = cov ? `${cov.snaps.total} snapshots · ${cov.snaps.truncated} truncated · CFI walks ${cov.cfi.walks}` : ''
   })
 })
@@ -990,9 +990,9 @@ document.getElementById('file-open')?.addEventListener('click', () => {
   showModal({ title: 'Open', width: 260, render: host => {
     const menu = document.createElement('div'); menu.className = 'modal-menu'
     const runBtn = modalMenuItem('open-run', 'i-file', 'Open run (JSONL)…')
-    runBtn.onclick = () => void runLogged('open', () => window.ares.openFile(), () => null)
+    runBtn.onclick = () => void runLogged('open', () => window.anubee.openFile(), () => null)
     const projBtn = modalMenuItem('open-project', 'i-package', 'Open project…')
-    projBtn.onclick = () => void runLogged('open-project', () => window.ares.openProject(), () => null)
+    projBtn.onclick = () => void runLogged('open-project', () => window.anubee.openProject(), () => null)
     menu.append(runBtn, projBtn)
     host.appendChild(menu)
   }})
@@ -1007,7 +1007,7 @@ document.getElementById('export-btn')?.addEventListener('click', () => {
     )
     const saveProj = modalMenuItem('save-project', 'i-package', 'Save project…')
     saveProj.onclick = () => {
-      if (activeRunId !== undefined) void runLogged('save-project', () => window.ares.saveProject(activeRunId!, currentLayout), r => {
+      if (activeRunId !== undefined) void runLogged('save-project', () => window.anubee.saveProject(activeRunId!, currentLayout), r => {
         if ('path' in r && r.path) dirty = false
         return null
       })
@@ -1039,14 +1039,14 @@ document.getElementById('file-log')?.addEventListener('click', () => {
 
 // Registered once (not per Capture-modal open) so re-opening Capture doesn't
 // stack tracer:line subscriptions; appends to whichever cap-console is live.
-window.ares.onTracerLine(line => {
+window.anubee.onTracerLine(line => {
   logAppend('info', 'tracer', line)
   const c = document.getElementById('cap-console')
   if (c) appendConsoleLine(c, line)
 })
 
 // Streamed preflight rows; registered once for the same reason as onTracerLine.
-window.ares.onPreflightCheck(c => {
+window.anubee.onPreflightCheck(c => {
   const host = document.getElementById('cap-preflight-status')
   if (!host) return
   renderPreflightRow(host, c)
@@ -1054,18 +1054,18 @@ window.ares.onPreflightCheck(c => {
 
 // Ctrl/Cmd+O opens a run (replaces the removed native-menu accelerator).
 window.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); void window.ares.openFile() }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); void window.anubee.openFile() }
 })
 
-document.getElementById('app-quit')?.addEventListener('click', () => window.ares.requestClose())
+document.getElementById('app-quit')?.addEventListener('click', () => window.anubee.requestClose())
 
 // Registered once at startup: main intercepts both the window-X and the Quit
 // rail item into the same 'app:confirmClose' signal, so there is exactly one
 // place that decides whether unsaved project changes block the close.
-window.ares.onConfirmClose(() => {
-  if (!dirty) { window.ares.respondClose('close'); return }
+window.anubee.onConfirmClose(() => {
+  if (!dirty) { window.anubee.respondClose('close'); return }
   let responded = false
-  const respond = (a: 'close' | 'cancel') => { if (!responded) { responded = true; window.ares.respondClose(a) } }
+  const respond = (a: 'close' | 'cancel') => { if (!responded) { responded = true; window.anubee.respondClose(a) } }
   showModal({
     title: 'Unsaved project changes',
     width: 380,
@@ -1081,7 +1081,7 @@ window.ares.onConfirmClose(() => {
       }
       const save = mk('Save', 'btn pri', async () => {
         if (activeRunId === undefined) { respond('close'); closeModal(); return }
-        const r = await window.ares.saveProject(activeRunId, currentLayout)
+        const r = await window.anubee.saveProject(activeRunId, currentLayout)
         if (r && 'path' in r && r.path) { dirty = false; respond('close'); closeModal() }
         // else: the save dialog was canceled - leave this modal open so the user can choose again; do NOT respond or close.
       })

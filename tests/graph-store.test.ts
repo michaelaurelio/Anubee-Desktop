@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
-import { parseJsonl, isSyscall, isCall } from '@shared/ares-parse'
+import { parseJsonl, isSyscall, isCall } from '@shared/anubee-parse'
 import { foldEvents, foldFuncEvents, chainOfCfi, type GraphSlice } from '@shared/graph-shape'
 import type { Rule } from '@shared/rasp-heuristics'
 
@@ -22,7 +22,7 @@ let dir: string
 let store: GraphStore | undefined
 
 function fixture(): string {
-  dir = mkdtempSync(join(tmpdir(), 'ares-store-'))
+  dir = mkdtempSync(join(tmpdir(), 'anubee-store-'))
   const p = join(dir, 'run.jsonl')
   writeFileSync(p, LINES.join('\n') + '\n')
   return p
@@ -34,7 +34,7 @@ const FUNCS_LINES = [
 ]
 
 function funcsFixture(): string {
-  dir = mkdtempSync(join(tmpdir(), 'ares-funcs-'))
+  dir = mkdtempSync(join(tmpdir(), 'anubee-funcs-'))
   const p = join(dir, 'run.jsonl')
   writeFileSync(p, FUNCS_LINES.join('\n') + '\n')
   return p
@@ -133,7 +133,7 @@ describe('GraphStore.coverage', () => {
       type: 'coverage', engine: 'funcs', snaps: { total: 10, truncated: 1 },
       cfi: { walks: 5, stops: { unwind_error: 1 } },
     })
-    dir = mkdtempSync(join(tmpdir(), 'ares-store-'))
+    dir = mkdtempSync(join(tmpdir(), 'anubee-store-'))
     const p = join(dir, 'run.jsonl')
     writeFileSync(p, [...LINES, coverageLine].join('\n') + '\n')
 
@@ -190,7 +190,7 @@ describe('GraphStore.slice', () => {
         { frame: 1, addr: '0x1', symbol: 'libexample.so!check_su+0x10' },
       ],
     })
-    dir = mkdtempSync(join(tmpdir(), 'ares-store-'))
+    dir = mkdtempSync(join(tmpdir(), 'anubee-store-'))
     const p = join(dir, 'run.jsonl')
     writeFileSync(p, [...LINES, funcsLine].join('\n') + '\n')
 
@@ -221,7 +221,7 @@ describe('GraphStore.slice', () => {
       java_stack: ['com.example.app.RootCheck.run'],
       backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!check_su+0x10' }],
     })
-    dir = mkdtempSync(join(tmpdir(), 'ares-store-'))
+    dir = mkdtempSync(join(tmpdir(), 'anubee-store-'))
     const p = join(dir, 'run.jsonl')
     writeFileSync(p, [withOff, noOff].join('\n') + '\n')
 
@@ -254,7 +254,7 @@ describe('GraphStore.slice', () => {
         { frame: 2, addr: '0x7', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' },
       ],
     })
-    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-'))
+    dir = mkdtempSync(join(tmpdir(), 'anubee-cfi-'))
     const p = join(dir, 'run.jsonl')
     writeFileSync(p, sys + '\n')
     writeFileSync(p + '.stacks', cfi + '\n')
@@ -281,7 +281,7 @@ describe('GraphStore.slice', () => {
   })
 
   it('does not inflate counts when a stack_id has a duplicate cfi_stack sidecar row', async () => {
-    // ARES's cfi_stack dedup set is an LRU capped at 16384 entries; on long
+    // Anubee's cfi_stack dedup set is an LRU capped at 16384 entries; on long
     // runs it can legitimately re-emit a cfi_stack record for a stack_id
     // already seen. The cfi CTE must collapse these before the LEFT JOIN,
     // else one syscall row fans out into N chain rows (N = duplicate count).
@@ -299,7 +299,7 @@ describe('GraphStore.slice', () => {
         { frame: 2, addr: '0x7', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' },
       ],
     })
-    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-dup-'))
+    dir = mkdtempSync(join(tmpdir(), 'anubee-cfi-dup-'))
     const p = join(dir, 'run.jsonl')
     writeFileSync(p, sys + '\n')
     // Two identical cfi_stack rows for the same stack_id - the re-emit case.
@@ -354,7 +354,7 @@ describe('GraphStore.slice funcs', () => {
       java_stack: ['com.example.Sec.check'],
       backtrace: [{ frame: 0, addr: '0x0', symbol: 'libexample.so!checkRoot' }],
     })
-    dir = mkdtempSync(join(tmpdir(), 'ares-funcs-'))
+    dir = mkdtempSync(join(tmpdir(), 'anubee-funcs-'))
     const p = join(dir, 'run.jsonl')
     writeFileSync(p, [withOff, noOff].join('\n') + '\n')
 
@@ -388,7 +388,7 @@ describe('GraphStore.slice funcs', () => {
         { frame: 2, addr: '0x3', symbol: 'libandroid.so!Specialize+0x20', kind: 'native' },
       ],
     })
-    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-fn-'))
+    dir = mkdtempSync(join(tmpdir(), 'anubee-cfi-fn-'))
     const p = join(dir, 'run.jsonl')
     writeFileSync(p, call + '\n')
     writeFileSync(p + '.stacks', cfi + '\n')
@@ -441,7 +441,7 @@ const FUNCS_PAIR_LINES = [
 ]
 
 function funcsPairFixture(): string {
-  dir = mkdtempSync(join(tmpdir(), 'ares-funcs-pair-'))
+  dir = mkdtempSync(join(tmpdir(), 'anubee-funcs-pair-'))
   const p = join(dir, 'run.jsonl')
   writeFileSync(p, FUNCS_PAIR_LINES.join('\n') + '\n')
   return p
@@ -538,7 +538,7 @@ describe('GraphStore.nodeEvents', () => {
         { frame: 2, addr: '0x7', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' },
       ],
     })
-    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-nodeevents-'))
+    dir = mkdtempSync(join(tmpdir(), 'anubee-cfi-nodeevents-'))
     const p = join(dir, 'run.jsonl')
     writeFileSync(p, sys + '\n')
     writeFileSync(p + '.stacks', cfi + '\n')
@@ -556,7 +556,7 @@ const FUNCS_DETAIL_LINES = [
   JSON.stringify({ type: 'return', id: 1, pid: 9, tid: 9, module: 'libexample.so', symbol: 'checkRoot', offset: 4096, retval: 1, elapsed_ns: 2300, out_args: { '0': 'result' }, backtrace: [{ frame: 0, addr: '0x2000', symbol: 'libc.so!__libc_init+0x40' }] }),
 ]
 function funcsDetailFixture(): string {
-  dir = mkdtempSync(join(tmpdir(), 'ares-funcs-detail-'))
+  dir = mkdtempSync(join(tmpdir(), 'anubee-funcs-detail-'))
   const p = join(dir, 'run.jsonl')
   writeFileSync(p, FUNCS_DETAIL_LINES.join('\n') + '\n')
   return p
@@ -628,7 +628,7 @@ describe('GraphStore.ingest cfi sidecar', () => {
         { frame: 2, addr: '0x7', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' },
       ],
     })
-    dir = mkdtempSync(join(tmpdir(), 'ares-cfi-'))
+    dir = mkdtempSync(join(tmpdir(), 'anubee-cfi-'))
     const p = join(dir, 'run.jsonl')
     writeFileSync(p, sys + '\n')
     writeFileSync(p + '.stacks', cfi + '\n')

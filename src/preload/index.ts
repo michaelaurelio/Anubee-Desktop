@@ -4,9 +4,9 @@ import type { Tag } from '@shared/project-store'
 import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 import type { LibLine, Artifact, Modcmp } from '@shared/native-lib'
 
-// The typed surface the renderer sees as `window.ares`. Raw events never cross
+// The typed surface the renderer sees as `window.anubee`. Raw events never cross
 // this bridge except the single record fetched by id for the inspector.
-contextBridge.exposeInMainWorld('ares', {
+contextBridge.exposeInMainWorld('anubee', {
   openFile: () => ipcRenderer.invoke('trace:open'),
   openFileForCompare: () => ipcRenderer.invoke('trace:openCompare'),
   saveProject: (runId: number, layout?: unknown) => ipcRenderer.invoke('project:save', runId, layout),
@@ -53,7 +53,7 @@ contextBridge.exposeInMainWorld('ares', {
   onLoaded: (cb: (s: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }) => void) =>
     ipcRenderer.on('trace:loaded', (_e, s) => cb(s as { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] })),
   getTracerConfig: () => ipcRenderer.invoke('tracer:config:get'),
-  setTracerConfig: (cfg: { aresBinary: string; specsDir: string }) =>
+  setTracerConfig: (cfg: { anubeeBinary: string; specsDir: string }) =>
     ipcRenderer.invoke('tracer:config:set', cfg),
   tracerPreflight: (pkg: string) => ipcRenderer.invoke('tracer:preflight', pkg),
   tracerStart: (capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) =>

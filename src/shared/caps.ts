@@ -1,6 +1,6 @@
 // Render-tier cap constants - the single source of truth for how much the
 // renderer will ever draw. Each cap must trip its truncation banner before the
-// corresponding view degrades. See spec 2026-07-02-ares-desktop-design.md s5.1
+// corresponding view degrades. See spec 2026-07-02-anubee-desktop-design.md s5.1
 // (filter-first + hard slice cap). Values validated against a real 245k-event
 // run (both banners observed to fire); see BACKLOG "Shipped this session".
 

@@ -1,5 +1,5 @@
 // Feature 9 orchestration (Electron main): drive the host `adb` CLI to preflight,
-// deploy, run, stream, stop, and pull the ARES tracer. The adb runner is
+// deploy, run, stream, stop, and pull the Anubee tracer. The adb runner is
 // injected (Adb) so the logic is testable without a device. Command strings are
 // built by src/shared/tracer-caps (pure).
 import { execFile, spawn as nodeSpawn } from 'node:child_process'
@@ -19,7 +19,7 @@ export interface PreflightCheck {
 }
 
 export interface TracerConfig {
-  aresBinary: string
+  anubeeBinary: string
   specsDir: string
 }
 
@@ -55,17 +55,17 @@ export async function preflight(
   add({ id: 'package', label: `package installed (${pkg})`, ok: installed, detail: installed ? 'installed' : 'not installed' })
   if (!installed) return checks
 
-  // Binary freshness: md5-compare, push if stale (kill_ares first -> no ETXTBSY).
+  // Binary freshness: md5-compare, push if stale (kill_anubee first -> no ETXTBSY).
   // The binary is always required; guard against pushing an unreadable source.
   // The specs dir is OPTIONAL (only spec engines use it): push it only when set,
   // which also closes the `adb push /.` hazard from an empty-string expansion.
-  const hostSum = await md5(cfg.aresBinary)
+  const hostSum = await md5(cfg.anubeeBinary)
   if (!hostSum) {
     add({
-      id: 'binary', label: 'host ares binary', ok: false,
-      detail: cfg.aresBinary
-        ? `cannot read host ares binary at ${cfg.aresBinary} - set a valid host path`
-        : 'configure the host ares binary path in the config row',
+      id: 'binary', label: 'host anubee binary', ok: false,
+      detail: cfg.anubeeBinary
+        ? `cannot read host anubee binary at ${cfg.anubeeBinary} - set a valid host path`
+        : 'configure the host anubee binary path in the config row',
     })
     return checks
   }
@@ -75,7 +75,7 @@ export async function preflight(
     add({ id: 'binary', label: 'on-device binary up to date', ok: true, detail: `md5 ${hostSum.slice(0, 8)}` })
   } else {
     await adb.run(['shell', "su -c 'pkill -INT -f /data/local/tmp/anubee; sleep 1; pkill -KILL -f /data/local/tmp/anubee'"])
-    const push = await adb.run(['push', cfg.aresBinary, DEVICE_BIN])
+    const push = await adb.run(['push', cfg.anubeeBinary, DEVICE_BIN])
     await adb.run(['shell', `chmod 755 ${DEVICE_BIN}`])
     if (cfg.specsDir) {
       await adb.run(['shell', `mkdir -p ${DEVICE_SPECS}`])
@@ -158,7 +158,7 @@ export function startRun(sp: Spawner, adb: Adb, runArg: string, onLine: (line: s
   const done = new Promise<{ code: number }>(resolve => proc.onExit(code => resolve({ code })))
   return {
     async stop() {
-      // Graceful device-side stop: ares' 2-stage handler catches SIGINT. The
+      // Graceful device-side stop: anubee' 2-stage handler catches SIGINT. The
       // adb-shell child then sees EOF and exits on its own.
       await adb.run(['shell', stopArg])
     },

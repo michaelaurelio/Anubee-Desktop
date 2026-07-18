@@ -1,10 +1,10 @@
-# ARES-Desktop - technical documentation
+# Anubee-Desktop - technical documentation
 
 Technical breakdown of the app, per feature. Kept current on confirmed change.
 
 ## How it works
 
-Offline-first: you load a saved ARES JSONL run. The run is ingested into an
+Offline-first: you load a saved Anubee JSONL run. The run is ingested into an
 embedded **DuckDB** store in the app's main process - raw records stay in the
 database, off the JS heap, so multi-GB runs don't blow up memory. Navigation is
 through a filterable **master table**; selecting a bridge of interest renders its
@@ -13,7 +13,7 @@ a graph slice is filtered and capped before it reaches the renderer.
 
 - **Data tier** - DuckDB in the main process (`@duckdb/node-api`). `read_json`
   ingest; SQL answers the master table, a capped graph slice, and raw records by
-  id. The ingest schema and queries are ported from the ARES host-side DuckDB
+  id. The ingest schema and queries are ported from the Anubee host-side DuckDB
   store (`../Anubee/tools/anubee-mcp`); no Python runtime is bundled.
 - **Render tier** - a master table for the full run, then cytoscape.js + ELK
   (layout in a Web Worker) for the focused subgraph. An over-large slice is
@@ -30,8 +30,8 @@ a graph slice is filtered and capped before it reaches the renderer.
   deferred; the flame-graph view (below) covers the call-depth axis instead.
 - **Rendered slices are capped** - an over-large graph slice is truncated with a
   prompt to narrow the filter, rather than drawn as an unreadable hairball.
-- **Input contract is ARES JSONL output only** - the app parses ARES's output
-  schema; it never builds against ARES source.
+- **Input contract is Anubee JSONL output only** - the app parses Anubee's output
+  schema; it never builds against Anubee source.
 
 ### Graph node legend
 
@@ -62,14 +62,14 @@ system.
   fixing the earlier behavior where a load-time banner could overlap the
   empty-state prompt. It carries whichever message currently applies: the
   slice-truncation warning when the rendered subgraph hit `GRAPH_SLICE_CAP`,
-  or (once a run's coverage health resolves via `window.ares.coverage`) a
+  or (once a run's coverage health resolves via `window.anubee.coverage`) a
   quiet summary of snapshot/CFI-walk counts (`snapshots · truncated · CFI
   walks`) - truncation text prefixes the coverage text when both apply.
 
 
 ## Funcs engine support
 
-The app loads both `ares syscalls` and `ares funcs` output. A run's engine is
+The app loads both `anubee syscalls` and `anubee funcs` output. A run's engine is
 detected at ingest from the record types present (`RunInfo.kinds`); the left
 panel and graph adapt automatically. A funcs run traces native function
 entry/exit via uprobes: each hooked call emits a `call` record (entry, args,
@@ -191,7 +191,7 @@ graph slice, node records) are not logged. The rail's **Log** button opens a mod
 scrollable, color-coded monospace **terminal box** that live-appends while open
 (auto-scrolling when pinned to the bottom) and renders entry text with
 `textContent` only (tracer output is untrusted). **Save** writes the buffer to a
-chosen `ares_<YYYYMMDD>_<HHMMSS>.log` file via a native save dialog; **Clear**
+chosen `anubee_<YYYYMMDD>_<HHMMSS>.log` file via a native save dialog; **Clear**
 empties it. The log is the source of truth for process outcomes: it replaced the
 old always-visible status pill (removed). The pure `src/renderer/log-store.ts`
 (ring-capped at 5000 entries) is the single state owner; `src/renderer/run-logged.ts`
@@ -273,10 +273,10 @@ regardless of how many lines a cell's content stacks internally.
   independently sortable/visible rather than stacked. Switching modes rebuilds
   the column set via `engineColumnKeys(engine, mode)` and re-renders. The
   resolved `ColumnLayout` (`{ columns, widths, callSite }`) persists to
-  `localStorage` under `ares.columns.<engine>` (`parseLayout`/`serializeLayout`
+  `localStorage` under `anubee.columns.<engine>` (`parseLayout`/`serializeLayout`
   in `src/renderer/columns.ts`), so a saved funcs layout and a saved syscall
   layout - including their call-site mode and widths - coexist and survive an
-  app restart. A bare legacy `ares.columns` array (pre-dating this layout
+  app restart. A bare legacy `anubee.columns` array (pre-dating this layout
   model) is still parsed and migrated to `{ columns, widths: {}, callSite:
   'stacked' }`.
 
@@ -305,7 +305,7 @@ drop the resize. The master table collapses/expands via a floating square button
 positioned just outside the table's right edge (or far left when collapsed); the
 right panel is dismissed via its header X button only (no collapse affordance).
 Both the widths and the collapsed/expanded state persist to
-`localStorage['ares.layout']`, so the layout survives an app restart.
+`localStorage['anubee.layout']`, so the layout survives an app restart.
 
 **Known limitation:** persistence is per-machine (`localStorage`), not
 per-project - opening the same run on a different machine does not carry over
@@ -315,7 +315,7 @@ the saved layout.
 
 `src/renderer/theme.ts` defines a token-based theme system: CSS custom
 properties with a dark default, toggled to light via the bottom-pinned theme
-button in the left rail, persisted to `localStorage['ares.theme']`. Critically, `theme.ts`
+button in the left rail, persisted to `localStorage['anubee.theme']`. Critically, `theme.ts`
 is the **single source** of the java/native/syscall (plus label-backing and
 edge) colors - `applyGraphTheme` feeds them to cytoscape, the `#legend`, and
 the flame view's `kindFill`, replacing the previously triplicated color
@@ -323,7 +323,7 @@ constants that had drifted across those three call sites. The graph's label
 backing color switches with the theme so node labels stay legible against
 both the dark and light canvas.
 
-**Brand palette.** The chrome tokens map to the ARES logo: war red `#C8322B`
+**Brand palette.** The chrome tokens map to the Anubee logo: war red `#C8322B`
 accent, a warm near-black *night* surface ramp (dark), and a *bone* `#F5F3EE`
 surface ramp (light) - replacing the earlier cool blue-accent scheme. The four
 kind colors are reharmonized into a warm family that stays separable while
@@ -378,7 +378,7 @@ behavior it implements. A tag (`src/shared/project-store.ts`, type `Tag`) has:
 - `source` - `manual` (analyst-authored) or `heuristic` (confirmed from a
   suggestion, see below), plus `confidence`/`rationale` when heuristic-sourced.
 
-Tags persist to a sidecar file next to the loaded run, `<run>.ares-desktop.json`
+Tags persist to a sidecar file next to the loaded run, `<run>.anubee-desktop.json`
 (`src/main/sidecar.ts`), so tagging survives across sessions without mutating
 the trace itself. `project-store.ts` is pure (parse/validate/serialize/upsert -
 no filesystem access); main reads and writes the file. A malformed sidecar
@@ -462,7 +462,7 @@ syscall layer. Both remain valid `RaspCategory` values for manual tagging.
 
 **Merge across scopes.** Rules resolve from three layers: `BUILTIN_RULES`, a
 global library (`<userData>/rasp-rules.json`, `rasp-rules-store.ts`), and a
-per-project override carried in the run's `<run>.ares-desktop.json` sidecar.
+per-project override carried in the run's `<run>.anubee-desktop.json` sidecar.
 `resolveRules` concatenates builtin -> global -> project and, on an `id`
 collision, **later scope wins** (project overrides global overrides builtin).
 `enabledOverrides` lets any scope enable/disable any rule by id under the same
@@ -606,7 +606,7 @@ transform to show the current state. An expanded dock also shows a drag grip
 along its top edge that resizes it (`clampHeight` in
 `src/renderer/lib-dock-layout.ts` bounds it to 90-520px); the grip is absent
 while collapsed, since there is nothing to drag. Height, collapse state, and
-the active tab persist to `localStorage` under the key `ares.libdock`
+the active tab persist to `localStorage` under the key `anubee.libdock`
 (`lib-dock-layout.ts`'s `parseDock`/`serializeDock`) and restore on remount -
 this is UI chrome, not run data, so it deliberately lives outside the DuckDB
 store rather than a project sidecar.
@@ -641,7 +641,7 @@ JSONL schema to compute a `mapped` time the way live mode's `t+X.Xs` column does
 
 ### Live mode
 
-Streams the output of `ares lib -P <pkg>` from the connected device, parsing each
+Streams the output of `anubee lib -P <pkg>` from the connected device, parsing each
 `[lib]` line via `src/shared/lib-line.ts` and stamping each with the host's arrival
 time (the `mapped` column, `t+X.Xs`). Every dumpable row is also auto-checked
 against its on-disk baseline as it maps - see Integrity check, below - which is
@@ -651,11 +651,11 @@ where a row's badge comes from; the map timestamp itself no longer drives one.
 
 Every dumpable row (an on-disk library, not a bracketed pseudo-path) that maps
 during a live stream has its `pid|base` queued into a 300ms debounced batcher
-(`makeBatcher`, `src/shared/batcher.ts`). `ares lib -P <pkg>` launches the target
+(`makeBatcher`, `src/shared/batcher.ts`). `anubee lib -P <pkg>` launches the target
 app itself, so a cold start's linker maps dozens of libraries within a short
 burst; the debounce coalesces that whole burst into **one** batched pass -
-`ares dump --now --check -p <pid> --base A --base B ...` (`--base` repeats).
-Above ARES's 64-base cap the bases are sliced into sequential passes: `--check`'s
+`anubee dump --now --check -p <pid> --base A --base B ...` (`--base` repeats).
+Above Anubee's 64-base cap the bases are sliced into sequential passes: `--check`'s
 `-o` output truncates on each device write, so slices are run and pulled one at a
 time rather than all at once, or an earlier slice's verdicts would be lost to a
 later one's write.
@@ -677,7 +677,7 @@ Each returned `modcmp` verdict joins back to a table row by **`pid` and numeric
 base** (`sameBase`, a `BigInt` compare so a leading-zero formatting difference
 cannot drop a match) - **never by module name**. An APK-embedded library's
 `modcmp` `module` field is literally `base.apk` (the `/proc/<pid>/maps` path
-ares actually resolved), so a name join would either match nothing or collide
+anubee actually resolved), so a name join would either match nothing or collide
 with an unrelated row.
 
 The verdict `state` maps to a badge as follows:
@@ -709,7 +709,7 @@ first-seen `differ` (no earlier `match` on record for that row) shows only the
 ```mermaid
 flowchart LR
   A[lib line: pid + base] -->|dumpable row| B[300ms debounce batcher]
-  B -->|coalesced bases, repeatable --base, capped at 64| C[ares dump --now --check]
+  B -->|coalesced bases, repeatable --base, capped at 64| C[anubee dump --now --check]
   C -->|modcmp records| D[join by pid + numeric base]
   D -->|differ| E[MODIFIED badge]
   D -->|nofile| F[NO FILE badge]
@@ -725,7 +725,7 @@ turns out to be benign - the analyst, not the badge, decides whether a given
 `MODIFIED` is suspicious.
 
 **The old `new` badge is gone.** Phase 2's `isNew` / `NEW_LIB_SETTLE_MS` (1500ms)
-heuristic flagged **every** row, not just late loads: `ares lib -P <pkg>` launches
+heuristic flagged **every** row, not just late loads: `anubee lib -P <pkg>` launches
 the target app fresh, so the entire linker burst of a cold start - not only a
 packer's late payload - lands well past 1500ms (observed ~4.3s on a real device
 pass). The heuristic anchored "new" to stream-start, but stream-start is the
@@ -739,7 +739,7 @@ anchored to the library's own baseline instead of the clock.
 
 Ticking one or more rows and clicking **Dump** sends each row's exact `pid` and
 load `base` - the selection key itself, never a name derived from it - through
-`nativelib:dumpLib` to `ares dump --now -p <pid> --base <addr> -d <dir> -o
+`nativelib:dumpLib` to `anubee dump --now -p <pid> --base <addr> -d <dir> -o
 <dir>/manifest.jsonl`. `--now` is a pure `/proc` snapshot of the already-running
 process: it attaches no BPF, does not relaunch the target, and exits 0 on
 success, so `code !== 0` is a genuine error test. The live stream in the same
@@ -749,7 +749,7 @@ Selecting by exact base rather than a name pattern is a correctness requirement,
 not just a safety margin. For an `extractNativeLibs=false` app (the modern AGP
 default), a library is never extracted to a standalone file on disk - it maps
 straight out of the APK, so its `/proc/<pid>/maps` path is literally `base.apk`.
-`ares`'s `-l` name filter only ever sees that raw maps path, so no name pattern
+`anubee`'s `-l` name filter only ever sees that raw maps path, so no name pattern
 can match such a library; `--base` addresses the exact load address instead and
 is the only selector that reaches it.
 
@@ -764,7 +764,7 @@ chrome, above). **Reveal** opens the file manager at the dumped `.so`;
 The live stream and the on-map watcher each carry their own stop pattern
 instead of sharing one global kill switch. `stopArgLive` and `stopArgWatch`
 (`src/shared/tracer-caps.ts`) build an anchored, ERE-escaped `pkill -INT -f
-"^/data/local/tmp/ares ..."` scoped to that run's exact package (live) or pid
+"^/data/local/tmp/anubee ..."` scoped to that run's exact package (live) or pid
 (watcher). The leading `^` anchor is what excludes the run's own `su -c
 '...'` wrapper process: its cmdline also contains the matched command as a
 substring, but does not *start* with it, so the anchor keeps the pattern from
@@ -780,7 +780,7 @@ the global default, so it remains the one caller of the old kill switch - a
 Capture stop still SIGINTs any concurrent Libraries live stream or on-map
 watcher (known drawback, see `BACKLOG.md`). Previously, before `stopArgLive`
 and `stopArgWatch` existed, that one global `pkill -INT -f
-/data/local/tmp/ares` was the only stop path in the app: it applied to the
+/data/local/tmp/anubee` was the only stop path in the app: it applied to the
 live stream, the wait-for-Ctrl-C dump mechanism this feature later replaced
 with `dump --now`, and Capture. The per-run patterns made stopping the live
 stream or the watcher a no-op for every other run, but did not make Capture's
@@ -803,12 +803,12 @@ table.
 The modal also carries an optional **on-map watcher** field: a glob (e.g.
 `libexample*` or `blob_[0-9]*`, validated by `isSafePattern` before anything is
 spawned) that, if set, starts a second attached process alongside the live
-stream - `ares dump -p <pid> --on-map -l <glob>` - launched the moment the
+stream - `anubee dump -p <pid> --on-map -l <glob>` - launched the moment the
 first `[lib]` line reveals the stream's pid. It dumps any library matching the
 glob the instant it maps, which is meant to catch a file-backed transient
 payload (a packer's decrypt-to-a-file-then-`dlopen`) as it appears rather than
 only after the fact from the table. **Its boundary is a maps-path limitation
-in `ares`'s `-l`, not a Desktop shortcoming**: the watcher matches the
+in `anubee`'s `-l`, not a Desktop shortcoming**: the watcher matches the
 resolved `/proc/<pid>/maps` path only, so it cannot match an APK-embedded
 library (whose path is `base.apk`) or an anonymous mapping (no path at all) -
 those remain visible in the table and reachable by dumping their base once
@@ -816,7 +816,7 @@ mapped (see Dumping binaries, above).
 
 The watcher writes each catch into its own device directory (with a paired
 host directory under the runs dir, named parallel to a dump's
-`ares-dump-<ts>`), not inline into the UI - that directory is not polled
+`anubee-dump-<ts>`), not inline into the UI - that directory is not polled
 while the stream runs. Stopping the live capture, either via the Stop control
 or the stream ending on its own, stops both the stream and the watcher, each
 via its own anchored stop pattern (see Targeted stop, above), then pulls and
@@ -838,9 +838,9 @@ table.
 ```mermaid
 flowchart LR
   A[Load JSONL: syscall / lib / funcs engine] -->|type:lib records| B[Libraries view: Loaded]
-  C[Live device: ares lib -P pkg] -->|[lib]/[unlib] stream| D[Libraries view: Live]
-  C -->|first lib line: pid known, glob set| G[ares dump -p pid --on-map -l glob]
-  D -->|tick + Dump| E[ares dump --now -p pid --base addr]
+  C[Live device: anubee lib -P pkg] -->|[lib]/[unlib] stream| D[Libraries view: Live]
+  C -->|first lib line: pid known, glob set| G[anubee dump -p pid --on-map -l glob]
+  D -->|tick + Dump| E[anubee dump --now -p pid --base addr]
   D -->|Stop| H[pull + triage watcher dir]
   C -->|stream ends| H
   G -->|writes matches to its own device dir| H
@@ -877,7 +877,7 @@ bundled and then `asarUnpack`ed. Do not "correct" `files` to add `node_modules`.
 
 ## Tracer control (feature 9) - launch → capture → auto-load
 
-Launch the ARES tracer on a connected rooted device from the **Capture** view,
+Launch the Anubee tracer on a connected rooted device from the **Capture** view,
 capture its output, and route the result back in. Offline-friendly: the tracer
 writes to a device file during the run; the desktop pulls and ingests it after
 the run stops (not a live-streaming graph - that is feature 10).
@@ -901,7 +901,7 @@ choose where the pulled JSONL is written. Browse fires the `tracer:pickSavePath`
 IPC, which opens a native Save dialog (defaulting to a `capture.jsonl` file) and
 fills the field. On Start, the field value is passed to `tracer:start`, where the
 pure `resolveSavePath(chosen, default)` uses it when non-empty, else falls back to
-the default `<userData>/runs/ares-<ts>.jsonl`; the device capture is pulled to
+the default `<userData>/runs/anubee-<ts>.jsonl`; the device capture is pulled to
 that path and loaded.
 
 **Capabilities and the three output kinds.** All seven engines are exposed.
@@ -911,10 +911,10 @@ reuse the existing `loadPath` ingest → switch to the master table). `lib` is
 runs a named analyzer (default `stdout`). `correlate`/`trace` carry a
 "writes BRK" loud badge.
 
-**The `su -c` contract.** Each ares run is one `su -c '<single string>'` -
+**The `su -c` contract.** Each anubee run is one `su -c '<single string>'` -
 chaining commands in one `su -c` breaks the on-device BPF load with `-EPERM`.
 Runs are wrapped `timeout -s INT -k 3 <secs>` for a graceful SIGINT stop with a
-SIGKILL backstop; the manual Stop button sends `pkill -INT -f …ares` as a
+SIGKILL backstop; the manual Stop button sends `pkill -INT -f …anubee` as a
 separate `su -c`. A blank timeout means "run until Stop". User-entered tokens
 (package/library/pattern/spec/syscalls) are space-joined into that single-quoted
 body, so `validateInputs` (and the preflight entry) reject any value carrying a
@@ -923,8 +923,8 @@ run is dispatched.
 
 **Preflight** gates Start with five ordered checks (device reachable, `su`
 root, kernel BTF, package installed, on-device binary md5 vs the configured host
-`build/ares` - pushed if stale, after `kill_ares` to avoid `ETXTBSY`). Host
-paths to `build/ares` + `specs/` persist in `<userData>/tracer-config.json`.
+`build/anubee` - pushed if stale, after `kill_anubee` to avoid `ETXTBSY`). Host
+paths to `build/anubee` + `specs/` persist in `<userData>/tracer-config.json`.
 Each check streams to the renderer as it completes (`tracer:preflight-check`,
 one event per `PreflightCheck`) rather than arriving as a single batch after
 the whole sequence finishes, so the status list fills in row by row while the
@@ -941,7 +941,7 @@ filesystem) hazard from an empty-string path expansion.
 **Capture form layout, path validation, and Browse pickers.** The modal is a
 sectioned form - "1. host setup", "2. engine & arguments", "3. run" - each
 introduced by a numbered `.cap-section-hd` header, replacing the earlier
-single-stacked layout. Host setup carries only the ares binary field, with a
+single-stacked layout. Host setup carries only the anubee binary field, with a
 Browse button (`tracer:pickBinary` opens a native open-file dialog) and a
 validity dot fed by `tracer:checkPaths` → `path-check.ts`'s pure `isElf`
 (checks the file's first four bytes for the ELF magic number); the dot
@@ -982,19 +982,19 @@ per matching library (named `<lib>.<pid>.<addr>.so`) into a directory (`-d DIR`)
 the handler creates the device dir up front and pulls the whole directory.
 
 **Advanced tuning flags.** A collapsible **Advanced** section on the capture form
-exposes three ares runtime flags for the `syscalls`, `funcs`, and `correlate`
-engines (the three that embed ares' shared `common_args` block): `-b` (ring buffer
-in MB, ares default 4), `-Q` (worker queue in MB, ares default 256), and `-v`
-(verbose debug output). A blank field means use the ares default; a flag is
+exposes three anubee runtime flags for the `syscalls`, `funcs`, and `correlate`
+engines (the three that embed anubee' shared `common_args` block): `-b` (ring buffer
+in MB, anubee default 4), `-Q` (worker queue in MB, anubee default 256), and `-v`
+(verbose debug output). A blank field means use the anubee default; a flag is
 emitted only when the value diverges from the default. Note: JSONL framing (`-J`)
 is not a form control - it is guaranteed because every capture's output path ends
-in `.jsonl`, which ares treats as newline-per-record framing.
+in `.jsonl`, which anubee treats as newline-per-record framing.
 
 **Stack snapshots (`--snapshot`).** The Advanced section on `syscalls` and `funcs`
 engines includes a stack-snapshots toggle (opt-in, default off). When enabled, it
 populates the on-device `stack_id` field, which gates inline `java_stack` delivery
 - a capture reaches Java-level backtrace only when this toggle is on. The toggle
-applies to `syscalls` and `funcs` only (the two engines ARES accepts `--snapshot`
+applies to `syscalls` and `funcs` only (the two engines Anubee accepts `--snapshot`
 on). Note: enabling the toggle also writes a native `<out>.jsonl.stacks` sidecar
 (the full ordered CFI walk per `stack_id`, each frame `kind`-tagged) alongside the
 pulled `.jsonl`. The desktop **consumes** this sidecar: on ingest it is loaded into
@@ -1018,12 +1018,12 @@ resolved; `dump` → 5 rebuilt `.so` files pulled from the dump directory.
 ## Native-block origin mapping - instruction offsets within native frames
 
 Locates concrete instruction addresses within native symbols by computing
-module-relative offsets from the ARES `lib` module-map records. The offset is the
+module-relative offsets from the Anubee `lib` module-map records. The offset is the
 difference between the frame address and its module's load base (`addr - load_base`),
 which maps back into a ghidra-opened binary's image-base-relative offset for
 symbol-level drill-down and binary-level annotation.
 
-**Module map.** The ARES tracer's `lib` stdout lines record every library's load
+**Module map.** The Anubee tracer's `lib` stdout lines record every library's load
 base per (pid, basename) when the tracer first observes it. The desktop `GraphStore`
 indexes these into a module map (`src/main/graph-store.ts`, `moduleById`). A
 `nodeOffsets` query on a native node computes the concrete offset for each event
@@ -1056,9 +1056,9 @@ what the address does. Rows marked `[unmapped]` indicate that the offset could n
 be resolved - see "Module map and unmapped offsets" below.
 
 **Module map and unmapped offsets.** Offsets resolve to ghidra image-base addresses
-only when the run carries `lib` records, which the ARES tracer emits whenever it
+only when the run carries `lib` records, which the Anubee tracer emits whenever it
 observes an executable module load (mmap) during the trace. A **snapshot** or
-post-load capture (e.g. `ares syscalls --snapshot <pkg>`) has no `lib` records,
+post-load capture (e.g. `anubee syscalls --snapshot <pkg>`) has no `lib` records,
 because the modules were already loaded when tracing began. In such cases, every
 offset shows `[unmapped]` and tagging (offset-scoped drill-down) is not available.
 To resolve offsets: **capture from process start** (before the app loads its libraries),
@@ -1203,7 +1203,7 @@ via a CSS class (`#tab-left.collapsed svg { transform: scaleX(-1) }`) instead
 of overwriting `textContent`, so the icon markup is stable and only its
 orientation toggles.
 
-### Portable project bundle (`.aresproj.json`)
+### Portable project bundle (`.anubeeproj.json`)
 
 A new pure module `src/shared/project-file.ts` serializes/parses/validates a
 `ProjectBundle`: `formatVersion` (currently `1`), `savedAt`, the source
@@ -1216,13 +1216,13 @@ malformed input field-by-field (bad JSON, non-object, wrong/missing
 - **Save project** (rail Export menu → `project:save` in `src/main/index.ts`)
   builds a bundle from the active run's `RunInfo` plus its sidecar (tags,
   dismissed list, rule overrides), then opens a native Save dialog defaulting
-  to `<run-basename>.aresproj.json`.
+  to `<run-basename>.anubeeproj.json`.
 - **Open project** (rail Open menu → `project:open`) reads and validates the
   chosen bundle, then re-ingests the run at `run.path`. If that path no longer
   exists, a **relocate prompt** (a second native Open dialog scoped to
   `.jsonl`/`.json`) lets the analyst point at the moved file. The bundle's
   tags/dismissed/rule-overrides are applied by writing them into the target
-  run's `<run>.ares-desktop.json` sidecar *before* ingest, so the existing
+  run's `<run>.anubee-desktop.json` sidecar *before* ingest, so the existing
   sidecar-load path picks them up with no separate apply step.
 
 **Dirty tracking + Quit + save-on-close prompt.** The renderer keeps an

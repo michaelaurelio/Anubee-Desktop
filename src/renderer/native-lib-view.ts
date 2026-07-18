@@ -158,7 +158,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
       ? (streaming
           ? `Waiting for [lib] events from ${esc(livePkg || 'the target')}&hellip; trigger activity in the app on the device.`
           : 'Start a live capture to stream mapped libraries from the device.')
-      : 'No library records in this run. Capture with a current ares build (the syscall, lib and funcs engines all emit them), or stream live under Live device.'
+      : 'No library records in this run. Capture with a current anubee build (the syscall, lib and funcs engines all emit them), or stream live under Live device.'
     const div = document.createElement('div'); div.className = 'lib-empty'; div.innerHTML = msg
     $('.lib-tbl').appendChild(div)
   }
@@ -202,7 +202,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   host.querySelectorAll<HTMLButtonElement>('.lib-seg button').forEach(b =>
     b.onclick = () => { void setSource(b.dataset.src as Source) })
   const dock = $('.lib-dock')
-  const DOCK_LS = 'ares.libdock'
+  const DOCK_LS = 'anubee.libdock'
   let dockState: DockLayout = parseDock(localStorage.getItem(DOCK_LS))
   function setActiveTab(tab: 'artifacts' | 'log'): void {
     dock.setAttribute('data-active', tab)
@@ -266,7 +266,7 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
         host.innerHTML = `
           <div class="lib-modal">
             <label class="lib-modal-row">Package
-              <input data-modal-pkg placeholder="e.g. dev.ares.detector" value="${esc(livePkg)}">
+              <input data-modal-pkg placeholder="e.g. dev.anubee.detector" value="${esc(livePkg)}">
             </label>
             <label class="lib-modal-row">Also dump matching libraries as they map (optional)
               <input data-modal-glob placeholder="e.g. libexample* or blob_[0-9]*">

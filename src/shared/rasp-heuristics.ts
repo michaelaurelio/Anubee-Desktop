@@ -3,7 +3,7 @@ import type { RaspCategory } from './project-store'
 import { chainOf } from './graph-shape'
 
 // Rules over syscall events -> suggested RASP tags. Never auto-applied; the
-// analyst confirms each. Grounded in real ARES output (see the Phase-2 spec):
+// analyst confirms each. Grounded in real Anubee output (see the Phase-2 spec):
 // ptrace's request is NOT decoded to a name - it is raw args[0], and
 // PTRACE_TRACEME === 0. Path checks read string_args (openat/access path) and
 // fd_args (resolved fd path). Kept pure so the rules are unit-testable.

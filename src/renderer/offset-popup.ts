@@ -131,8 +131,8 @@ function openRowMenu(x: number, y: number, row: OffsetRow): void {
     b.onclick = () => { fn(); closeRowMenu() }
     menu!.appendChild(b)
   }
-  item('Copy', () => void window.ares.copyToClipboard(copyText(row)))
-  item('Copy as JSON', () => void window.ares.copyToClipboard(rowJson(row)))
+  item('Copy', () => void window.anubee.copyToClipboard(copyText(row)))
+  item('Copy as JSON', () => void window.anubee.copyToClipboard(rowJson(row)))
   document.body.appendChild(menu)
   setTimeout(() => {
     onMenuDown = (e: MouseEvent) => { if (menu && !menu.contains(e.target as Node)) closeRowMenu() }

@@ -11,7 +11,7 @@ export interface BacktraceFrame {
 
 // One frame of a cfi_stack record's ordered CFI walk. `kind` tags the frame so
 // the graph can place managed vs native vs the interpreter boundary in true order
-// - verified against ../Anubee/src/common/symbolize.c ares_emit_cfi_stack_json.
+// - verified against ../Anubee/src/common/symbolize.c anubee_emit_cfi_stack_json.
 export interface CfiFrame {
   frame: number
   addr: string
@@ -52,7 +52,7 @@ export interface SyscallEvent {
   backtrace: BacktraceFrame[]
 }
 
-// The end-of-run `coverage` summary ARES emits under `--snapshot`: how many stack
+// The end-of-run `coverage` summary Anubee emits under `--snapshot`: how many stack
 // snapshots were taken/truncated and where the CFI unwinder stopped. Informational
 // only - retained at ingest (EPIC A) but not graph data; vendored here so it is a
 // known record type rather than an opaque UnknownEvent.
@@ -63,7 +63,7 @@ export interface CoverageEvent {
   cfi: { walks: number; stops: Record<string, number> }
 }
 
-// `ares funcs` native call/return records - verified against
+// `anubee funcs` native call/return records - verified against
 // ../Anubee/src/funcs/funcs_emit.c (funcs_emit_call/funcs_emit_return). Unlike
 // SyscallEvent's backtrace (caller frames only), FuncEvent.backtrace's frame 0
 // is the called function itself (module/symbol/entry_addr name it directly).

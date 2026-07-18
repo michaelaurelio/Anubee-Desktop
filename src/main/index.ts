@@ -94,9 +94,9 @@ function createWindow(): void {
     win.webContents.send('app:confirmClose')
   })
 
-  // Open a run given on launch (ARES_OPEN_FILE). Handy for CLI use and lets the
+  // Open a run given on launch (ANUBEE_OPEN_FILE). Handy for CLI use and lets the
   // screenshot harness load a fixture without driving the native file dialog.
-  const preload = process.env.ARES_OPEN_FILE
+  const preload = process.env.ANUBEE_OPEN_FILE
   if (preload) win.webContents.once('did-finish-load', () => void loadPath(preload))
 
   Menu.setApplicationMenu(null) // single in-app File▾ toolbar; no native menu bar
@@ -122,7 +122,7 @@ async function openViaDialog(
   broadcast: boolean,
 ): Promise<{ runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] } | null> {
   const r = await dialog.showOpenDialog(win, {
-    filters: [{ name: 'ARES JSONL', extensions: ['jsonl', 'json'] }],
+    filters: [{ name: 'Anubee JSONL', extensions: ['jsonl', 'json'] }],
     properties: ['openFile'],
   })
   if (r.canceled || !r.filePaths[0]) return null
@@ -130,7 +130,7 @@ async function openViaDialog(
 }
 
 ipcMain.handle('tracer:config:get', () => loadConfig(app.getPath('userData')))
-ipcMain.handle('tracer:config:set', (_e, cfg: { aresBinary: string; specsDir: string }) => {
+ipcMain.handle('tracer:config:set', (_e, cfg: { anubeeBinary: string; specsDir: string }) => {
   saveConfig(app.getPath('userData'), cfg)
 })
 ipcMain.handle('tracer:preflight', (_e, pkg: string) =>
@@ -200,7 +200,7 @@ ipcMain.handle('tracer:pickSavePath', async () => {
 
 ipcMain.handle('tracer:pickBinary', async () => {
   const r = await dialog.showOpenDialog(win, {
-    title: 'Select the host ares binary', properties: ['openFile'],
+    title: 'Select the host anubee binary', properties: ['openFile'],
   })
   return r.canceled ? undefined : r.filePaths[0]
 })
@@ -252,22 +252,22 @@ ipcMain.handle('project:save', async (_e, runId: number, layout?: unknown) => {
     ruleOverrides: loadSidecarRules(info.file).rules,
     layout,
   }
-  const def = basename(info.file).replace(/\.jsonl?$/i, '') + '.aresproj.json'
-  const r = await dialog.showSaveDialog(win, { defaultPath: def, filters: [{ name: 'ARES project', extensions: ['aresproj.json', 'json'] }] })
+  const def = basename(info.file).replace(/\.jsonl?$/i, '') + '.anubeeproj.json'
+  const r = await dialog.showSaveDialog(win, { defaultPath: def, filters: [{ name: 'Anubee project', extensions: ['anubeeproj.json', 'json'] }] })
   if (r.canceled || !r.filePath) return { canceled: true }
   writeFileSync(r.filePath, serializeProject(bundle))
   return { path: r.filePath }
 })
 
 ipcMain.handle('project:open', async () => {
-  const r = await dialog.showOpenDialog(win, { filters: [{ name: 'ARES project', extensions: ['aresproj.json', 'json'] }], properties: ['openFile'] })
+  const r = await dialog.showOpenDialog(win, { filters: [{ name: 'Anubee project', extensions: ['anubeeproj.json', 'json'] }], properties: ['openFile'] })
   if (r.canceled || !r.filePaths[0]) return { canceled: true }
   const parsed = parseProject(readFileSync(r.filePaths[0], 'utf-8'))
   if (!parsed.bundle) return { error: parsed.error ?? 'invalid project file' }
   const b = parsed.bundle
   let runPath = b.run.path
   if (!existsSync(runPath)) {
-    const rel = await dialog.showOpenDialog(win, { title: `Locate the run for this project (${basename(runPath)})`, filters: [{ name: 'ARES JSONL', extensions: ['jsonl', 'json'] }], properties: ['openFile'] })
+    const rel = await dialog.showOpenDialog(win, { title: `Locate the run for this project (${basename(runPath)})`, filters: [{ name: 'Anubee JSONL', extensions: ['jsonl', 'json'] }], properties: ['openFile'] })
     if (rel.canceled || !rel.filePaths[0]) return { error: 'run file not found' }
     runPath = rel.filePaths[0]
   }
@@ -562,7 +562,7 @@ ipcMain.handle('log:save', async (_e, text: string) => {
   const stamp = `${now.getFullYear()}${p2(now.getMonth() + 1)}${p2(now.getDate())}_` +
     `${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}`
   const r = await dialog.showSaveDialog(win, {
-    defaultPath: `ares_${stamp}.log`,
+    defaultPath: `anubee_${stamp}.log`,
     filters: [{ name: 'Log', extensions: ['log'] }],
   })
   if (r.canceled || !r.filePath) return null

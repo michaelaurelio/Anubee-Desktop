@@ -288,7 +288,7 @@ export class GraphStore {
   }
 
   // Deduped cfi_stack CTE for run `rid`: one row per stack_id (any_value picks
-  // an arbitrary one when ARES's dedup LRU re-emits a duplicate for the same
+  // an arbitrary one when Anubee's dedup LRU re-emits a duplicate for the same
   // stack_id). Every chain-building query LEFT JOINs this by stack_id and
   // selects with SYS_CHAIN_SEL / FUNCS_CHAIN_SEL - the single source of truth
   // so the cfi wiring cannot drift between call sites.

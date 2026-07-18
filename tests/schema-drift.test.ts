@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { SYSCALL_KEYS, BACKTRACE_KEYS, FUNCS_KEYS, CFI_STACK_KEYS, CFI_BACKTRACE_KEYS, LIB_KEYS, UNLIB_KEYS, DUMP_KEYS } from '@shared/schema-contract'
 
-// The syscall emitter in the sibling ARES checkout. Not a build dependency -
+// The syscall emitter in the sibling Anubee checkout. Not a build dependency -
 // only read here to guard the vendored contract. Absent → skip (CI without the
 // sibling still passes).
 const EMITTER = resolve(__dirname, '../../Anubee/src/syscalls/syscalls.c')
@@ -24,7 +24,7 @@ function emittedKeys(): Set<string> {
   return keys
 }
 
-describe('schema drift: vendored contract vs ARES emitter', () => {
+describe('schema drift: vendored contract vs Anubee emitter', () => {
   it.skipIf(!present)('emits every top-level syscall key in the contract', () => {
     const keys = emittedKeys()
     for (const k of SYSCALL_KEYS) expect(keys, `emitter missing "${k}"`).toContain(k)
@@ -35,7 +35,7 @@ describe('schema drift: vendored contract vs ARES emitter', () => {
     for (const k of BACKTRACE_KEYS) expect(keys, `emitter missing frame key "${k}"`).toContain(k)
   })
 
-  it('contract has no duplicate keys (sanity, runs without ARES)', () => {
+  it('contract has no duplicate keys (sanity, runs without Anubee)', () => {
     expect(new Set(SYSCALL_KEYS).size).toBe(SYSCALL_KEYS.length)
   })
 })
@@ -45,7 +45,7 @@ if (!present) {
   console.warn(`[schema-drift] ../Anubee not found at ${EMITTER} - drift checks skipped.`)
 }
 
-// The funcs emitter in the sibling ARES checkout. Not a build dependency -
+// The funcs emitter in the sibling Anubee checkout. Not a build dependency -
 // only read here to guard the vendored contract. Absent → skip (CI without
 // the sibling still passes).
 const FUNCS_EMITTER = resolve(__dirname, '../../Anubee/src/funcs/funcs_emit.c')
@@ -65,7 +65,7 @@ describe('schema drift: funcs emitter', () => {
   })
 })
 
-// The cfi_stack emitter lives in ARES's symbolize.c (ares_emit_cfi_stack_json).
+// The cfi_stack emitter lives in Anubee's symbolize.c (anubee_emit_cfi_stack_json).
 const CFI_EMITTER = resolve(__dirname, '../../Anubee/src/common/symbolize.c')
 const cfiPresent = existsSync(CFI_EMITTER)
 
@@ -77,7 +77,7 @@ function cfiEmittedKeys(): Set<string> {
 }
 
 describe('schema drift: cfi_stack emitter', () => {
-  it('contract has no duplicate cfi keys (sanity, runs without ARES)', () => {
+  it('contract has no duplicate cfi keys (sanity, runs without Anubee)', () => {
     expect(new Set(CFI_STACK_KEYS).size).toBe(CFI_STACK_KEYS.length)
     expect(new Set(CFI_BACKTRACE_KEYS).size).toBe(CFI_BACKTRACE_KEYS.length)
   })
@@ -102,7 +102,7 @@ function keysIn(path: string): Set<string> {
 }
 
 describe('schema drift: lib/unlib + dump emitters', () => {
-  it('contract has no duplicate keys (sanity, runs without ARES)', () => {
+  it('contract has no duplicate keys (sanity, runs without Anubee)', () => {
     expect(new Set(LIB_KEYS).size).toBe(LIB_KEYS.length)
     expect(new Set(UNLIB_KEYS).size).toBe(UNLIB_KEYS.length)
     expect(new Set(DUMP_KEYS).size).toBe(DUMP_KEYS.length)

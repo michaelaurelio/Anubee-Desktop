@@ -1,4 +1,4 @@
-# ARES-Desktop - backlog / next-session guide
+# Anubee-Desktop - backlog / next-session guide
 
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
@@ -29,7 +29,7 @@ Follow-ups (resolved in a later pass, same day):
   artifact; post-stop verify returns a verdict). Only the thin Electron
   IPC/renderer glue remains unit-test-only.
 - **Sidecar extension** now writes `.anubee-desktop.json` and still reads legacy
-  `.ares-desktop.json` (backward compat; migrates forward on the next save), so
+  `.anubee-desktop.json` (backward compat; migrates forward on the next save), so
   pre-rename sidecars shared between users keep loading.
 
 Remaining / open (carried from this session):
@@ -38,21 +38,21 @@ Remaining / open (carried from this session):
   Build from `../Anubee` and `make push` (or let the app's preflight md5-push
   replace it) to get the genuinely renamed binary on device.
 - **Anubee-Detector not audited.** Only its folder + git remote were renamed;
-  its *content* was not reviewed for `../ARES` refs or ARES branding. It also has
+  its *content* was not reviewed for `../Anubee` refs or Anubee branding. It also has
   an untracked `kls_database.db`.
 - **Desktop rebrand pass (the theme + name work now in progress).** ~50 tracked
-  files still carry `ares`/`ARES`. Not yet swept:
-  - `package.json` - `name` (`ares-desktop`), `build.appId` (`com.ares.desktop`),
-    `build.productName` (`ARES`).
-  - `@shared/ares-parse` module filename + all its imports.
+  files still carry `anubee`/`Anubee`. Not yet swept:
+  - `package.json` - `name` (`anubee-desktop`), `build.appId` (`com.anubee.desktop`),
+    `build.productName` (`Anubee`).
+  - `@shared/anubee-parse` module filename + all its imports.
   - `src/renderer/index.html` + `theme.ts` - palette tokens / logo / brand naming
     (this is the styling change being done now).
   - README / DOCUMENTATION / TESTING prose, test temp-dir prefixes
-    (`mkdtempSync('ares-*')`), and the example fixture
-    `tests/fixtures/detector_snap.jsonl.ares-desktop.json` (still the legacy
+    (`mkdtempSync('anubee-*')`), and the example fixture
+    `tests/fixtures/detector_snap.jsonl.anubee-desktop.json` (still the legacy
     sidecar extension - read via fallback - and carrying unrelated uncommitted
     edits left untouched).
-  - Checklist: `git grep -il ares`. **Do NOT rename** `dev.ares.detector` or
+  - Checklist: `git grep -il anubee`. **Do NOT rename** `dev.anubee.detector` or
     `libsentinel.so` - exempt reference-app identifiers (project privacy rule).
 - **Verify/dump ipcMain glue is unit-test-only.** The thin Electron handlers
   (`nativelib:verify`, `nativelib:dumpLib`) aren't integration-tested; covered
@@ -60,7 +60,7 @@ Remaining / open (carried from this session):
 
 ## Shipped (2026-07-16) - Brand palette + logo integration
 
-Recolored the whole app to the ARES logo palette (war red / night / bone) and
+Recolored the whole app to the Anubee logo palette (war red / night / bone) and
 dropped the `A`-mark into the left-rail brand slot + the window/builder icon.
 Chrome, kind colors (reharmonized warm), RASP categories, log lines, and flame
 neutrals all moved; single-source tokens in `index.html` `:root` + `theme.ts`.
@@ -118,8 +118,8 @@ Replaces the Phase 2 `isNew`/`NEW_LIB_SETTLE_MS` heuristic (which flagged every
 row, since a cold-start linker burst lands well past its 1500ms mark) with a real
 integrity signal. Every dumpable row that maps during a live stream is
 auto-queued into a 300ms debounced batcher, coalescing the whole map burst into
-one `ares dump --now --check -p <pid> --base A --base B ...` pass (`--base`
-repeats; sliced above ARES's 64-base cap). Returned `modcmp` verdicts join back
+one `anubee dump --now --check -p <pid> --base A --base B ...` pass (`--base`
+repeats; sliced above Anubee's 64-base cap). Returned `modcmp` verdicts join back
 to table rows by `pid` + numeric base (never by module name - an APK-embedded
 library's `modcmp` module is literally `base.apk`) and render as `MODIFIED`
 (`differ`) or `NO FILE` (`nofile`); `match`, `apk`, and `unreadable` are
@@ -131,7 +131,7 @@ on the row (`clean at t+Xs -> modified at t+Ys`), not inferred. An on-demand
 every dumpable row. Full detail in `DOCUMENTATION.md`'s "Native Libraries"
 section.
 
-Device-verified (`dev.ares.detector`, Phase 1 binary): `ares dump --now --check`
+Device-verified (`dev.anubee.detector`, Phase 1 binary): `anubee dump --now --check`
 against the APK-embedded `libsentinel.so` (maps path `base.apk`) returned
 `state: match` with `mem_sha256 == file_sha256`, confirming the false-MODIFIED
 guard holds on a genuinely clean library and that the `pid|base` join is
@@ -155,10 +155,10 @@ below.
 A third view mode (Libraries, next to Graph/Flame) with a Loaded-run <-> Live-device
 source switch and a collapsible bottom artifacts dock. Loaded mode reads retained
 `type:lib`/`unlib` records via `GraphStore.libTable` (unlib flags unmapped frames).
-Live mode streams `ares lib -P <pkg>` stdout parsed by `src/shared/lib-line.ts`,
+Live mode streams `anubee lib -P <pkg>` stdout parsed by `src/shared/lib-line.ts`,
 stamping each library with host arrival time and flagging post-setup loads (after
 `NEW_LIB_SETTLE_MS`, 1500ms) as `new` - the packer-decrypt signal. Dumping snapshots
-an exact `pid|base` selection via `ares dump --now -p <pid> --base <addr>`,
+an exact `pid|base` selection via `anubee dump --now -p <pid> --base <addr>`,
 attaching no BPF and exiting 0 on success, then pulls the output dir + manifest
 and triages each `.so` via `src/shared/elf-triage.ts` (ELF magic/arch/sha-256/size).
 Reveal opens the file manager; Export saves a copy. `lib` and `dump` are no longer
@@ -169,9 +169,9 @@ selectable engines in the Capture modal.
 - soname is taken from the `lib` record / dump manifest module name, not parsed from the dumped ELF's `DT_SONAME`.
 - Packer-proof hash-vs-on-disk compare is deferred (needs also pulling `/data/app/.../lib/<abi>/<name>.so`).
 - Live stream + dump use the default adb device; multi-device `-s` selection is deferred (matches the rest of the app).
-- Two concurrent ares processes (lib stream + `dump --now`) - device-VERIFIED (`dev.ares.detector`): a `dump --now -p <pid> --base <addr>` run against an APK-embedded library (maps path `base.apk`) completed with `DUMP_EXIT=0` while the separate live `ares lib` stream pid kept running underneath it (unaffected), and the target app process survived. The pulled artifact rebuilt as a valid arm64 ELF. `dump --now` acceptance by ares' argp is confirmed; no stop-then-resume workaround is needed.
-- The on-map watcher's file-path-only boundary is a maps-path limitation in ares' `-l`, not a Desktop bug: it matches the resolved `/proc/<pid>/maps` path of a mapped library, so it can only ever catch a file-backed transient. It cannot match an APK-embedded library (maps path is `base.apk`, there is no standalone file it decrypted to) or an anonymous mapping (no path at all) - those remain reachable only through the table (once mapped) or by dumping their base directly.
-- The on-map watcher was NOT fired against a real transient on device: `dev.ares.detector` has no decrypt-to-a-file-then-`dlopen` payload, and its libraries are APK-embedded, which on-map cannot match by design (see above). What IS proven: the built command delivers the glob literally through `su -c` (measured on device), and its stop pattern is the same anchored form verified for the live stream. For the same reason, the pull-and-triage-into-the-dock path added after this bullet was written (own device dir, pulled + triaged into the Artifacts dock on stream stop) is likewise unverified on device - it is covered by unit tests only. Closing this needs a target that maps a file-backed transient library.
+- Two concurrent anubee processes (lib stream + `dump --now`) - device-VERIFIED (`dev.anubee.detector`): a `dump --now -p <pid> --base <addr>` run against an APK-embedded library (maps path `base.apk`) completed with `DUMP_EXIT=0` while the separate live `anubee lib` stream pid kept running underneath it (unaffected), and the target app process survived. The pulled artifact rebuilt as a valid arm64 ELF. `dump --now` acceptance by anubee' argp is confirmed; no stop-then-resume workaround is needed.
+- The on-map watcher's file-path-only boundary is a maps-path limitation in anubee' `-l`, not a Desktop bug: it matches the resolved `/proc/<pid>/maps` path of a mapped library, so it can only ever catch a file-backed transient. It cannot match an APK-embedded library (maps path is `base.apk`, there is no standalone file it decrypted to) or an anonymous mapping (no path at all) - those remain reachable only through the table (once mapped) or by dumping their base directly.
+- The on-map watcher was NOT fired against a real transient on device: `dev.anubee.detector` has no decrypt-to-a-file-then-`dlopen` payload, and its libraries are APK-embedded, which on-map cannot match by design (see above). What IS proven: the built command delivers the glob literally through `su -c` (measured on device), and its stop pattern is the same anchored form verified for the live stream. For the same reason, the pull-and-triage-into-the-dock path added after this bullet was written (own device dir, pulled + triaged into the Artifacts dock on stream stop) is likewise unverified on device - it is covered by unit tests only. Closing this needs a target that maps a file-backed transient library.
 - The GUI live+dump path has still not been driven end-to-end through the app UI; the device pass above was at the CLI level, exercising the exact strings the Desktop builds directly over adb, not through Electron.
 - Check-batching and the `MODIFIED`/`NO FILE` tags on repeated dumps were Phase 3, not this drop - see the 2026-07-16 section above.
 - `startLive` has no double-start guard in the main process: invoking it while a stream is live still orphans the previous RunHandle. The renderer now closes both practical paths - the header hides "Start live capture" while streaming, and leaving Live mode calls `stopLive` - so this is defence-in-depth only, not a live risk today.
@@ -181,7 +181,7 @@ selectable engines in the Capture modal.
 - GUI smoke was via `npm run shots` against the loaded fixture (`10-libraries.png`); the live-stream + dump path has a CLI-level device pass (see above) but still needs to be driven through the GUI itself.
 - The Libraries preflight modal shares the `tracer:preflight-check` IPC channel with the Capture modal; both listeners fire on any preflight and each no-ops when its own surface is closed. Harmless today, but a per-caller channel would be cleaner if a third caller appears.
 - The live preflight modal's shape is asserted by `npm run shots`, but a green preflight + streaming run still needs an on-device pass (no device in the harness).
-- Capture's stop still uses the old global `STOP_ARG` kill switch (`startRun`'s default, `activeRun.stop()` in `src/main/index.ts`), so stopping a Capture run can still SIGINT a concurrent Libraries live stream or on-map watcher. Deferred because Capture's cmdline can carry an optional `timeout -s INT -k 3 <N>` wrapper (e.g. `su -c 'timeout -s INT -k 3 20 /data/local/tmp/ares syscalls -P dev.ares.detector -l libc.so -o ...'`), so a scoped Capture stop pattern needs to match both the wrapped and unwrapped shapes, not just an anchored `^/data/local/tmp/ares syscalls ...`.
+- Capture's stop still uses the old global `STOP_ARG` kill switch (`startRun`'s default, `activeRun.stop()` in `src/main/index.ts`), so stopping a Capture run can still SIGINT a concurrent Libraries live stream or on-map watcher. Deferred because Capture's cmdline can carry an optional `timeout -s INT -k 3 <N>` wrapper (e.g. `su -c 'timeout -s INT -k 3 20 /data/local/tmp/anubee syscalls -P dev.anubee.detector -l libc.so -o ...'`), so a scoped Capture stop pattern needs to match both the wrapped and unwrapped shapes, not just an anchored `^/data/local/tmp/anubee syscalls ...`.
 
 ## Shipped (2026-07-14) - omni filter bar
 
@@ -219,7 +219,7 @@ offline as woff2 under `src/renderer/assets/fonts/` and wired via
 pill (Lucide icons); the pager, columns button, table-collapse button, zoom
 cluster, and every modal/panel close X are now inline Lucide SVG on a shared
 `.icon-btn` style, replacing the old plain-glyph buttons. A new portable
-project bundle (`.aresproj.json`, `src/shared/project-file.ts`) lets Save
+project bundle (`.anubeeproj.json`, `src/shared/project-file.ts`) lets Save
 project (Export menu) write the run's tags/dismissed/rule-overrides plus an
 opaque layout blob, and Open project (Open menu) re-ingest the referenced run
 (with a relocate prompt if the file moved) and re-apply the bundle via the
@@ -232,7 +232,7 @@ below). Full detail in `DOCUMENTATION.md`'s "UI/UX round 2" section.
 ### Screenshot-harness hygiene nuisance
 - **The shots harness's Add-Tag step writes into the tracked fixture sidecar.**
   `npm run shots` drives an Add-Tag interaction against
-  `tests/fixtures/detector_snap.jsonl.ares-desktop.json` (the tracked example
+  `tests/fixtures/detector_snap.jsonl.anubee-desktop.json` (the tracked example
   sidecar), so each harness run mutates a tracked file and shows up as a
   working-tree diff. Pre-existing, not introduced this session; address by
   running the harness against a temp copy of the fixture (or a temp
@@ -269,7 +269,7 @@ gained a stacked call-site cell (java-over-native or function-over-caller, `↳`
 funcs duration bar with red-hottest highlighting and red negative retval, a
 stacked/split column-picker toggle with an SVG-locked id column, and
 per-column drag-resize (double-click grip auto-fits; widths persist per engine
-under `ares.columns.<engine>` alongside the column set + mode). The graph pane
+under `anubee.columns.<engine>` alongside the column set + mode). The graph pane
 gained a "Pick a row to trace its call chain" empty-state prompt, kind-glyph
 node label prefixes (`◆`/`●`/`■`), and demoted the truncation banner to a
 gated top-right chip shown only after a selection (fixes the old load-time
@@ -342,7 +342,7 @@ views agree; cfi- and fallback-derived nodes coalesce on the shared id grammar.
 Replaced the always-visible bottom-left status pill with an in-memory **activity
 log**: File ▾ Log opens a live, color-coded terminal modal recording every user
 action (load / export / capture + tracer output / rule updates / tag edits /
-preflight) by level; Save writes `ares_<date>_<time>.log`; Clear empties it.
+preflight) by level; Save writes `anubee_<date>_<time>.log`; Clear empties it.
 Load progress moved to a thin bar on the empty-state. `log-store` (pure ring
 buffer), `run-logged` (action wrapper), `log-view` (modal).
 
@@ -368,7 +368,7 @@ buffer), `run-logged` (action wrapper), `log-view` (modal).
 ## Shipped (2026-07-13) - funcs inspector + engine-aware column picker
 
 The column picker now shows only the active engine's columns and persists toggles
-per engine (`ares.columns.<engine>`, legacy `ares.columns` = syscall fallback).
+per engine (`anubee.columns.<engine>`, legacy `anubee.columns` = syscall fallback).
 Clicking a funcs graph node or table row renders the funcs records in the detail
 panel: a records-behind-node list (id / caller / retval / elapsed / args) with
 click-for-detail (args / string_args / fd_args / sock_args / out_args / backtrace),
@@ -389,13 +389,13 @@ shared-`id` `return`. `COLS` + `FuncEvent` widened for the detail fields
   near-duplicate the syscall `renderEventDetail`/`showNodeInspector`; both consume
   the shared `DetailSection` union, so a single `renderDetailSections` + shared
   node-table builder could collapse them. Refactor candidate, not urgent.
-- **`retval_str` unused.** ARES emits a decoded `retval_str` for funcs; the
+- **`retval_str` unused.** Anubee emits a decoded `retval_str` for funcs; the
   inspector shows only the numeric `retval`. Consider surfacing it for
   pointer/handle-returning funcs.
 
 ## Shipped (2026-07-13) - funcs engine support, Phase 1
 
-Loads `ares funcs` runs: engine detection at ingest (`RunInfo.kinds`), a funcs
+Loads `anubee funcs` runs: engine detection at ingest (`RunInfo.kinds`), a funcs
 master-table list (function / caller / retval / elapsed / args) with retval/elapsed
 folded from the matching `return` by shared `id`, and a deep unified
 function-to-function call graph built in SQL (`FUNCS_CHAIN_SQL`, replaces the old
@@ -406,7 +406,7 @@ JS `funcsAdapter`) verified against the `foldFuncEvents` oracle. Off-heap and
 - **GUI smoke test pending on a fresh capture.** Core logic is covered by unit +
   integration + lockstep tests, but the interactive Electron smoke (funcs columns
   render, row-click draws the gold `fn:` graph) was not run: the committed
-  `../ares-detector-funcs-sample.jsonl` predates the tracer's `id` field, so it
+  `../anubee-detector-funcs-sample.jsonl` predates the tracer's `id` field, so it
   lists calls with null ids and no folded retval/elapsed. Recapture a funcs run
   (with `id`) and run the smoke before calling the feature user-ready.
 - **Funcs `stack_id` dropped.** funcs emits `stack_id` as a large raw number;
@@ -476,10 +476,10 @@ JS `funcsAdapter`) verified against the `foldFuncEvents` oracle. Off-heap and
   (unreachable today; add a defensive guard when the Phase-1b popup consumes
   real addresses).
 - **`[unmapped]` offsets in snapshot captures** - offsets resolve only when the
-  run carries `lib` records, which the ARES tracer emits on `mmap` during the
+  run carries `lib` records, which the Anubee tracer emits on `mmap` during the
   trace. A snapshot or post-load capture has no `lib` records (modules already
   loaded at attach time), so all offsets show `[unmapped]`. The durable fix is
-  ARES-side: prime the module map from `/proc/<pid>/maps` at attach time so
+  Anubee-side: prime the module map from `/proc/<pid>/maps` at attach time so
   snapshot captures can resolve offsets. Until then, capture from process start
   for offset resolution.
 
@@ -501,7 +501,7 @@ Design reference: overall spec §13.
   `path_matches`/`equals`/`arg_hex_eq`; no user SQL or code). Two compilers
   (`compileWhere` -> bounded SQL pre-filter, `scoreWith` -> per-event JS scoring
   authority) kept in lockstep by a real-DuckDB integration test. Built-ins
-  corrected/extended, validated against the real 245,760-event ARES-Detector
+  corrected/extended, validated against the real 245,760-event Anubee-Detector
   capture: fixed debugger under-firing (`PTRACE_ATTACH` + `openat
   /proc/self/status` - the previous TRACEME/read-only rules under-fired on the
   real RASP), added `hook` (`/proc/self/maps` + frida `sock_addr`), expanded
@@ -564,7 +564,7 @@ Design reference: overall spec §13.
 
 ## Shipped in Phase 2 (features 5, 6, 7)
 - **5** RASP semantic tagging + heuristic pre-tagging - `project-store` sidecar
-  persistence (`<run>.ares-desktop.json`), tag editor + node badges + table tag
+  persistence (`<run>.anubee-desktop.json`), tag editor + node badges + table tag
   column, bounded DuckDB candidate scan feeding a pure `score()` (three grounded
   rules: ptrace `args[0]==0`, root-path openat/access/newfstatat/faccessat,
   `/proc/self/status` read), Confirm-to-tag flow.
@@ -609,12 +609,12 @@ Design reference: overall spec §13.
   (`PTRACE_ATTACH` + `openat /proc/self/status`); `root` expanded (selinux,
   `/data/adb`, busybox, KernelSU `prctl`). `emulator`/`integrity` are
   documented not-syscall-detectable and remain manual-tag-only categories.
-- **Rule-engine SQL/JS lockstep** (mental note for the next ARES-version bump) -
+- **Rule-engine SQL/JS lockstep** (mental note for the next Anubee-version bump) -
   `compileWhere`/`scoreWith` must stay in agreement on every rule's semantics
-  (in particular hex-arg formatting, e.g. ARES's `jb_hex` always emitting
+  (in particular hex-arg formatting, e.g. Anubee's `jb_hex` always emitting
   `"0x0"` for a zero request); this is covered by a real-DuckDB lockstep test,
   not by `tests/schema-drift.test.ts` (which only checks field names). Re-run
-  the lockstep test whenever the vendored ARES schema version is bumped.
+  the lockstep test whenever the vendored Anubee schema version is bumped.
 - **`runElkLayout` surfaces no layout error** - if the elkjs worker fails to
   spawn/bundle on a target platform, `runElkLayout` rejects and the graph
   silently fails to lay out (nodes stay at the origin) with no user feedback.
@@ -723,13 +723,13 @@ repopulated in place via `applySpecChoices` on every specs-dir edit.
   that the desktop ingests but does not render as a graph. Either hide the
   `correlate` capability or restore a dedicated correlate visualization later.
 - **`--snapshot` native `.stacks` sidecar is not pulled or consumed.** Enabling
-  the capture form's stack-snapshot toggle makes ARES write a native
+  the capture form's stack-snapshot toggle makes Anubee write a native
   `<out>.jsonl.stacks` sidecar (raw CFI stack snapshots for off-device DWARF
   unwinding) next to the pulled `.jsonl`. The desktop pulls only the `.jsonl`
   and has no in-app CFI/DWARF unwinder, so the sidecar is left on device. The
   Java-frame payoff still lands inline in the `.jsonl` (that path does not need
   the sidecar); native off-device unwinding would need a separate unwinder.
-- **`trace` capability argv is rejected by ares.** The `trace` cap builds
+- **`trace` capability argv is rejected by anubee.** The `trace` cap builds
   `trace -P <pkg> -F <spec>`, but the real `trace` engine
   (`../Anubee/src/trace/trace_args.c`) accepts only `-P/-p/-A/-o` plus section
   delimiters (`--syscalls`, `--funcs`, `--lib`, `--dump`, `--correlate`) at top
@@ -751,7 +751,7 @@ repopulated in place via `applySpecChoices` on every specs-dir edit.
   relies on the app exiting or the timeout firing. Add `--on-map` / attach-pid
   as dump options if a real use needs a mid-run dump.
 - **`mod` analyzer is a free-text field** - the analyzer name is typed by the
-  user, not discovered from `ares mod --help`. Parse the analyzer list at
+  user, not discovered from `anubee mod --help`. Parse the analyzer list at
   runtime when this is exercised on device (spec §9 open item).
 - **`funcs`/`correlate`/`trace` spec is a free-text filename** - **RESOLVED
   (2026-07-12)**: the probe-spec input now renders as a dropdown
@@ -791,7 +791,7 @@ repopulated in place via `applySpecChoices` on every specs-dir edit.
 
 ## Deferred features (post-core, spec §7)
 - **8** Session-only MCP (stdio) exposing the tagged graph. Decision C: headless
-  analytics + device tools stay in `tools/ares-mcp`.
+  analytics + device tools stay in `tools/anubee-mcp`.
 - **10** Timeline view / live-stream input-swap - needs ordered/live data.
 - **Supernode aggregation + drill-down** - a whole-run overview (module/class
   supernodes, expand on demand) beyond the core table→focused-subgraph path.
@@ -804,7 +804,7 @@ repopulated in place via `applySpecChoices` on every specs-dir edit.
 - These are for the *view*; the data ceiling is DuckDB's job, already handled.
 
 ## Superseded (kept for context)
-- The original Phase-1 plan built an **in-memory `ARESGraph`** and `postMessage`d
+- The original Phase-1 plan built an **in-memory `AnubeeGraph`** and `postMessage`d
   the whole parsed-event array worker→main. Replaced 2026-07-03 by the DuckDB
   store (spec §5) because that path OOMs V8 on multi-GB runs and re-scans every
   event per filter. Do not reintroduce a full in-heap event array.

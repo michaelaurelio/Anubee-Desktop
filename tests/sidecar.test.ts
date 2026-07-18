@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sidecarPath, loadTags, saveTags, loadSidecarRules, saveSidecarRules } from '../src/main/sidecar'
-import { serializeSidecar, type Tag } from '../src/shared/project-store'
+import { type Tag } from '../src/shared/project-store'
 import type { Rule } from '@shared/rasp-heuristics'
 
 const tag: Tag = {
@@ -22,33 +22,13 @@ describe('sidecar fs', () => {
     expect(sidecarPath('/x/run.jsonl')).toBe('/x/run.jsonl.anubee-desktop.json')
   })
 
-  it('reads a legacy .ares-desktop.json sidecar written before the rename', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'anubee-sc-'))
-    const run = join(dir, 'run.jsonl'); writeFileSync(run, '')
-    writeFileSync(`${run}.ares-desktop.json`,
-      serializeSidecar({ file: run, ingestedAt: 'T' }, [tag], [], {}, []))
-    expect(loadTags(run)).toEqual({ tags: [tag], errors: [] })
-    rmSync(dir, { recursive: true, force: true })
-  })
-
-  it('writes the new extension and prefers it over a stale legacy sidecar', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'anubee-sc-'))
-    const run = join(dir, 'run.jsonl'); writeFileSync(run, '')
-    writeFileSync(`${run}.ares-desktop.json`,
-      serializeSidecar({ file: run, ingestedAt: 'T' }, [tag], [], {}, []))
-    saveTags(run, 'T', []) // migrate forward: writes .anubee-desktop.json with no tags
-    expect(existsSync(`${run}.anubee-desktop.json`)).toBe(true)
-    expect(loadTags(run).tags).toEqual([]) // new sidecar wins over the legacy one
-    rmSync(dir, { recursive: true, force: true })
-  })
-
   it('returns empty tags with no error when the sidecar is missing', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'ares-'))
+    const dir = mkdtempSync(join(tmpdir(), 'anubee-'))
     expect(loadTags(join(dir, 'run.jsonl'))).toEqual({ tags: [], errors: [] })
   })
 
   it('saves then loads tags', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'ares-'))
+    const dir = mkdtempSync(join(tmpdir(), 'anubee-'))
     const run = join(dir, 'run.jsonl')
     writeFileSync(run, '')
     saveTags(run, 'T', [tag])
@@ -57,7 +37,7 @@ describe('sidecar fs', () => {
   })
 
   it('saveSidecarRules writes rules and preserves existing tags', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'ares-sidecar-'))
+    const dir = mkdtempSync(join(tmpdir(), 'anubee-sidecar-'))
     const run = join(dir, 'run.jsonl')
     writeFileSync(run, '')
     // seed a tag first

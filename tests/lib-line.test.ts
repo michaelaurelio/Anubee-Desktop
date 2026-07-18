@@ -3,10 +3,10 @@ import { parseLibLine } from '@shared/lib-line'
 
 describe('parseLibLine', () => {
   it('parses a full [lib] line', () => {
-    const l = parseLibLine('[lib] pid 7420 /data/app/~~x/dev.ares.detector-1/lib/arm64/libsentinel.so [0x7c40e10000, 0x7c40ee0000) off=0x0 inode=12345 ppid=1')
+    const l = parseLibLine('[lib] pid 7420 /data/app/~~x/dev.anubee.detector-1/lib/arm64/libsentinel.so [0x7c40e10000, 0x7c40ee0000) off=0x0 inode=12345 ppid=1')
     expect(l).toEqual({
       kind: 'lib', pid: 7420,
-      library: '/data/app/~~x/dev.ares.detector-1/lib/arm64/libsentinel.so',
+      library: '/data/app/~~x/dev.anubee.detector-1/lib/arm64/libsentinel.so',
       start: '0x7c40e10000', end: '0x7c40ee0000', pgoff: 0, inode: 12345, ppid: 1,
     })
   })
@@ -28,12 +28,12 @@ describe('parseLibLine', () => {
   })
 
   it('parses a timestamped [lib] line identically to its un-timestamped twin', () => {
-    const untimestamped = parseLibLine('[lib] pid 7420 /data/app/~~x/dev.ares.detector-1/lib/arm64/libsentinel.so [0x7c40e10000, 0x7c40ee0000) off=0x0 inode=12345 ppid=1')
-    const timestamped = parseLibLine('00:11:39 [lib] pid 7420 /data/app/~~x/dev.ares.detector-1/lib/arm64/libsentinel.so [0x7c40e10000, 0x7c40ee0000) off=0x0 inode=12345 ppid=1')
+    const untimestamped = parseLibLine('[lib] pid 7420 /data/app/~~x/dev.anubee.detector-1/lib/arm64/libsentinel.so [0x7c40e10000, 0x7c40ee0000) off=0x0 inode=12345 ppid=1')
+    const timestamped = parseLibLine('00:11:39 [lib] pid 7420 /data/app/~~x/dev.anubee.detector-1/lib/arm64/libsentinel.so [0x7c40e10000, 0x7c40ee0000) off=0x0 inode=12345 ppid=1')
     expect(timestamped).toEqual(untimestamped)
     expect(timestamped).toEqual({
       kind: 'lib', pid: 7420,
-      library: '/data/app/~~x/dev.ares.detector-1/lib/arm64/libsentinel.so',
+      library: '/data/app/~~x/dev.anubee.detector-1/lib/arm64/libsentinel.so',
       start: '0x7c40e10000', end: '0x7c40ee0000', pgoff: 0, inode: 12345, ppid: 1,
     })
   })

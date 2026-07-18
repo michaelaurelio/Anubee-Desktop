@@ -12,12 +12,12 @@ import { startRun, type Adb, type Spawner, type RunHandle } from './tracer-contr
 // (ms since stream start), or a raw non-matching stdout line.
 export type LiveEvent = { line: LibLine; atMs: number } | { raw: string }
 
-// `ares lib -P <pkg>`: continuous mmap/munmap stream to stdout ([lib]/[unlib]).
+// `anubee lib -P <pkg>`: continuous mmap/munmap stream to stdout ([lib]/[unlib]).
 export function liveLibArg(pkg: string): string {
   return `su -c '${DEVICE_BIN} lib -P ${pkg}'`
 }
 
-// `ares dump --now -p PID --base ADDR`: snapshot the module at this exact load
+// `anubee dump --now -p PID --base ADDR`: snapshot the module at this exact load
 // base from the live process and exit 0. No BPF, no wait-for-Ctrl-C. -d writes
 // the rebuilt .so; -o writes the manifest. Selecting by base (not name) is
 // immune to per-run library renaming and is the only selector that reaches an
@@ -38,7 +38,7 @@ export function startLive(sp: Spawner, adb: Adb, pkg: string, onEvent: (e: LiveE
   }, stopArgLive(pkg))
 }
 
-// `ares dump -p PID --on-map -l <glob>`: attach to the live process and dump any
+// `anubee dump -p PID --on-map -l <glob>`: attach to the live process and dump any
 // module matching <glob> the instant it maps. Catches file-backed transient
 // payloads (decrypt-to-a-file-then-dlopen). It matches the RESOLVED maps path,
 // so it CANNOT catch an APK-embedded library (path is base.apk) or an anonymous
@@ -52,7 +52,7 @@ export function startLive(sp: Spawner, adb: Adb, pkg: string, onEvent: (e: LiveE
 // cwd of `/`. An unquoted `-l s*` was measured on device expanding to `-l sdcard
 // second_stage_resources storage sys system system_dlkm system_ext`: one wrong
 // -l plus six stray positional args that dump.c folds in as extra patterns via
-// ARGP_KEY_ARG, silently, with no error. Quoted, ares receives the glob intact.
+// ARGP_KEY_ARG, silently, with no error. Quoted, anubee receives the glob intact.
 export function watchArg(pid: number, glob: string, dir: string): string {
   return `su -c '${DEVICE_BIN} dump -p ${pid} --on-map -l '\\''${glob}'\\'' -d ${dir} -o ${dir}/manifest.jsonl'`
 }
@@ -74,13 +74,13 @@ export async function dumpByBase(
   await adb.run(['shell', `su -c 'mkdir -p ${deviceDir}'`])
   const run = startRun(sp, adb, dumpArg(pid, base, deviceDir), onLine)
   const { code } = await run.done
-  if (code !== 0) throw new Error(`ares dump --now exited ${code}`)
+  if (code !== 0) throw new Error(`anubee dump --now exited ${code}`)
   const pull = await adb.run(['pull', deviceDir, hostDir])
   if (pull.code !== 0) throw new Error(`dump pull failed: ${pull.stderr.trim() || pull.stdout.trim()}`)
   return triageDir(hostDir)
 }
 
-// `ares dump --now --check -p PID --base A --base B ...`: compare each module's
+// `anubee dump --now --check -p PID --base A --base B ...`: compare each module's
 // executable memory against its on-disk baseline and emit {"type":"modcmp"}
 // records to -o, writing no .so. --check requires --now (Phase 1 argp rule).
 // Bases are 0x-hex (isSafeToken-clean, no glob metachar), so no shell quoting is
@@ -126,7 +126,7 @@ async function checkOneSlice(
   await adb.run(['shell', `su -c 'mkdir -p ${deviceDir}'`])
   const run = startRun(sp, adb, checkArg(pid, bases, deviceDir), onLine)
   const { code } = await run.done
-  if (code !== 0) throw new Error(`ares dump --now --check exited ${code}`)
+  if (code !== 0) throw new Error(`anubee dump --now --check exited ${code}`)
   const pull = await adb.run(['pull', `${deviceDir}/check.jsonl`, `${hostDir}/check.jsonl`])
   if (pull.code !== 0) {
     // A missing file after a clean exit means nothing was written (no match) -
@@ -183,7 +183,7 @@ export function triageDir(hostDir: string): Artifact[] {
 }
 
 // Best-effort: list .so basenames actually present in a pulled dir (used when a
-// manifest is absent - e.g. an older ares without -o support).
+// manifest is absent - e.g. an older anubee without -o support).
 export function listSoFiles(hostDir: string): string[] {
   if (!existsSync(hostDir)) return []
   return readdirSync(hostDir).filter(f => f.endsWith('.so'))
