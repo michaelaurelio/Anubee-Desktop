@@ -440,7 +440,11 @@ ipcMain.handle('nativelib:verify', async (_e, pid: number, bases: string[]) => {
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
   const deviceDir = `/data/local/tmp/ares-check-${ts}`
   const hostDir = resolve(runsDir(), `ares-check-${ts}`)
-  const t0 = Date.now()
+  // atMs is stream-relative (same origin as a row's map time), consumed by the
+  // evidence trail. Use liveT0, not Date.now(): liveT0 is module-level and not
+  // reset on Stop, so `Date.now() - liveT0` stays on the map timeline even for a
+  // verify run after the capture stopped. Matches runCheck's live auto-check.
+  const t0 = liveT0
   try {
     const results = await checkByBases(spawner, adb, pid, bases, deviceDir, hostDir,
       line => win.webContents.send('nativelib:line', line))
