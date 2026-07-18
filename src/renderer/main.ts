@@ -384,7 +384,9 @@ function showView(view: 'graph' | 'flame' | 'libs'): void {
   document.getElementById('cmdbar')?.classList.toggle('hidden', view === 'libs')
   document.getElementById('main')?.classList.toggle('no-cmdbar', view === 'libs')
   showTablePanel(view !== 'libs' && activeRunId !== undefined)
-  document.getElementById('graph-empty')?.classList.toggle('hidden', view !== 'graph' || selectedRowId !== undefined)
+  // "Pick a row" prompt only makes sense with a run loaded and no row picked;
+  // without a run the "No run loaded" empty-state owns the canvas (else both paint).
+  document.getElementById('graph-empty')?.classList.toggle('hidden', view !== 'graph' || selectedRowId !== undefined || activeRunId === undefined)
   // "No run loaded" must not paint over the Libraries view - it needs no loaded
   // run (Live device capture works without one) and the overlay swallows clicks.
   document.getElementById('empty-state')?.classList.toggle('hidden', view === 'libs' || activeRunId !== undefined)
