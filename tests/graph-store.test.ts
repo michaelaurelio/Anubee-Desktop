@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall, isCall } from '@shared/anubee-parse'
-import { foldEvents, foldFuncEvents, chainOfCfi, type GraphSlice } from '@shared/graph-shape'
+import { foldEvents, foldFuncEvents, chainOfCfi, coOccur, type GraphSlice } from '@shared/graph-shape'
 import type { Rule } from '@shared/rasp-heuristics'
 
 // A trace with 2 root-check bridges (java + native), 1 java-less read, a
@@ -666,5 +666,36 @@ describe('GraphStore.table free-text search over args', () => {
     await store.ingest(fixture())
     const rows = await store.table({ text: 'magisk' }, { limit: 10, offset: 0 })
     expect(rows.map(r => r.id)).toEqual([2])
+  })
+})
+
+describe('GraphStore.highlightSets', () => {
+  it('lights only the chain through the clicked syscall, not a sibling syscall', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    const r = await store.highlightSets('sys:openat')
+    expect([...r.nodes].sort()).toEqual([
+      'java:com.example.app.RootCheck.run', 'nat:libexample.so!check_su', 'sys:openat'])
+    expect(r.nodes).not.toContain('sys:read')
+    expect([...r.edges].sort()).toEqual([
+      'java:com.example.app.RootCheck.run=>nat:libexample.so!check_su',
+      'nat:libexample.so!check_su=>sys:openat'])
+  })
+
+  it('a java-less syscall lights just its native fan-in', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    const r = await store.highlightSets('sys:read')
+    expect([...r.nodes].sort()).toEqual(['nat:libc.so!read', 'sys:read'])
+  })
+
+  it('matches the coOccur oracle over the same events', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    const events = parseJsonl(LINES.join('\n')).events.filter(isSyscall)
+    const store_r = await store.highlightSets('nat:libexample.so!check_su')
+    const oracle = coOccur(events, 'nat:libexample.so!check_su')
+    expect([...store_r.nodes].sort()).toEqual([...oracle.nodes].sort())
+    expect([...store_r.edges].sort()).toEqual([...oracle.edges].sort())
   })
 })

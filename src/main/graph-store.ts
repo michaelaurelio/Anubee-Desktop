@@ -2,7 +2,7 @@ import { openSync, readSync, closeSync, existsSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
 import type { SyscallEvent, CoverageEvent, FuncEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
-import { capSlice, labelForId, mergeGraphs, type GraphNode, type GraphEdge, type GraphSlice } from '@shared/graph-shape'
+import { capSlice, labelForId, mergeGraphs, type GraphNode, type GraphEdge, type GraphSlice, type HighlightSets } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
 import { compileWhere, scoreWith, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
@@ -591,6 +591,49 @@ export class GraphStore {
       const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
       return ev as SyscallEvent
     })
+  }
+
+  // The nodes and edges on every filtered chain that passes through `nodeId` -
+  // the data behind the graph's backtrace-accurate highlight. Reuses the exact
+  // chain CTE slice() folds (SYS_/FUNCS_CHAIN_SEL, CFI-aware) and unions both
+  // engines the same way, so the lit set is a faithful subset of the rendered
+  // graph, never a topological over-reach through a shared native node. `nodeId`
+  // is bound, not inlined. Output is bounded by the (capped) slice's node/edge
+  // count, so no limit argument is needed.
+  async highlightSets(nodeId: string, filter: Filter = {}, runId?: number): Promise<HighlightSets> {
+    const rid = this.resolveRun(runId)
+    const { where, params } = filterToSql(filter)
+    const nodes = new Set<string>()
+    const edges = new Set<string>()
+
+    const collect = async (chainsCte: string, cteParams: unknown[]) => {
+      const nodeRows = await this.rows(
+        `${chainsCte} SELECT DISTINCT unnest(chain) AS nid FROM chains WHERE list_contains(chain, ?)`,
+        [...cteParams, nodeId])
+      for (const r of nodeRows) nodes.add(r.nid as string)
+      const edgeRows = await this.rows(
+        `${chainsCte} SELECT DISTINCT chain[i] AS src, chain[i + 1] AS tgt
+         FROM chains, range(1, len(chain)) AS t(i) WHERE list_contains(chain, ?)`,
+        [...cteParams, nodeId])
+      for (const r of edgeRows) edges.add(`${r.src as string}=>${r.tgt as string}`)
+    }
+
+    const sysScoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
+    const sysCte =
+      `WITH ${this.cfiCte(rid)},
+            chains AS (SELECT ${SYS_CHAIN_SEL} AS chain
+              FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id WHERE ${sysScoped})`
+    await collect(sysCte, params)
+
+    const fnScoped = `run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where})`
+    const fnCte =
+      `WITH h AS (SELECT list(DISTINCT module || '!' || symbol) AS fns FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL),
+            ${this.cfiCte(rid)},
+            chains AS (SELECT ${FUNCS_CHAIN_SEL} AS chain
+              FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id, h WHERE ${fnScoped})`
+    await collect(fnCte, params)
+
+    return { nodes: [...nodes], edges: [...edges] }
   }
 
   // Module-relative call-site offsets for a native function node: the ghidra
