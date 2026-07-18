@@ -33,8 +33,9 @@ export function primaryArg(e: SyscallEvent): string {
   return e.args.join(' ')
 }
 
+export interface KvRow { k: string; v: string; sub?: boolean }
 export type DetailSection =
-  | { title: string; kind: 'kv'; rows: [string, string][] }
+  | { title: string; kind: 'kv'; rows: KvRow[] }
   | { title: string; kind: 'stack'; lines: string[]; highlight?: number }
 
 const SYSTEM_LIB = /^(libc\.so|libc\+\+|libdl\.so|libm\.so|libart\.so|libartbase|libnativebridge|libnativeloader|libandroid_runtime\.so|libbinder\.so|libselinux\.so|libcutils|liblog\.so|boot\.oat|\[anon|\[vdso|linker64|libziparchive|libnativehelper|libbase\.so)/
@@ -49,18 +50,40 @@ export function appFrameIndex(frames: { symbol: string }[]): number {
 export function eventDetailSections(e: SyscallEvent): DetailSection[] {
   const out: DetailSection[] = []
   out.push({ title: 'Summary', kind: 'kv', rows: [
-    ['syscall', `${e.syscall} (nr ${e.syscall_nr})`],
-    ['tid', String(e.tid)],
-    ['retval', String(e.retval)],
+    { k: 'syscall', v: `${e.syscall} (nr ${e.syscall_nr})` },
+    { k: 'tid', v: String(e.tid) },
+    { k: 'retval', v: String(e.retval) },
   ] })
-  const argRows: [string, string][] = []
-  for (const [k, v] of Object.entries(e.string_args)) argRows.push([`string[${k}]`, v])
-  for (const [k, v] of Object.entries(e.decoded_args)) argRows.push([`decoded[${k}]`, v])
-  for (const [k, v] of Object.entries(e.fd_args)) argRows.push([`fd[${k}]`, v])
+  const argRows = interleaveArgRows(e.args, [
+    ['string', e.string_args],
+    ['decoded', e.decoded_args],
+    ['fd', e.fd_args],
+  ])
   if (argRows.length) out.push({ title: 'Args', kind: 'kv', rows: argRows })
   if (e.java_stack?.length) out.push({ title: 'Java stack', kind: 'stack', lines: e.java_stack.slice() })
   if (e.backtrace.length) out.push({ title: 'Backtrace', kind: 'stack', lines: e.backtrace.map(f => `#${f.frame} ${f.symbol}`), highlight: appFrameIndex(e.backtrace) })
   return out
+}
+
+// Build the interleaved Args rows: for each arg index 0..max, the raw `arg[i]`
+// row (when present) followed by any decoded overlays for that same index as
+// `sub` rows. Overlay maps are keyed by the stringified arg index; an overlay
+// whose index has no raw slot still renders (as a lone sub row under that index).
+function interleaveArgRows(args: string[], overlays: [string, Record<string, string>][]): KvRow[] {
+  let max = args.length - 1
+  for (const [, m] of overlays) for (const k of Object.keys(m)) {
+    const n = Number(k)
+    if (Number.isInteger(n) && n > max) max = n
+  }
+  const rows: KvRow[] = []
+  for (let i = 0; i <= max; i++) {
+    if (i < args.length) rows.push({ k: `arg[${i}]`, v: args[i] })
+    for (const [label, m] of overlays) {
+      const v = m[String(i)]
+      if (v !== undefined) rows.push({ k: label, v, sub: true })
+    }
+  }
+  return rows
 }
 
 // Build the `.bt` frame-row list for a stack section: one `.f` row per line,
@@ -95,10 +118,11 @@ export function renderEventDetail(host: HTMLElement, e: SyscallEvent): void {
     card.appendChild(h)
     if (sec.kind === 'kv') {
       const tbl = document.createElement('table'); tbl.className = 'insp-kv'
-      for (const [k, v] of sec.rows) {
+      for (const row of sec.rows) {
         const tr = document.createElement('tr')
-        const kd = document.createElement('td'); kd.textContent = k
-        const vd = document.createElement('td'); vd.textContent = v
+        if (row.sub) tr.className = 'insp-kv-sub'
+        const kd = document.createElement('td'); kd.textContent = row.k
+        const vd = document.createElement('td'); vd.textContent = row.v
         tr.append(kd, vd); tbl.appendChild(tr)
       }
       card.appendChild(tbl)
@@ -248,17 +272,17 @@ export function primaryFuncArg(e: FuncEvent): string {
 export function funcDetailSections(e: FuncEvent): DetailSection[] {
   const out: DetailSection[] = []
   out.push({ title: 'Summary', kind: 'kv', rows: [
-    ['function', `${e.module}!${e.symbol}`],
-    ['tid', String(e.tid)],
-    ['retval', e.retval === undefined ? '-' : String(e.retval)],
-    ['elapsed', e.elapsed_ns === undefined ? '-' : `${e.elapsed_ns} ns`],
+    { k: 'function', v: `${e.module}!${e.symbol}` },
+    { k: 'tid', v: String(e.tid) },
+    { k: 'retval', v: e.retval === undefined ? '-' : String(e.retval) },
+    { k: 'elapsed', v: e.elapsed_ns === undefined ? '-' : `${e.elapsed_ns} ns` },
   ] })
-  const argRows: [string, string][] = []
-  for (const [k, v] of Object.entries(e.string_args ?? {})) argRows.push([`string[${k}]`, v])
-  for (const [k, v] of Object.entries(e.fd_args ?? {})) argRows.push([`fd[${k}]`, v])
-  for (const [k, v] of Object.entries(e.sock_args ?? {})) argRows.push([`sock[${k}]`, v])
-  for (const [k, v] of Object.entries(e.out_args ?? {})) argRows.push([`out[${k}]`, v])
-  ;(e.args ?? []).forEach((v, i) => argRows.push([`arg[${i}]`, v]))
+  const argRows: KvRow[] = []
+  for (const [k, v] of Object.entries(e.string_args ?? {})) argRows.push({ k: `string[${k}]`, v })
+  for (const [k, v] of Object.entries(e.fd_args ?? {})) argRows.push({ k: `fd[${k}]`, v })
+  for (const [k, v] of Object.entries(e.sock_args ?? {})) argRows.push({ k: `sock[${k}]`, v })
+  for (const [k, v] of Object.entries(e.out_args ?? {})) argRows.push({ k: `out[${k}]`, v })
+  ;(e.args ?? []).forEach((v, i) => argRows.push({ k: `arg[${i}]`, v }))
   if (argRows.length) out.push({ title: 'Args', kind: 'kv', rows: argRows })
   if (e.java_stack?.length) out.push({ title: 'Java stack', kind: 'stack', lines: e.java_stack.slice() })
   if (e.backtrace.length) out.push({ title: 'Backtrace', kind: 'stack', lines: e.backtrace.map(f => `#${f.frame} ${f.symbol}`), highlight: appFrameIndex(e.backtrace) })
@@ -295,10 +319,11 @@ function renderFuncDetail(host: HTMLElement, e: FuncEvent): void {
     card.appendChild(h)
     if (sec.kind === 'kv') {
       const tbl = document.createElement('table'); tbl.className = 'insp-kv'
-      for (const [k, v] of sec.rows) {
+      for (const row of sec.rows) {
         const tr = document.createElement('tr')
-        const kd = document.createElement('td'); kd.textContent = k
-        const vd = document.createElement('td'); vd.textContent = v
+        if (row.sub) tr.className = 'insp-kv-sub'
+        const kd = document.createElement('td'); kd.textContent = row.k
+        const vd = document.createElement('td'); vd.textContent = row.v
         tr.append(kd, vd); tbl.appendChild(tr)
       }
       card.appendChild(tbl)
