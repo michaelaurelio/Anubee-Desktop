@@ -32,12 +32,31 @@ Follow-ups (resolved in a later pass, same day):
   `.ares-desktop.json` (backward compat; migrates forward on the next save), so
   pre-rename sidecars shared between users keep loading.
 
-Remaining:
-- The tracked example sidecar `tests/fixtures/detector_snap.jsonl.ares-desktop.json`
-  still uses the legacy extension (read via the fallback); rename when convenient
-  (it also carries unrelated uncommitted edits, left untouched).
-- Internal `@shared/ares-parse` module name and test temp-dir prefixes are still
-  `ares` - cosmetic Desktop-internal branding, left for a dedicated rebrand pass.
+Remaining / open (carried from this session):
+- **Real renamed tracer binary not built.** On-device `/data/local/tmp/anubee`
+  is a copy of the pre-rename fixed build (Docker was unavailable this session).
+  Build from `../Anubee` and `make push` (or let the app's preflight md5-push
+  replace it) to get the genuinely renamed binary on device.
+- **Anubee-Detector not audited.** Only its folder + git remote were renamed;
+  its *content* was not reviewed for `../ARES` refs or ARES branding. It also has
+  an untracked `kls_database.db`.
+- **Desktop rebrand pass (the theme + name work now in progress).** ~50 tracked
+  files still carry `ares`/`ARES`. Not yet swept:
+  - `package.json` - `name` (`ares-desktop`), `build.appId` (`com.ares.desktop`),
+    `build.productName` (`ARES`).
+  - `@shared/ares-parse` module filename + all its imports.
+  - `src/renderer/index.html` + `theme.ts` - palette tokens / logo / brand naming
+    (this is the styling change being done now).
+  - README / DOCUMENTATION / TESTING prose, test temp-dir prefixes
+    (`mkdtempSync('ares-*')`), and the example fixture
+    `tests/fixtures/detector_snap.jsonl.ares-desktop.json` (still the legacy
+    sidecar extension - read via fallback - and carrying unrelated uncommitted
+    edits left untouched).
+  - Checklist: `git grep -il ares`. **Do NOT rename** `dev.ares.detector` or
+    `libsentinel.so` - exempt reference-app identifiers (project privacy rule).
+- **Verify/dump ipcMain glue is unit-test-only.** The thin Electron handlers
+  (`nativelib:verify`, `nativelib:dumpLib`) aren't integration-tested; covered
+  indirectly by the device E2E of the underlying `dumpByBase`/`checkByBases`.
 
 ## Shipped (2026-07-16) - Brand palette + logo integration
 
