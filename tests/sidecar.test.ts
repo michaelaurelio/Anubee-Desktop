@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sidecarPath, loadTags, saveTags, loadSidecarRules, saveSidecarRules } from '../src/main/sidecar'
-import type { Tag } from '../src/shared/project-store'
+import { serializeSidecar, type Tag } from '../src/shared/project-store'
 import type { Rule } from '@shared/rasp-heuristics'
 
 const tag: Tag = {
@@ -19,7 +19,27 @@ const RULE: Rule = {
 
 describe('sidecar fs', () => {
   it('derives the sidecar path from the run file', () => {
-    expect(sidecarPath('/x/run.jsonl')).toBe('/x/run.jsonl.ares-desktop.json')
+    expect(sidecarPath('/x/run.jsonl')).toBe('/x/run.jsonl.anubee-desktop.json')
+  })
+
+  it('reads a legacy .ares-desktop.json sidecar written before the rename', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'anubee-sc-'))
+    const run = join(dir, 'run.jsonl'); writeFileSync(run, '')
+    writeFileSync(`${run}.ares-desktop.json`,
+      serializeSidecar({ file: run, ingestedAt: 'T' }, [tag], [], {}, []))
+    expect(loadTags(run)).toEqual({ tags: [tag], errors: [] })
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('writes the new extension and prefers it over a stale legacy sidecar', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'anubee-sc-'))
+    const run = join(dir, 'run.jsonl'); writeFileSync(run, '')
+    writeFileSync(`${run}.ares-desktop.json`,
+      serializeSidecar({ file: run, ingestedAt: 'T' }, [tag], [], {}, []))
+    saveTags(run, 'T', []) // migrate forward: writes .anubee-desktop.json with no tags
+    expect(existsSync(`${run}.anubee-desktop.json`)).toBe(true)
+    expect(loadTags(run).tags).toEqual([]) // new sidecar wins over the legacy one
+    rmSync(dir, { recursive: true, force: true })
   })
 
   it('returns empty tags with no error when the sidecar is missing', () => {
