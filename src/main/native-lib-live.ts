@@ -166,8 +166,9 @@ export function triageDir(hostDir: string): Artifact[] {
   const out: Artifact[] = []
   for (const r of records) {
     // The manifest `path` is the device path; the pulled copy sits in hostDir
-    // under the module basename.
-    const base = r.module.split('/').pop() as string
+    // under the real dumped filename (`<module>.<pid>.<basehex>.so`), not the
+    // bare module name - so resolve via path's basename, not module's.
+    const base = (r.path.split('/').pop() ?? r.module) as string
     const soPath = resolve(hostDir, base)
     if (!existsSync(soPath)) continue
     const bytes = readFileSync(soPath)
