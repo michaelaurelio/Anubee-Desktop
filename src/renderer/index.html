@@ -67,7 +67,7 @@
       /* mark pinned at 12px (== the 46px collapsed rail's centered inset) in both
          states, so switching width never re-aligns it - only the wordmark grows */
       #rail .brand { display:flex; align-items:center; justify-content:flex-start; padding:4px 0 10px 12px; }
-      #rail .brand svg { width:22px; height:22px; fill:var(--accent); flex:0 0 auto; }
+      #rail .brand .brand-logo { width:22px; height:22px; flex:0 0 auto; }
       /* wordmark collapses to zero width so it never pushes the mark off the clipped rail */
       #rail .brand .wordmark { font-weight:700; letter-spacing:.16em; font-size:15px; color:var(--text);
         white-space:nowrap; max-width:0; margin-left:0; opacity:0; overflow:hidden;
@@ -560,7 +560,7 @@
     </defs></svg>
 
     <nav id="rail">
-      <span class="brand" title="Anubee"><svg viewBox="0 0 100 100" aria-label="Anubee"><path fill-rule="evenodd" d="M50 4 L80 82 L92 92 L66 92 L60 78 L40 78 L34 92 L8 92 L20 82 Z M50 34 L60 62 L40 62 Z M46 70 L54 70 L54 92 L46 92 Z"/></svg><span class="wordmark">Anubee</span></span>
+      <span class="brand" title="Anubee"><img class="brand-logo" src="./assets/logo.svg" width="22" height="22" alt="Anubee" /><span class="wordmark">Anubee</span></span>
       <button id="tab-graph" class="rail-item on" title="Graph"><svg class="ic" viewBox="0 0 24 24"><use href="#i-graph"/></svg><span class="lbl">Graph</span></button>
       <button id="tab-flame" class="rail-item" title="Flame"><svg class="ic" viewBox="0 0 24 24"><use href="#i-flame"/></svg><span class="lbl">Flame</span></button>
       <button id="tab-libs" class="rail-item" title="Libraries"><svg class="ic" viewBox="0 0 24 24"><use href="#i-lib"/></svg><span class="lbl">Libraries</span></button>
