@@ -16,20 +16,28 @@ artifacts" tab renders; and `Verify` runs an on-demand `dump --now --check` so
 it works on a stopped capture. All device-verified except the Desktop E2E (see
 below). Host suite green (576).
 
-Known follow-ups (deliberately out of scope this pass):
-- **`DEVICE_BIN` still `/data/local/tmp/ares`** (`src/shared/tracer-caps.ts`).
-  The renamed tracer's `make push` deploys to `/data/local/tmp/anubee`; switch
-  `DEVICE_BIN` (and update the command-string test expectations) **when the
-  renamed binary is built + deployed** - changing it before then breaks the
-  running app. The device temp-dir prefixes (`ares-dump-`, `ares-check-`,
-  `ares-onmap-`) also still read `ares`; cosmetic, retune alongside.
-- **Phase B device E2E pending.** The device dropped offline mid-session, so the
-  Desktop live-device flow was not re-run end to end on hardware. B1's filename
-  fix was validated against the real device manifest format, and B3's substance
-  is covered by the `checkByBases` unit tests; only the ipcMain wrapper glue and
-  the full click-through remain to confirm on device.
-- **Sidecar extension `.ares-desktop.json` -> `.anubee-desktop.json`** is a
-  data-migration follow-up (renames touch saved user files); not done here.
+Follow-ups (resolved in a later pass, same day):
+- **`DEVICE_BIN` -> `/data/local/tmp/anubee`** done, with `STOP_ARG`, the stop
+  pkill patterns, and the device/host temp-dir + run-file prefixes; test
+  expectations updated (`src/shared/tracer-caps.ts`, `src/main/{index,tracer-control}.ts`).
+  Device-verified. NOTE: the on-device `/data/local/tmp/anubee` is currently a
+  copy of the pre-rename fixed binary (Docker was unavailable to build the
+  renamed one); the app's own preflight md5-push, or a `make push` from
+  `../Anubee`, replaces it with the real build.
+- **Desktop device E2E** done: `dumpByBase` and `checkByBases` driven against a
+  real device through the actual main-process code path (dump renders an
+  artifact; post-stop verify returns a verdict). Only the thin Electron
+  IPC/renderer glue remains unit-test-only.
+- **Sidecar extension** now writes `.anubee-desktop.json` and still reads legacy
+  `.ares-desktop.json` (backward compat; migrates forward on the next save), so
+  pre-rename sidecars shared between users keep loading.
+
+Remaining:
+- The tracked example sidecar `tests/fixtures/detector_snap.jsonl.ares-desktop.json`
+  still uses the legacy extension (read via the fallback); rename when convenient
+  (it also carries unrelated uncommitted edits, left untouched).
+- Internal `@shared/ares-parse` module name and test temp-dir prefixes are still
+  `ares` - cosmetic Desktop-internal branding, left for a dedicated rebrand pass.
 
 ## Shipped (2026-07-16) - Brand palette + logo integration
 
