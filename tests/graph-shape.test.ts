@@ -99,6 +99,19 @@ describe('capSlice', () => {
     expect(s.truncated).toBe(false)
   })
 
+  it('keeps ALL edges among surviving nodes even when they exceed the cap', () => {
+    // 3 nodes (fit under cap 3) but 4 edges among them. The old `kept.slice(0, cap)`
+    // dropped the 4th edge arbitrarily, disconnecting visible nodes on canvas; the
+    // fix renders every edge whose endpoints both survive. Not truncated: all nodes fit.
+    const s = capSlice(
+      [n('a'), n('b'), n('c')],
+      [e('a', 'b'), e('b', 'c'), e('a', 'c'), e('c', 'a')],
+      10, 3)
+    expect(s.nodes.map(x => x.id)).toEqual(['a', 'b', 'c'])
+    expect(s.edges.map(x => `${x.source}->${x.target}`).sort()).toEqual(['a->b', 'a->c', 'b->c', 'c->a'])
+    expect(s.truncated).toBe(false)
+  })
+
   it('truncates by dropping nodes, keeping only edges among survivors', () => {
     // cap 2 drops node c; edges touching c go too, a->b survives; truncated.
     const s = capSlice([n('a'), n('b'), n('c')], [e('a', 'b'), e('b', 'c'), e('a', 'c')], 10, 2)

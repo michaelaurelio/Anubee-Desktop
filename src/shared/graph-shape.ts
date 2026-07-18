@@ -277,11 +277,14 @@ export function capSlice(
   if (cap === undefined) return { nodes, edges, eventCount, truncated: false }
   const ns = nodes.slice(0, cap)
   const keep = new Set(ns.map(n => n.id))
-  // Keep only edges whose endpoints both survive (no dangling edges into dropped
-  // nodes), capped independently so a node-heavy slice still renders its edges
-  // instead of the old node-first budget starving them to zero.
-  const kept = edges.filter(e => keep.has(e.source) && keep.has(e.target))
-  const es = kept.slice(0, cap)
-  const truncated = ns.length < nodes.length || es.length < kept.length
+  // Keep EVERY edge whose endpoints both survive - no separate edge cap. Capping
+  // edges (the old `kept.slice(0, cap)`) dropped edges arbitrarily by source order,
+  // disconnecting nodes that are both on canvas: a clicked node's own backtrace
+  // edges could be trimmed, so its real call chains rendered as floating,
+  // unconnected fragments. The node cap alone is the hairball guard (a layered
+  // java->native->syscall graph is sparse, so edges track node count); once a node
+  // survives, all its edges to other survivors must render or the graph lies.
+  const es = edges.filter(e => keep.has(e.source) && keep.has(e.target))
+  const truncated = ns.length < nodes.length
   return { nodes: ns, edges: es, eventCount, truncated }
 }
