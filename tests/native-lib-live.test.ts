@@ -148,6 +148,22 @@ describe('triageDir', () => {
     expect(arts[0].size).toBe(64)
     rmSync(d, { recursive: true, force: true })
   })
+  it('resolves the pulled .so by the manifest path basename', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'triage-'))
+    const soName = 'libexample.so.21471.7284e78000.so'
+    writeFileSync(join(dir, soName), 'ELF')
+    writeFileSync(join(dir, 'manifest.jsonl'), JSON.stringify({
+      type: 'dump',
+      module: 'libexample.so',
+      path: `/data/local/tmp/ares-dump-x/${soName}`,
+      base: '0x7284e78000', pid: 21471, raw: false,
+    }) + '\n')
+    const out = triageDir(dir)
+    expect(out).toHaveLength(1)
+    expect(out[0].path).toBe(join(dir, soName))
+    expect(out[0].module).toBe('libexample.so')
+    rmSync(dir, { recursive: true, force: true })
+  })
 })
 
 describe('input validation', () => {

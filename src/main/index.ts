@@ -431,14 +431,19 @@ ipcMain.handle('nativelib:stopLive', async () => {
   await pullAndPushWatchArtifacts()
 })
 
-// On-demand re-check of specific bases (Verify button / re-check all). Reuses
-// the same batched check; results arrive on nativelib:checkResults, stamped
-// against the same stream clock as the map events.
+// On-demand re-check of specific bases (Verify button / re-check all). A
+// memory-vs-disk check is point-in-time and does not need a live stream, so
+// unlike runCheck (the auto-check path, which reuses the streaming
+// liveCheckDir), this allocates its own check dir on every call - mirroring
+// nativelib:dumpLib below - and works whether or not a stream is active.
 ipcMain.handle('nativelib:verify', async (_e, pid: number, bases: string[]) => {
-  if (!liveCheckDir) return
-  const { deviceDir, hostDir } = liveCheckDir
-  // Capture liveT0 before the await too, same as the dirs above: a concurrent
-  // restart cannot swap the clock origin out from under an in-flight check.
+  const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
+  const deviceDir = `/data/local/tmp/ares-check-${ts}`
+  const hostDir = resolve(runsDir(), `ares-check-${ts}`)
+  // atMs is stream-relative (same origin as a row's map time), consumed by the
+  // evidence trail. Use liveT0, not Date.now(): liveT0 is module-level and not
+  // reset on Stop, so `Date.now() - liveT0` stays on the map timeline even for a
+  // verify run after the capture stopped. Matches runCheck's live auto-check.
   const t0 = liveT0
   try {
     const results = await checkByBases(spawner, adb, pid, bases, deviceDir, hostDir,

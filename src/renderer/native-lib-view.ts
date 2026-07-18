@@ -323,12 +323,10 @@ export function createLibView(host: HTMLElement, deps: LibViewDeps): LibViewApi 
   // Minimal on-demand re-check: the ticked subset if any row is selected,
   // else every dumpable streaming row's base. The pid comes from any row
   // (they all share the one streaming pid); with no rows there is nothing
-  // to check.
+  // to check. A memory-vs-disk check is point-in-time, so this works whether
+  // or not the stream is still live - the main process allocates its own
+  // check dir on demand (see nativelib:verify) and rows/selected survive Stop.
   verifyBtn.onclick = () => {
-    // Post-stop click must not silently no-op: liveCheckDir is nulled
-    // main-side once the stream stops, so a click with no live stream
-    // needs feedback instead of doing nothing.
-    if (!streaming) { appendLog('verify needs a live stream (start a live capture first)'); return }
     const liveRows = [...rows.values()]
     if (liveRows.length === 0) return
     const pid = liveRows[0].pid
