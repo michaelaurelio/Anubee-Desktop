@@ -44,8 +44,9 @@ function setDockHeight(host: HTMLElement, target: number): void {
 
 // Drives the full preflight-modal Begin flow so the view actually enters its
 // internal `streaming` state (only reachable this way - `setSource('live')`
-// alone does not stream). Needed by Verify tests now that Verify is gated on
-// `streaming`, not just `source === 'live'`.
+// alone does not stream). Used by the Verify tests below to populate rows via
+// a real Begin -> [lib] flow, though Verify itself no longer requires
+// `streaming` to be true (task B3).
 async function beginLiveCapture(host: HTMLElement, pkg = 'dev.ares.detector'): Promise<void> {
   ;(host.querySelector('[data-live-open]') as HTMLButtonElement).click()
   ;(document.body.querySelector('[data-modal-pkg]') as HTMLInputElement).value = pkg
@@ -532,7 +533,7 @@ describe('native-lib-view Verify button (task 5)', () => {
   it('calls verify with the streaming pid and every dumpable base when nothing is ticked', async () => {
     const { host, deps } = make()
     const api = createLibView(host, deps); api.setSource('live')
-    await beginLiveCapture(host) // task 2: Verify now requires an actual live stream, not just source==='live'
+    await beginLiveCapture(host) // populate rows via a real live [lib] flow (Verify itself no longer requires streaming)
     api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x1', end: '0x2', library: '/x', atMs: 100 })
     // a pseudo-path row is not dumpable and must be excluded from the "all" set
     api.applyMapped({ kind: 'lib', pid: 42, ppid: 1, start: '0x2', end: '0x3', library: '[anon_shmem:x]', atMs: 100 })
@@ -603,18 +604,16 @@ describe('native-lib-view selection bar (task 2)', () => {
     expect((host.querySelector('.lib-selbar') as HTMLElement).hidden).toBe(true)
   })
 
-  it('Verify on a stopped stream gives feedback instead of a silent no-op', () => {
-    // The Phase 3 minor: after stop, liveCheckDir is null main-side so verify
-    // does nothing. Here the view is live-source but not streaming (this test
-    // never enters beginLive), so a Verify click must log rather than silently
-    // swallow.
+  it('calls verify even when the view is live-source but not currently streaming (post-stop)', () => {
+    // task B3: a memory-vs-disk check is point-in-time and does not need a live
+    // stream - Verify must work against the last-known rows after Stop, not
+    // just while streaming is true.
     const verified: unknown[] = []
     const { host, deps } = make({ verify: async (...a) => { verified.push(a) } })
     const api = createLibView(host, deps); api.setSource('live')
     api.applyMapped({ kind: 'lib', pid: 7, start: '0x1', end: '0x2', library: '/x/liba.so', atMs: 100 })
     ;(host.querySelector('input[data-k="7|0x1"]') as HTMLInputElement).click()
     ;(host.querySelector('[data-verify]') as HTMLElement).click()
-    expect(verified).toEqual([]) // deps.verify NOT called
-    expect(host.querySelector('[data-log-body]')!.textContent).toMatch(/verify needs a live stream/i)
+    expect(verified).toEqual([[7, ['0x1']]])
   })
 })
