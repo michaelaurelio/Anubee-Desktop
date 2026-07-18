@@ -4,7 +4,7 @@ import { wirePanels } from './panels'
 import { sliceToElements, filterForRow } from './graph-view'
 import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
-import { serializeLayout, parseLayout, columnCatalogue, engineColumnKeys, type ColumnLayout, type ColumnKey } from './columns'
+import { serializeLayout, parseLayout, columnCatalogue, engineColumnKeys, engineDefaultColumns, type ColumnLayout, type ColumnKey } from './columns'
 import { applyWidths, nextWidth } from './column-resize'
 import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector, showRecordDetail, showFuncsNodeInspector, showFuncsRecordDetail } from './inspector'
@@ -919,7 +919,7 @@ function buildColumnsBody(host: HTMLElement): void {
     b.className = 'btn' + (currentLayout.callSite === m ? ' on' : '')
     b.textContent = m
     b.onclick = () => {
-      currentLayout = { ...currentLayout, callSite: m, columns: engineColumnKeys(activeEngine, m) }
+      currentLayout = { ...currentLayout, callSite: m, columns: engineDefaultColumns(activeEngine, m) }
       localStorage.setItem(columnsKey(activeEngine), serializeLayout(currentLayout))
       void refreshTable()
       buildColumnsBody(host)
