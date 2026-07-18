@@ -22,7 +22,7 @@ const noAdb: Adb = { run: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' }
 
 describe('native-lib-live argv', () => {
   it('builds the live lib stream command', () => {
-    expect(liveLibArg('dev.ares.detector')).toBe("su -c '/data/local/tmp/ares lib -P dev.ares.detector'")
+    expect(liveLibArg('dev.ares.detector')).toBe("su -c '/data/local/tmp/anubee lib -P dev.ares.detector'")
   })
   it('dumpArg selects by exact base via --now, and exits 0 (no wait-for-Ctrl-C)', () => {
     const a = dumpArg(25659, '0x7281a0000', '/data/local/tmp/out')
@@ -68,9 +68,9 @@ describe('watchArg / startWatch', () => {
     // sys system system_dlkm system_ext`. So the glob must carry its own quotes
     // through the outer shell, via the '\'' close-escape-reopen idiom. -d/-o are
     // required too: the default outdir is cwd, and root (`/`) is read-only.
-    expect(watchArg(25659, 'libexample*', '/data/local/tmp/ares-onmap-20260101000000'))
-      .toBe("su -c '/data/local/tmp/ares dump -p 25659 --on-map -l '\\''libexample*'\\''" +
-        " -d /data/local/tmp/ares-onmap-20260101000000 -o /data/local/tmp/ares-onmap-20260101000000/manifest.jsonl'")
+    expect(watchArg(25659, 'libexample*', '/data/local/tmp/anubee-onmap-20260101000000'))
+      .toBe("su -c '/data/local/tmp/anubee dump -p 25659 --on-map -l '\\''libexample*'\\''" +
+        " -d /data/local/tmp/anubee-onmap-20260101000000 -o /data/local/tmp/anubee-onmap-20260101000000/manifest.jsonl'")
   })
 
   it('watchArg emits balanced quotes, so the device shell can parse it', () => {
@@ -78,7 +78,7 @@ describe('watchArg / startWatch', () => {
     // expectation just gets written to match the broken output. The device
     // rejects an odd count outright with "sh: no closing quote", so count them.
     for (const glob of ['libexample*', 'blob_[0-9]*', 'lib?.so']) {
-      const a = watchArg(25659, glob, '/data/local/tmp/ares-onmap-X')
+      const a = watchArg(25659, glob, '/data/local/tmp/anubee-onmap-X')
       expect((a.match(/'/g) ?? []).length % 2).toBe(0)
     }
   })
@@ -95,7 +95,7 @@ describe('watchArg / startWatch', () => {
     await h.stop()
     const calls = (adb.run as unknown as { mock: { calls: string[][][] } }).mock.calls.map(c => c[0].join(' '))
     expect(calls.some(c => c.includes('dump -p 25659 --on-map'))).toBe(true)
-    expect(calls.some(c => c.includes("pkill -INT -f /data/local/tmp/ares'"))).toBe(false) // not the global
+    expect(calls.some(c => c.includes("pkill -INT -f /data/local/tmp/anubee'"))).toBe(false) // not the global
   })
 })
 
@@ -110,7 +110,7 @@ describe('pullWatchArtifacts', () => {
     writeFileSync(join(d, 'libcaught.so'), elf)
     writeFileSync(join(d, 'manifest.jsonl'),
       '{"type":"dump","module":"libcaught.so","path":"/proc/7/libcaught.so","base":"0x3000","pid":7,"raw":false}\n')
-    await expect(pullWatchArtifacts(failAdb, '/data/local/tmp/ares-onmap-x', d)).resolves.toEqual([])
+    await expect(pullWatchArtifacts(failAdb, '/data/local/tmp/anubee-onmap-x', d)).resolves.toEqual([])
     rmSync(d, { recursive: true, force: true })
   })
 
@@ -121,7 +121,7 @@ describe('pullWatchArtifacts', () => {
     writeFileSync(join(d, 'libcaught.so'), elf)
     writeFileSync(join(d, 'manifest.jsonl'),
       '{"type":"dump","module":"libcaught.so","path":"/proc/7/libcaught.so","base":"0x3000","pid":7,"raw":false}\n')
-    const arts = await pullWatchArtifacts(okAdb, '/data/local/tmp/ares-onmap-x', d)
+    const arts = await pullWatchArtifacts(okAdb, '/data/local/tmp/anubee-onmap-x', d)
     expect(arts).toHaveLength(1)
     expect(arts[0]).toMatchObject({ module: 'libcaught.so', raw: false, arch: 'arm64' })
     rmSync(d, { recursive: true, force: true })
@@ -155,7 +155,7 @@ describe('triageDir', () => {
     writeFileSync(join(dir, 'manifest.jsonl'), JSON.stringify({
       type: 'dump',
       module: 'libexample.so',
-      path: `/data/local/tmp/ares-dump-x/${soName}`,
+      path: `/data/local/tmp/anubee-dump-x/${soName}`,
       base: '0x7284e78000', pid: 21471, raw: false,
     }) + '\n')
     const out = triageDir(dir)
@@ -201,18 +201,18 @@ describe('dumpByBase', () => {
 
 describe('checkArg / checkByBases', () => {
   it('checkArg batches every base into one --now --check pass, exits 0', () => {
-    const a = checkArg(25659, ['0x7281a0000', '0xb0'], '/data/local/tmp/ares-check-X')
+    const a = checkArg(25659, ['0x7281a0000', '0xb0'], '/data/local/tmp/anubee-check-X')
     expect(a).toContain('dump --now --check -p 25659')
     expect(a).toContain('--base 0x7281a0000')
     expect(a).toContain('--base 0xb0') // repeatable, not comma-joined
-    expect(a).toContain('-o /data/local/tmp/ares-check-X/check.jsonl')
+    expect(a).toContain('-o /data/local/tmp/anubee-check-X/check.jsonl')
     expect(a).not.toContain('--on-map')
     // bases are 0x-hex safe tokens: no glob metachar, so no '\'' quoting needed.
     expect(a).not.toContain("'\\''")
   })
 
   it('checkArg emits balanced quotes, so the device shell can parse it', () => {
-    const a = checkArg(25659, ['0x7281a0000', '0xb0'], '/data/local/tmp/ares-check-X')
+    const a = checkArg(25659, ['0x7281a0000', '0xb0'], '/data/local/tmp/anubee-check-X')
     expect((a.match(/'/g) ?? []).length % 2).toBe(0)
   })
 

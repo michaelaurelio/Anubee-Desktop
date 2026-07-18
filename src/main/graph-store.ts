@@ -14,7 +14,7 @@ import type { LibRow } from '@shared/native-lib'
 export type { TableRow }
 
 // Explicit read_json schema so DuckDB never mis-infers the nested/heterogeneous
-// fields. Extends the ARES host store's schema (tools/ares-mcp/trace_store.py)
+// fields. Extends the Anubee host store's schema (tools/anubee-mcp/trace_store.py)
 // with `type`, `stack_id`, and `java_stack` - the last is the RASP bridge this
 // app is built around. `type` also lets ingest separate a malformed line
 // (all-null row → type NULL) from a valid non-syscall record (type='lib').
