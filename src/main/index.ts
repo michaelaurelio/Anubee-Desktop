@@ -224,7 +224,7 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
 
   let runId: number | undefined
   if (cap.outputKind === 'jsonl' && jsonlPath) {
-    const hostPath = resolveSavePath(savePath, resolve(runsDir(), `ares-${ts}.jsonl`))
+    const hostPath = resolveSavePath(savePath, resolve(runsDir(), `anubee-${ts}.jsonl`))
     const pulled = await pullResult(adb, 'jsonl', jsonlPath, hostPath)
     if (pulled.hostPath) {
       const summary = await loadPath(pulled.hostPath)
@@ -367,16 +367,16 @@ ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => 
   let watchDirs: { deviceDir: string; hostDir: string } | undefined
   if (glob) {
     const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
-    watchDeviceDir = `/data/local/tmp/ares-onmap-${ts}`
-    const watchHostDir = resolve(runsDir(), `ares-onmap-${ts}`)
+    watchDeviceDir = `/data/local/tmp/anubee-onmap-${ts}`
+    const watchHostDir = resolve(runsDir(), `anubee-onmap-${ts}`)
     await adb.run(['shell', `su -c 'mkdir -p ${watchDeviceDir}'`])
     watchDirs = { deviceDir: watchDeviceDir, hostDir: watchHostDir }
   }
   // Unlike the watcher's dir, the auto-check dir is created on EVERY live
   // capture, glob or no glob - every mapped library is a candidate to check.
   const checkTs = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
-  const checkDeviceDir = `/data/local/tmp/ares-check-${checkTs}`
-  const checkHostDir = resolve(runsDir(), `ares-check-${checkTs}`)
+  const checkDeviceDir = `/data/local/tmp/anubee-check-${checkTs}`
+  const checkHostDir = resolve(runsDir(), `anubee-check-${checkTs}`)
   await adb.run(['shell', `su -c 'mkdir -p ${checkDeviceDir}'`])
   const checkDirs = { deviceDir: checkDeviceDir, hostDir: checkHostDir }
   // Coalesces a mapped-library burst into one batched check pass. livePid is
@@ -438,8 +438,8 @@ ipcMain.handle('nativelib:stopLive', async () => {
 // nativelib:dumpLib below - and works whether or not a stream is active.
 ipcMain.handle('nativelib:verify', async (_e, pid: number, bases: string[]) => {
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
-  const deviceDir = `/data/local/tmp/ares-check-${ts}`
-  const hostDir = resolve(runsDir(), `ares-check-${ts}`)
+  const deviceDir = `/data/local/tmp/anubee-check-${ts}`
+  const hostDir = resolve(runsDir(), `anubee-check-${ts}`)
   // atMs is stream-relative (same origin as a row's map time), consumed by the
   // evidence trail. Use liveT0, not Date.now(): liveT0 is module-level and not
   // reset on Stop, so `Date.now() - liveT0` stays on the map timeline even for a
@@ -456,8 +456,8 @@ ipcMain.handle('nativelib:verify', async (_e, pid: number, bases: string[]) => {
 
 ipcMain.handle('nativelib:dumpLib', async (_e, pid: number, base: string) => {
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
-  const deviceDir = `/data/local/tmp/ares-dump-${ts}`
-  const hostDir = resolve(runsDir(), `ares-dump-${ts}`)
+  const deviceDir = `/data/local/tmp/anubee-dump-${ts}`
+  const hostDir = resolve(runsDir(), `anubee-dump-${ts}`)
   return dumpByBase(spawner, adb, pid, base, deviceDir, hostDir,
     line => win.webContents.send('nativelib:line', line))
 })

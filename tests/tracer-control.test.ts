@@ -27,7 +27,7 @@ describe('preflight', () => {
       [/id -u/, { stdout: '0' }],
       [/btf\/vmlinux/, { stdout: '/sys/kernel/btf/vmlinux' }],
       [/pm path/, { stdout: 'package:/data/app/base.apk' }],
-      [/md5sum \/data\/local\/tmp\/ares/, { stdout: 'abc123  /data/local/tmp/ares' }],
+      [/md5sum \/data\/local\/tmp\/anubee/, { stdout: 'abc123  /data/local/tmp/anubee' }],
     ])
     const checks = await preflight(adb, cfg, 'com.android.deskclock', async () => 'abc123')
     expect(checks.every(c => c.ok)).toBe(true)
@@ -50,11 +50,11 @@ describe('preflight', () => {
       [/id -u/, { stdout: '0' }],
       [/btf\/vmlinux/, { stdout: '/sys/kernel/btf/vmlinux' }],
       [/pm path/, { stdout: 'package:/data/app/base.apk' }],
-      [/md5sum \/data\/local\/tmp\/ares/, { stdout: 'stale  /data/local/tmp/ares' }],
+      [/md5sum \/data\/local\/tmp\/anubee/, { stdout: 'stale  /data/local/tmp/anubee' }],
     ])
     const checks = await preflight(adb, cfg, 'com.android.deskclock', async () => 'fresh')
     expect(adb.calls.some(c => c.startsWith('push /host/build/ares'))).toBe(true)
-    expect(adb.calls.some(c => /pkill -KILL -f \/data\/local\/tmp\/ares/.test(c))).toBe(true)
+    expect(adb.calls.some(c => /pkill -KILL -f \/data\/local\/tmp\/anubee/.test(c))).toBe(true)
     expect(checks.find(c => c.id === 'binary')!.ok).toBe(true)
   })
 
@@ -81,7 +81,7 @@ describe('preflight', () => {
       [/id -u/, { stdout: '0' }],
       [/btf\/vmlinux/, { stdout: '/sys/kernel/btf/vmlinux' }],
       [/pm path/, { stdout: 'package:/data/app/base.apk' }],
-      [/md5sum \/data\/local\/tmp\/ares/, { stdout: 'stale  /data/local/tmp/ares' }],
+      [/md5sum \/data\/local\/tmp\/anubee/, { stdout: 'stale  /data/local/tmp/anubee' }],
     ])
     const checks = await preflight(adb, { aresBinary: '/host/build/ares', specsDir: '' }, 'com.android.deskclock', async () => 'fresh')
     const binary = checks.find(c => c.id === 'binary')!
@@ -97,7 +97,7 @@ describe('preflight', () => {
       [/id -u/, { stdout: '0' }],
       [/btf\/vmlinux/, { stdout: '/sys/kernel/btf/vmlinux' }],
       [/pm path/, { stdout: 'package:/data/app/base.apk' }],
-      [/md5sum \/data\/local\/tmp\/ares/, { stdout: 'abc123  /data/local/tmp/ares' }],
+      [/md5sum \/data\/local\/tmp\/anubee/, { stdout: 'abc123  /data/local/tmp/anubee' }],
     ])
     const streamed: string[] = []
     const checks = await preflight(adb, cfg, 'com.android.deskclock', async () => 'abc123', c => streamed.push(c.id))
@@ -169,8 +169,8 @@ describe('startRun', () => {
     const sp = fakeSpawner()
     const adb = fakeAdb([])
     const lines: string[] = []
-    const h = startRun(sp, adb, "su -c '/data/local/tmp/ares lib com.android.deskclock'", l => lines.push(l))
-    expect(sp.lastArgs).toEqual(['shell', "su -c '/data/local/tmp/ares lib com.android.deskclock'"])
+    const h = startRun(sp, adb, "su -c '/data/local/tmp/anubee lib com.android.deskclock'", l => lines.push(l))
+    expect(sp.lastArgs).toEqual(['shell', "su -c '/data/local/tmp/anubee lib com.android.deskclock'"])
     sp.emitLine('[lib] bionic/libc.so')
     sp.exit(0)
     const res = await h.done
@@ -181,8 +181,8 @@ describe('startRun', () => {
   it('stop() sends the run-specific graceful pkill -INT via a separate su -c', async () => {
     const sp = fakeSpawner()
     const adb = fakeAdb([])
-    const stopArg = "su -c 'pkill -INT -f \"^/data/local/tmp/ares lib -P pkg$\"'"
-    const h = startRun(sp, adb, "su -c '/data/local/tmp/ares lib -P pkg'", () => {}, stopArg)
+    const stopArg = "su -c 'pkill -INT -f \"^/data/local/tmp/anubee lib -P pkg$\"'"
+    const h = startRun(sp, adb, "su -c '/data/local/tmp/anubee lib -P pkg'", () => {}, stopArg)
     await h.stop()
     expect(adb.calls).toContain(`shell ${stopArg}`)
     sp.exit(130)
@@ -192,7 +192,7 @@ describe('startRun', () => {
   it('stop() falls back to the global STOP_ARG when no stopArg is given', async () => {
     const sp = fakeSpawner()
     const adb = fakeAdb([])
-    const h = startRun(sp, adb, "su -c '/data/local/tmp/ares syscalls x'", () => {})
+    const h = startRun(sp, adb, "su -c '/data/local/tmp/anubee syscalls x'", () => {})
     await h.stop()
     expect(adb.calls).toContain(`shell ${STOP_ARG}`)
     sp.exit(130)
@@ -203,9 +203,9 @@ describe('startRun', () => {
 describe('pullResult', () => {
   it('pulls a jsonl run to the host', async () => {
     const adb = fakeAdb([[/^pull /, { code: 0 }]])
-    const r = await pullResult(adb, 'jsonl', '/data/local/tmp/ares-X.jsonl', '/host/runs/ares-X.jsonl')
+    const r = await pullResult(adb, 'jsonl', '/data/local/tmp/anubee-X.jsonl', '/host/runs/ares-X.jsonl')
     expect(r).toEqual({ kind: 'jsonl', hostPath: '/host/runs/ares-X.jsonl' })
-    expect(adb.calls).toContain('pull /data/local/tmp/ares-X.jsonl /host/runs/ares-X.jsonl')
+    expect(adb.calls).toContain('pull /data/local/tmp/anubee-X.jsonl /host/runs/ares-X.jsonl')
   })
 
   it('does not pull for a stdout run', async () => {

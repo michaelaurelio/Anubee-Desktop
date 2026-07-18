@@ -211,8 +211,8 @@ export function fieldErrors(cap: Capability, vals: CapValues): { fields: Record<
   return { fields, form: cap.validate?.(vals) ?? [] }
 }
 
-export const DEVICE_BIN = '/data/local/tmp/ares'
-export const STOP_ARG = "su -c 'pkill -INT -f /data/local/tmp/ares'"
+export const DEVICE_BIN = '/data/local/tmp/anubee'
+export const STOP_ARG = "su -c 'pkill -INT -f /data/local/tmp/anubee'"
 
 // Escape ERE metacharacters so a literal string is matched literally by
 // `pkill -f` (which takes an extended regex). Package names contain dots;
@@ -244,7 +244,7 @@ export function isSafePattern(s: string): boolean {
 }
 
 export function outJsonlPath(ts: string): string {
-  return `/data/local/tmp/ares-${ts}.jsonl`
+  return `/data/local/tmp/anubee-${ts}.jsonl`
 }
 
 // The host path to pull a capture's JSONL to: the analyst's chosen path if any,

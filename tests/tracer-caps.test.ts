@@ -130,24 +130,24 @@ describe('composeRunArg', () => {
       timeoutSecs: 20, jsonlPath: outJsonlPath('20260707T101500'),
     })
     expect(arg).toBe(
-      "su -c 'timeout -s INT -k 3 20 /data/local/tmp/ares syscalls -P com.android.deskclock " +
-      "-l libc.so -o /data/local/tmp/ares-20260707T101500.jsonl'")
+      "su -c 'timeout -s INT -k 3 20 /data/local/tmp/anubee syscalls -P com.android.deskclock " +
+      "-l libc.so -o /data/local/tmp/anubee-20260707T101500.jsonl'")
   })
 
   it('does not append -o for a stdout capability', () => {
     const arg = composeRunArg({ cap: mod, vals: { analyzer: 'getprop', pkg: 'com.android.deskclock' }, timeoutSecs: 10 })
-    expect(arg).toBe("su -c 'timeout -s INT -k 3 10 /data/local/tmp/ares mod getprop -P com.android.deskclock'")
+    expect(arg).toBe("su -c 'timeout -s INT -k 3 10 /data/local/tmp/anubee mod getprop -P com.android.deskclock'")
   })
 
   it('omits the timeout wrapper when timeoutSecs is unset (run until Stop)', () => {
     const arg = composeRunArg({ cap: mod, vals: { analyzer: 'getprop', pkg: 'com.android.deskclock' } })
-    expect(arg).toBe("su -c '/data/local/tmp/ares mod getprop -P com.android.deskclock'")
+    expect(arg).toBe("su -c '/data/local/tmp/anubee mod getprop -P com.android.deskclock'")
   })
 
   it('exposes the fixed binary path and stop command', () => {
-    expect(DEVICE_BIN).toBe('/data/local/tmp/ares')
-    expect(STOP_ARG).toBe("su -c 'pkill -INT -f /data/local/tmp/ares'")
-    expect(outJsonlPath('X')).toBe('/data/local/tmp/ares-X.jsonl')
+    expect(DEVICE_BIN).toBe('/data/local/tmp/anubee')
+    expect(STOP_ARG).toBe("su -c 'pkill -INT -f /data/local/tmp/anubee'")
+    expect(outJsonlPath('X')).toBe('/data/local/tmp/anubee-X.jsonl')
   })
 
   it('stopArgLive targets only the lib stream, anchored and ERE-escaped', () => {
@@ -155,14 +155,14 @@ describe('composeRunArg', () => {
     // Anchored on the binary path so it cannot match its own su/sh parent,
     // whose cmdline contains the pattern but does not start with the binary.
     expect(a).toContain('pkill -INT -f')
-    expect(a).toContain('^/data/local/tmp/ares lib -P dev\\.ares\\.detector$')
+    expect(a).toContain('^/data/local/tmp/anubee lib -P dev\\.ares\\.detector$')
     // A dot must be escaped: unescaped it would also match devXaresYdetector.
     expect(a).not.toContain('dev.ares.detector$')
   })
 
   it('stopArgWatch targets only the on-map watcher for one pid', () => {
     const a = stopArgWatch(25659)
-    expect(a).toContain('^/data/local/tmp/ares dump -p 25659 --on-map')
+    expect(a).toContain('^/data/local/tmp/anubee dump -p 25659 --on-map')
     // Stops before any -l glob, so the glob never round-trips through ERE.
     expect(a).not.toContain('-l')
   })
@@ -172,8 +172,8 @@ describe('composeRunArg', () => {
     // quotes before running <cmd> - it re-invokes it through a fresh shell, so
     // the wrapper ps actually reports is `/system/bin/sh -c su -c '<cmd>'`, quotes
     // intact:
-    //   24011 [/system/bin/sh -c su -c '/data/local/tmp/ares lib -P dev.ares.detector']
-    //   24015 [/data/local/tmp/ares lib -P dev.ares.detector]
+    //   24011 [/system/bin/sh -c su -c '/data/local/tmp/anubee lib -P dev.ares.detector']
+    //   24015 [/data/local/tmp/anubee lib -P dev.ares.detector]
     // That wrapper never starts with the binary path, so ^ excludes it from both
     // patterns. It also never ends right after the command (it ends with the
     // trailing quote), so stopArgLive's trailing $ excludes it too - on this
@@ -187,9 +187,9 @@ describe('composeRunArg', () => {
     // substring: stripping ^ from stopArgWatch turns its pattern into a bare
     // substring search that matches both wrapper shapes below - ^ is the sole
     // thing keeping the watcher off its own launcher.
-    const liveWrapper = "/system/bin/sh -c su -c '/data/local/tmp/ares lib -P dev.ares.detector'"
-    const watchWrapper = "/system/bin/sh -c su -c '/data/local/tmp/ares dump -p 1 --on-map -l libexample*'"
-    const watchWrapperUnquoted = 'su -c /data/local/tmp/ares dump -p 1 --on-map -l libexample*'
+    const liveWrapper = "/system/bin/sh -c su -c '/data/local/tmp/anubee lib -P dev.ares.detector'"
+    const watchWrapper = "/system/bin/sh -c su -c '/data/local/tmp/anubee dump -p 1 --on-map -l libexample*'"
+    const watchWrapperUnquoted = 'su -c /data/local/tmp/anubee dump -p 1 --on-map -l libexample*'
     const cases: Array<[string, string]> = [
       [stopArgLive('dev.ares.detector'), liveWrapper],
       [stopArgWatch(1), watchWrapper],
@@ -218,7 +218,7 @@ describe('composeRunArg', () => {
     // relationship: tighten or widen SAFE_TOKEN without SAFE_PATTERN and this
     // fails instead of the two silently diverging.
     const samples = ['A', 'z', 'Z', 'a', '0', '9', '.', '_', ':', '/', ',', '+', '-',
-                     'dev.ares.detector', 'libsentinel.so', '/data/local/tmp/ares']
+                     'dev.ares.detector', 'libsentinel.so', '/data/local/tmp/anubee']
     // Guard against a vacuous pass: every sample must really be a safe token.
     expect(samples.every(s => isSafeToken(s))).toBe(true)
     for (const s of samples) expect(isSafePattern(s)).toBe(true)
@@ -230,13 +230,13 @@ describe('composeRunArg', () => {
       timeoutSecs: 20, jsonlPath: outJsonlPath('20260712T101500'),
     })
     expect(arg).toBe(
-      "su -c 'timeout -s INT -k 3 20 /data/local/tmp/ares syscalls -P com.android.deskclock " +
-      "-l libc.so -b 8 -v -o /data/local/tmp/ares-20260712T101500.jsonl'")
+      "su -c 'timeout -s INT -k 3 20 /data/local/tmp/anubee syscalls -P com.android.deskclock " +
+      "-l libc.so -b 8 -v -o /data/local/tmp/anubee-20260712T101500.jsonl'")
   })
 
   it('never emits tuning flags for a non-common cap even if values are present', () => {
     const arg = composeRunArg({ cap: mod, vals: { analyzer: 'getprop', pkg: 'com.android.deskclock', bufmb: '8', verbose: true } })
-    expect(arg).toBe("su -c '/data/local/tmp/ares mod getprop -P com.android.deskclock'")
+    expect(arg).toBe("su -c '/data/local/tmp/anubee mod getprop -P com.android.deskclock'")
   })
 
   it('places --snapshot before the internally-managed -o', () => {
@@ -245,8 +245,8 @@ describe('composeRunArg', () => {
       timeoutSecs: 20, jsonlPath: outJsonlPath('20260713T101500'),
     })
     expect(arg).toBe(
-      "su -c 'timeout -s INT -k 3 20 /data/local/tmp/ares syscalls -P com.android.deskclock " +
-      "-l libc.so --snapshot -o /data/local/tmp/ares-20260713T101500.jsonl'")
+      "su -c 'timeout -s INT -k 3 20 /data/local/tmp/anubee syscalls -P com.android.deskclock " +
+      "-l libc.so --snapshot -o /data/local/tmp/anubee-20260713T101500.jsonl'")
   })
 })
 

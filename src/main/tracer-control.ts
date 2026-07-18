@@ -74,7 +74,7 @@ export async function preflight(
   if (hostSum && hostSum === devSum) {
     add({ id: 'binary', label: 'on-device binary up to date', ok: true, detail: `md5 ${hostSum.slice(0, 8)}` })
   } else {
-    await adb.run(['shell', "su -c 'pkill -INT -f /data/local/tmp/ares; sleep 1; pkill -KILL -f /data/local/tmp/ares'"])
+    await adb.run(['shell', "su -c 'pkill -INT -f /data/local/tmp/anubee; sleep 1; pkill -KILL -f /data/local/tmp/anubee'"])
     const push = await adb.run(['push', cfg.aresBinary, DEVICE_BIN])
     await adb.run(['shell', `chmod 755 ${DEVICE_BIN}`])
     if (cfg.specsDir) {
