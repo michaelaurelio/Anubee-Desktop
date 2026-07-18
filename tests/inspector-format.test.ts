@@ -67,9 +67,9 @@ describe('funcDetailSections', () => {
     const secs = funcDetailSections(rec)
     const summary = secs.find(s => s.title === 'Summary')!
     expect(summary.kind).toBe('kv')
-    expect((summary as { rows: [string, string][] }).rows).toContainEqual(['function', 'libexample.so!checkRoot'])
-    expect((summary as { rows: [string, string][] }).rows).toContainEqual(['retval', '1'])
-    expect((summary as { rows: [string, string][] }).rows).toContainEqual(['elapsed', '2300 ns'])
+    expect((summary as { rows: { k: string; v: string }[] }).rows).toContainEqual({ k: 'function', v: 'libexample.so!checkRoot' })
+    expect((summary as { rows: { k: string; v: string }[] }).rows).toContainEqual({ k: 'retval', v: '1' })
+    expect((summary as { rows: { k: string; v: string }[] }).rows).toContainEqual({ k: 'elapsed', v: '2300 ns' })
     expect(secs.some(s => s.title === 'Args')).toBe(true)
     const bt = secs.find(s => s.title === 'Backtrace')
     expect(bt?.kind).toBe('stack')

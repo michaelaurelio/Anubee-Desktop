@@ -280,6 +280,15 @@ regardless of how many lines a cell's content stacks internally.
   model) is still parsed and migrated to `{ columns, widths: {}, callSite:
   'stacked' }`.
 
+- **Opt-in `tid`/`retval` columns (syscall engine).** For the syscall engine,
+  `tid` and `retval` are part of the column picker's catalogue (offered as
+  checkboxes in both stacked and split mode) but are **off by default** - the
+  default-visible column set omits them, and an analyst opts in explicitly via
+  the picker (`SYSCALL_STACKED_CAT`/`SYSCALL_SPLIT_CAT` vs.
+  `SYSCALL_STACKED_DEF`/`SYSCALL_SPLIT_DEF` in `src/renderer/columns.ts`). The
+  choice persists in the same per-engine `ColumnLayout` as any other column.
+  Funcs runs are unaffected: `retval` already ships in their default columns.
+
 - **Per-column drag-resize.** Each `<th>` carries a `.col-grip` drag handle
   (`src/renderer/column-resize.ts` + `wireColGrips` in `main.ts`); dragging it
   resizes that column live via window-level pointer listeners (survives the
@@ -1191,6 +1200,15 @@ The right-panel node/record inspector (`src/renderer/inspector.ts` +
   solid var(--accent-fg)`) and an item-count badge (`.insp-card-cnt`) on stack
   sections; key/value rows (`.insp-kv`) align in real table columns instead of
   a flat text dump.
+- **Args card (interleaved raw + decoded, syscall records).** A syscall
+  record's Args card lists every raw `arg[i]` in index order; any decoded
+  overlay for that same index - `string_args`, `decoded_args`, `fd_args` -
+  renders as an indented sub-row (`.insp-kv-sub`) directly beneath its own arg
+  slot, rather than the raw args and each overlay listed as three separate
+  flat groups (`interleaveArgRows`, `eventDetailSections` in
+  `src/renderer/inspector.ts`). An overlay whose index has no raw `arg[i]`
+  slot still renders, as a lone sub-row under that index. Funcs records
+  (`funcDetailSections`) keep their own labeled-group Args listing, unchanged.
 - **Backtrace** (`appFrameIndex`, `inspector.ts`) - highlights the innermost
   **non-system** frame (the app's own lib, per the same system-lib skip list
   `nativeTargetOf` uses for suggestion attribution) against the bionic/ART/

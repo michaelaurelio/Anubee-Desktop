@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { ALL_COLUMNS, DEFAULT_COLUMNS, serializeColumns, parseColumns, columnsForEngine, type ColumnKey } from '../src/renderer/columns'
-import { columnCatalogue, SYSCALL_COLUMNS, FUNCS_COLUMNS, parseLayout, serializeLayout, type ColumnLayout } from '../src/renderer/columns'
+import { columnCatalogue, SYSCALL_COLUMNS, FUNCS_COLUMNS, parseLayout, serializeLayout, engineDefaultColumns, engineColumnKeys, type ColumnLayout } from '../src/renderer/columns'
 
 describe('columns module', () => {
   it('default set is the six and every key is in the catalogue', () => {
@@ -90,5 +90,36 @@ describe('columnCatalogue mode', () => {
   it('split funcs offers function/caller, stacked offers callSite', () => {
     expect(columnCatalogue('func', 'split').map(c => c.key)).toContain('fn')
     expect(columnCatalogue('func', 'stacked').map(c => c.key)).toContain('callSite')
+  })
+})
+
+describe('tid/ret are offered but default-off (syscall)', () => {
+  it('stacked catalogue offers tid and retval', () => {
+    const keys = columnCatalogue('syscall', 'stacked').map(c => c.key)
+    expect(keys).toContain('tid')
+    expect(keys).toContain('retval')
+  })
+  it('split catalogue offers tid and retval', () => {
+    const keys = columnCatalogue('syscall', 'split').map(c => c.key)
+    expect(keys).toContain('tid')
+    expect(keys).toContain('retval')
+  })
+  it('default-visible omits tid and retval in both modes', () => {
+    expect(engineDefaultColumns('syscall', 'stacked')).toEqual(['id', 'syscall', 'callSite', 'arg', 'tags'])
+    expect(engineDefaultColumns('syscall', 'split')).toEqual(['id', 'syscall', 'java', 'topJava', 'topNative', 'arg', 'tags'])
+  })
+  it('parseLayout default still omits tid/retval', () => {
+    expect(parseLayout('syscall', null).columns).not.toContain('tid')
+    expect(parseLayout('syscall', null).columns).not.toContain('retval')
+  })
+  it('a persisted layout with tid/retval round-trips (they are valid keys)', () => {
+    const src: ColumnLayout = { columns: ['id', 'tid', 'syscall', 'retval', 'callSite', 'arg', 'tags'], widths: {}, callSite: 'stacked' }
+    const l = parseLayout('syscall', serializeLayout(src))
+    expect(l.columns).toContain('tid')
+    expect(l.columns).toContain('retval')
+  })
+  it('funcs default-visible equals its catalogue (unchanged)', () => {
+    expect(engineDefaultColumns('func', 'stacked')).toEqual(engineColumnKeys('func', 'stacked'))
+    expect(engineDefaultColumns('func', 'split')).toEqual(engineColumnKeys('func', 'split'))
   })
 })
