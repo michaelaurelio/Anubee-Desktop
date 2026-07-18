@@ -1068,8 +1068,9 @@ via `addr - load_base`; unmapped events (no matching lib record) are marked
 `[unmapped]` and show no offset, allowing analysts to identify frames missing from
 the tracer's library map.
 
-**Node selection and tagging.** Clicking a native node highlights its fan-in/out
-neighbourhood, fills the right inspector panel with the node's filtered syscall
+**Node selection and tagging.** Clicking a native node highlights the nodes and
+edges on its actual backtraces (see "Backtrace-accurate selection highlight"
+below), fills the right inspector panel with the node's filtered syscall
 records (via `nodeEvents` - the syscalls whose backtraces target that node), and
 opens an offset popup positioned to the right of the node; the popup flips to the
 left at the viewport edge via the pure `placePopup` layout helper. Clicking a
@@ -1103,15 +1104,28 @@ or work with a tracer-side change to prime the module map from `/proc/<pid>/maps
 attach time. Once `lib` records are available, the desktop re-ingests the same `.jsonl`
 file and computes offsets from the module load bases.
 
-**Fan-in/fan-out selection highlight.** Selecting a graph node highlights its
-neighbourhood: syscall nodes show fan-in only (incoming Java calls); Java nodes
-show their entire subtree (Java callees + native frames + syscalls they invoke);
-native nodes show both directions (calling Java methods + reached syscalls). Nodes
-outside the selected path dim to background, drawing focus on the caller-callee
-chain. Edges in the selected path are highlighted in brighter, thicker strokes
-(`width` 3.5, full-strength `labelText` color, `arrow-scale` 1.3) to clearly
-illuminate the entire call chain from the selected node outward. This is the
-**litNeighborhood** highlight, distinct from the earlier whole-graph coloring.
+**Backtrace-accurate selection highlight.** Selecting a graph node highlights the
+nodes and edges that actually lie on that node's backtraces, not a topological
+neighbourhood of the folded graph. The earlier approach walked predecessors and
+successors over the aggregated graph's edges; because those edges are pairwise
+adjacency (the fold loses per-event path identity), a native node shared by
+unrelated call chains - a JNI trampoline, say - let the walk cross into sibling
+branches, lighting up Java callers that never actually reached the clicked
+syscall. The fix moves the highlight to co-occurrence over the same per-event
+chains the graph was built from: the main process's `highlightSets(nodeId,
+filter, runId)` (`src/main/graph-store.ts`) reuses `SYS_CHAIN_SEL` /
+`FUNCS_CHAIN_SEL` - the CFI-aware chain SQL that also folds the graph - filters
+to chains that actually contain the clicked node, and returns the distinct node
+and edge ids on those chains. The fetch is async, guarded by the selection
+epoch so a stale response from a superseded click cannot overwrite the current
+selection. The renderer's `applyHighlight` (`src/renderer/graph-highlight.ts`)
+stamps `highlighted` on those ids and `dimmed` on everything else, wired from
+the `cy.on('tap', 'node')` handler in `src/renderer/main.ts`. Highlight
+semantics are whole-chain: java, native, and syscall nodes on a matching chain
+all light together, so a click surfaces the exact caller-callee path rather
+than a direction-dependent slice. Edges in the selected path keep the brighter,
+thicker stroke styling (`width` 3.5, full-strength `labelText` color,
+`arrow-scale` 1.3) to illuminate the chain from the selected node outward.
 
 **RASP category coloring on native blocks.** When a native node is tagged with a
 RASP category (debugger, root, hook, etc.), the node's box gains a visual marker

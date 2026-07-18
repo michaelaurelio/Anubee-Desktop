@@ -9,7 +9,7 @@ import { applyWidths, nextWidth } from './column-resize'
 import { currentFilter, wireFilterControls } from './filter-controls'
 import { showNodeInspector, showRecordDetail, showFuncsNodeInspector, showFuncsRecordDetail } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
-import { highlightNeighborhood, clearHighlight } from './graph-highlight'
+import { applyHighlight, clearHighlight } from './graph-highlight'
 import { showOffsetPopup, closeOffsetPopup, eventForOffset, type NodeBox } from './offset-popup'
 import { showNodeMenu, closeNodeMenu, showTagPopup, closeTagPopup } from './node-menu'
 import { renderSuggestions } from './suggestions-view'
@@ -89,7 +89,7 @@ const cy = cytoscape({
     // edge should recede, and its triangle arrowhead - which scales with edge width
     // and the (high) zoom of a small subgraph - was rendering as a large grey blob.
     { selector: 'edge.dimmed', style: { 'target-arrow-shape': 'none', 'width': 1 } },
-    // Edges read grey by default; the selected node's fan-in/out lights them
+    // Edges read grey by default; the selected node's backtrace chain lights them
     // brightly so a single click clearly connects the chain.
     { selector: 'edge.highlighted', style: {
       'line-color': tc.labelText, 'target-arrow-color': tc.labelText,
@@ -456,7 +456,10 @@ cy.on('tap', 'node', evt => {
   const e = selEpoch.bump()
   const node = evt.target
   const nodeId = node.id()
-  highlightNeighborhood(cy, node)
+  void window.anubee.highlightSets(nodeId, currentFilter(), activeRunId).then(sets => {
+    if (!selEpoch.isCurrent(e)) return // stale: another node selected / deselected mid-round-trip
+    applyHighlight(cy, sets)
+  })
   showSide(true)
   const nodeKind = node.data('kind') as string | undefined
   const nodeCats = [...new Set(tagsByTarget(tags, nodeId).map(t => t.category))]

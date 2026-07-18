@@ -4,10 +4,13 @@
 // (filter-first + hard slice cap). Values validated against a real 245k-event
 // run (both banners observed to fire); see BACKLOG "Shipped this session".
 
-// Max nodes+edges in a focused graph slice before cytoscape/ELK hairballs.
-// Real run: heaviest focused subgraph = 152; whole-bridge slice = 2156. 1500 is
-// a safety ceiling below the ~2-3k readability threshold - the per-row focused
-// path never reaches it, so it guards only a pathological slice.
+// Max NODES in a focused graph slice before cytoscape/ELK hairballs. Edges are
+// not capped separately: every edge among surviving nodes renders, so a node's
+// backtrace never fragments on canvas (see capSlice). The node cap is the sole
+// hairball guard - the layered java->native->syscall graph is sparse, so edge
+// count tracks node count. Real run: heaviest focused subgraph = 152; whole-bridge
+// slice = 2156 nodes+edges. 1500 nodes is a safety ceiling below the ~2-3k
+// readability threshold - the per-row focused path never reaches it.
 export const GRAPH_SLICE_CAP = 1500
 
 // Max distinct stack chains pulled for the flame view (bounds the IPC payload).

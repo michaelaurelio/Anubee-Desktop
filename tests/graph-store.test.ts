@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall, isCall } from '@shared/anubee-parse'
-import { foldEvents, foldFuncEvents, chainOfCfi, type GraphSlice } from '@shared/graph-shape'
+import { foldEvents, foldFuncEvents, chainOfCfi, coOccur, type GraphSlice } from '@shared/graph-shape'
 import type { Rule } from '@shared/rasp-heuristics'
 
 // A trace with 2 root-check bridges (java + native), 1 java-less read, a
@@ -37,6 +37,21 @@ function funcsFixture(): string {
   dir = mkdtempSync(join(tmpdir(), 'anubee-funcs-'))
   const p = join(dir, 'run.jsonl')
   writeFileSync(p, FUNCS_LINES.join('\n') + '\n')
+  return p
+}
+
+// Two syscalls that SHARE one native node (libexample.so!tramp) but diverge
+// to different syscalls/java callers - the exact shared-native-node diamond
+// topology the highlightSets fix guards against leaking across.
+const DIAMOND_LINES = [
+  JSON.stringify({ type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 56, syscall: 'openat', args: ['0x1'], retval: 3, string_args: {}, fd_args: {}, decoded_args: {}, java_stack: ['com.example.A.a'], backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!tramp+0x8' }] }),
+  JSON.stringify({ type: 'syscall', id: 2, pid: 100, tid: 101, syscall_nr: 63, syscall: 'read', args: ['0x5'], retval: 8, string_args: {}, fd_args: {}, decoded_args: {}, java_stack: ['com.example.B.b'], backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!tramp+0x8' }] }),
+]
+
+function diamondFixture(): string {
+  dir = mkdtempSync(join(tmpdir(), 'anubee-diamond-'))
+  const p = join(dir, 'run.jsonl')
+  writeFileSync(p, DIAMOND_LINES.join('\n') + '\n')
   return p
 }
 
@@ -666,5 +681,49 @@ describe('GraphStore.table free-text search over args', () => {
     await store.ingest(fixture())
     const rows = await store.table({ text: 'magisk' }, { limit: 10, offset: 0 })
     expect(rows.map(r => r.id)).toEqual([2])
+  })
+})
+
+describe('GraphStore.highlightSets', () => {
+  it('lights only the chain through the clicked syscall, not a sibling syscall', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    const r = await store.highlightSets('sys:openat')
+    expect([...r.nodes].sort()).toEqual([
+      'java:com.example.app.RootCheck.run', 'nat:libexample.so!check_su', 'sys:openat'])
+    expect(r.nodes).not.toContain('sys:read')
+    expect([...r.edges].sort()).toEqual([
+      'java:com.example.app.RootCheck.run=>nat:libexample.so!check_su',
+      'nat:libexample.so!check_su=>sys:openat'])
+  })
+
+  it('a java-less syscall lights just its native fan-in', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    const r = await store.highlightSets('sys:read')
+    expect([...r.nodes].sort()).toEqual(['nat:libc.so!read', 'sys:read'])
+  })
+
+  it('matches the coOccur oracle over the same events', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    const events = parseJsonl(LINES.join('\n')).events.filter(isSyscall)
+    const store_r = await store.highlightSets('nat:libexample.so!check_su')
+    const oracle = coOccur(events, 'nat:libexample.so!check_su')
+    expect([...store_r.nodes].sort()).toEqual([...oracle.nodes].sort())
+    expect([...store_r.edges].sort()).toEqual([...oracle.edges].sort())
+  })
+
+  it('does not leak a sibling syscall reached through a shared native node', async () => {
+    store = new GraphStore()
+    await store.ingest(diamondFixture())
+    const r = await store.highlightSets('sys:openat')
+    expect([...r.nodes].sort()).toEqual(['java:com.example.A.a', 'nat:libexample.so!tramp', 'sys:openat'])
+    expect(r.nodes).not.toContain('sys:read')
+    expect(r.nodes).not.toContain('java:com.example.B.b')
+    // the shared native node, clicked, lights BOTH branches
+    const shared = await store.highlightSets('nat:libexample.so!tramp')
+    expect([...shared.nodes].sort()).toEqual([
+      'java:com.example.A.a', 'java:com.example.B.b', 'nat:libexample.so!tramp', 'sys:openat', 'sys:read'])
   })
 })
