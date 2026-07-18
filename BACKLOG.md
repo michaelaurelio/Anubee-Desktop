@@ -3,6 +3,27 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-18) - Opt-in tid/retval columns + full-args record detail
+
+The syscall engine's `tid` and `retval` columns are now catalogue-only by
+default: offered in the `⚙ columns` picker (both stacked and split mode) but
+excluded from the default-visible set until an analyst opts in
+(`src/renderer/columns.ts`). The record-detail Args card now lists every raw
+`arg[i]` in index order, with each decoded `string`/`decoded`/`fd` overlay for
+that index rendered as an indented sub-row directly beneath its own arg slot
+(`interleaveArgRows`, `src/renderer/inspector.ts`), rather than the raw args
+and each overlay group listed as separate flat lists. See `DOCUMENTATION.md`'s
+"Master table columns" and "Detail panel redesign" sections.
+
+### Known drawbacks / follow-ups
+- **`interleaveArgRows` has no cap on its loop bound.** The upper bound of its
+  render loop is derived from the largest numeric key across the tracer-supplied
+  overlay maps (`string_args`/`decoded_args`/`fd_args`), with no ceiling - a
+  malformed or adversarial record carrying a huge numeric overlay key would
+  drive a large synchronous loop on the render thread for that one record.
+  Clamp the derived `max` to a sane ceiling if untrusted/malformed captures
+  become a real input source.
+
 ## Shipped (2026-07-18) - Startup splash + gold brand accent
 
 A frameless logo splash window (`src/renderer/splash.html`) shows on launch
