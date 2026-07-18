@@ -72,13 +72,39 @@ function runsDir(): string {
 // has answered (or had nothing to save).
 let allowClose = false
 
+let splash: BrowserWindow | null = null
+
+function createSplash(): number {
+  splash = new BrowserWindow({
+    width: 440,
+    height: 320,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    alwaysOnTop: true,
+    center: true,
+    show: false,
+    webPreferences: { contextIsolation: true },
+  })
+  if (process.env.ELECTRON_RENDERER_URL) splash.loadURL(`${process.env.ELECTRON_RENDERER_URL}/splash.html`)
+  else splash.loadFile(resolve(__dirname, '../renderer/splash.html'))
+  splash.once('ready-to-show', () => splash?.show())
+  return Date.now()
+}
+
 function createWindow(): void {
   // Dev window/taskbar icon. Absent from the packaged bundle (out/** only), where
   // electron-builder's baked-in icon from build/icon.png takes over.
   const iconPath = resolve(__dirname, '../../build/icon.png')
+  // ANUBEE_NO_SPLASH: skip the splash and show the main window immediately (used by
+  // the screenshot harness / E2E so playwright's firstWindow() is the main window).
+  const noSplash = !!process.env.ANUBEE_NO_SPLASH
+  const splashShownAt = noSplash ? 0 : createSplash()
+
   win = new BrowserWindow({
     width: 1400,
     height: 900,
+    show: noSplash, // when splashing, stay hidden until ready-to-show
     ...(existsSync(iconPath) ? { icon: iconPath } : {}),
     webPreferences: {
       preload: resolve(__dirname, '../preload/index.js'),
@@ -87,6 +113,18 @@ function createWindow(): void {
   })
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(resolve(__dirname, '../renderer/index.html'))
+
+  if (!noSplash) {
+    win.once('ready-to-show', () => {
+      // Keep the splash up at least 600ms so a fast load doesn't flash-and-vanish.
+      const wait = Math.max(0, 600 - (Date.now() - splashShownAt))
+      setTimeout(() => {
+        win.show()
+        splash?.close()
+        splash = null
+      }, wait)
+    })
+  }
 
   win.on('close', e => {
     if (allowClose) return
