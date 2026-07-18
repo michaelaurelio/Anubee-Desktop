@@ -164,6 +164,7 @@
       #empty-state { position: absolute; inset: 0; display: flex; flex-direction: column;
         align-items: center; justify-content: center; gap: 8px; color: var(--muted); z-index: 5; }
       #empty-state.hidden { display: none; }
+      #empty-state .es-logo { width: 88px; height: 88px; opacity: .9; margin-bottom: 4px; }
       #empty-state .es-title { font-size: 15px; color: var(--text); }
       #ingest-progress { margin-top: 14px; width: 240px; }
       #graph-empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
@@ -618,6 +619,7 @@
         <div id="flame"></div>
         <div id="libs" class="hidden"></div>
         <div id="empty-state">
+          <img class="es-logo" src="./assets/logo.svg" width="88" height="88" alt="Anubee" />
           <div class="es-title">No run loaded</div>
           <div>Open a run to begin - use <b>Open</b> in the left rail.</div>
           <div id="ingest-progress" class="hidden"><div id="ingest-bar"></div><span id="ingest-pct"></span></div>
