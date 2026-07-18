@@ -1,7 +1,7 @@
 // Capability registry for feature 9 (tracer control). Pure: turns a chosen
 // engine + form values into an ares argv. Device paths and the su -c wrapping
 // live in composeRunArg (Task 2); this module owns only the per-engine argv.
-// Verified against ../ARES src/*/*.c argp tables (see spec s2).
+// Verified against ../Anubee src/*/*.c argp tables (see spec s2).
 
 export type OutputKind = 'jsonl' | 'stdout'
 export type InputKind = 'package' | 'text' | 'bool' | 'csv' | 'pattern' | 'spec' | 'analyzer' | 'int'

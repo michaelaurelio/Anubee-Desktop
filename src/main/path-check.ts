@@ -17,7 +17,7 @@ export function isElf(head: Uint8Array): boolean {
   return head.length >= 4 && head[0] === 0x7f && head[1] === 0x45 && head[2] === 0x4c && head[3] === 0x46
 }
 
-// A valid ARES specs dir carries at least one `.spec` file (see ../ARES/specs).
+// A valid ARES specs dir carries at least one `.spec` file (see ../Anubee/specs).
 export function hasSpecFile(entryNames: string[]): boolean {
   return entryNames.some(n => n.endsWith('.spec'))
 }

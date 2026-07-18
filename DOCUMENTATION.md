@@ -14,7 +14,7 @@ a graph slice is filtered and capped before it reaches the renderer.
 - **Data tier** - DuckDB in the main process (`@duckdb/node-api`). `read_json`
   ingest; SQL answers the master table, a capped graph slice, and raw records by
   id. The ingest schema and queries are ported from the ARES host-side DuckDB
-  store (`../ARES/tools/ares-mcp`); no Python runtime is bundled.
+  store (`../Anubee/tools/anubee-mcp`); no Python runtime is bundled.
 - **Render tier** - a master table for the full run, then cytoscape.js + ELK
   (layout in a Web Worker) for the focused subgraph. An over-large slice is
   truncated with a prompt to narrow the filter, never drawn as a hairball.

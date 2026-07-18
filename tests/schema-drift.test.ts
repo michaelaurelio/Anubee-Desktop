@@ -6,7 +6,7 @@ import { SYSCALL_KEYS, BACKTRACE_KEYS, FUNCS_KEYS, CFI_STACK_KEYS, CFI_BACKTRACE
 // The syscall emitter in the sibling ARES checkout. Not a build dependency -
 // only read here to guard the vendored contract. Absent → skip (CI without the
 // sibling still passes).
-const EMITTER = resolve(__dirname, '../../ARES/src/syscalls/syscalls.c')
+const EMITTER = resolve(__dirname, '../../Anubee/src/syscalls/syscalls.c')
 const present = existsSync(EMITTER)
 
 // Extract the quoted JSON keys emitted inside the json_emit() function body.
@@ -42,13 +42,13 @@ describe('schema drift: vendored contract vs ARES emitter', () => {
 
 if (!present) {
   // Surfaced in the runner output so a skipped guard is visible, not silent.
-  console.warn(`[schema-drift] ../ARES not found at ${EMITTER} - drift checks skipped.`)
+  console.warn(`[schema-drift] ../Anubee not found at ${EMITTER} - drift checks skipped.`)
 }
 
 // The funcs emitter in the sibling ARES checkout. Not a build dependency -
 // only read here to guard the vendored contract. Absent → skip (CI without
 // the sibling still passes).
-const FUNCS_EMITTER = resolve(__dirname, '../../ARES/src/funcs/funcs_emit.c')
+const FUNCS_EMITTER = resolve(__dirname, '../../Anubee/src/funcs/funcs_emit.c')
 const funcsPresent = existsSync(FUNCS_EMITTER)
 
 function funcsEmittedKeys(): Set<string> {
@@ -66,7 +66,7 @@ describe('schema drift: funcs emitter', () => {
 })
 
 // The cfi_stack emitter lives in ARES's symbolize.c (ares_emit_cfi_stack_json).
-const CFI_EMITTER = resolve(__dirname, '../../ARES/src/common/symbolize.c')
+const CFI_EMITTER = resolve(__dirname, '../../Anubee/src/common/symbolize.c')
 const cfiPresent = existsSync(CFI_EMITTER)
 
 function cfiEmittedKeys(): Set<string> {
@@ -89,9 +89,9 @@ describe('schema drift: cfi_stack emitter', () => {
   })
 })
 
-const LIB_EMITTER = resolve(__dirname, '../../ARES/src/common/lib_trace.c')
+const LIB_EMITTER = resolve(__dirname, '../../Anubee/src/common/lib_trace.c')
 const libPresent = existsSync(LIB_EMITTER)
-const DUMP_EMITTER = resolve(__dirname, '../../ARES/src/dump/dump_emit.c')
+const DUMP_EMITTER = resolve(__dirname, '../../Anubee/src/dump/dump_emit.c')
 const dumpPresent = existsSync(DUMP_EMITTER)
 
 function keysIn(path: string): Set<string> {

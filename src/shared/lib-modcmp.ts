@@ -1,5 +1,5 @@
 // Pure parser for ares dump --check's {"type":"modcmp",...} records (Phase 1
-// emitter: ../ARES/src/dump/dump_emit.h). Shared by the main-process check path
+// emitter: ../Anubee/src/dump/dump_emit.h). Shared by the main-process check path
 // and the renderer's tag logic; no Electron, no fs.
 import type { ModcmpState, Modcmp } from './native-lib'
 

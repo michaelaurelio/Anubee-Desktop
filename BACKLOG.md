@@ -89,7 +89,7 @@ below.
 ### Known drawbacks / follow-ups
 - The on-demand Verify control is minimal (live-only, no selection-aware placement); its polished home is the view header, planned for Phase 4 (spec 7.1).
 - `DT_TEXTREL` / JIT libraries legitimately read `MODIFIED` - the honest cost of naming the observation rather than an inferred cause. Documented, not worked around.
-- The real `clean -> differ` (unpacking) transition is not proven end-to-end on a device: no self-modifying / packed fixture exists in `../ARES-Detector`. Host tests cover the differ path on synthetic images; the device pass proves only `match`. Same gap as Phases 1/2.
+- The real `clean -> differ` (unpacking) transition is not proven end-to-end on a device: no self-modifying / packed fixture exists in `../Anubee-Detector`. Host tests cover the differ path on synthetic images; the device pass proves only `match`. Same gap as Phases 1/2.
 - The GUI end-to-end path (badges rendering in the running Electron app, the Verify button, the 300ms debounce timing) is unit-tested only, never driven through Electron. The device pass above was CLI-level. Same carry-forward as Phase 2.
 - `startLive` eagerly `mkdir -p`'s the check device dir up front; `checkByBases`'s first slice `mkdir -p`'s the same dir again internally. Redundant but harmless - `mkdir -p` is idempotent.
 - The Verify control stays visible after the stream stops (its `hidden` gate is `source !== 'live'`, not streaming state); a click on a stopped-but-still-Live table hits the `nativelib:verify` early return (`liveCheckDir` is nulled at teardown) and silently does nothing - no log line, no feedback. Cosmetic; the control's streaming-aware placement is Phase 4's job (spec 7.1).
@@ -626,9 +626,9 @@ Design reference: overall spec §13.
   (flame naturally at 12,347 tree nodes, graph via a forced low cap). Retune
   only if a future run shows focused subgraphs approaching the ceiling.
 - **Schema-drift test robustness** - `tests/schema-drift.test.ts` scrapes quoted
-  keys from `../ARES/src/syscalls/syscalls.c`. If the emitter is refactored to
+  keys from `../Anubee/src/syscalls/syscalls.c`. If the emitter is refactored to
   build keys non-literally, the scrape breaks - revisit to parse `trace_schema.h`
-  instead. Test must skip cleanly when `../ARES` is absent.
+  instead. Test must skip cleanly when `../Anubee` is absent.
 
 ## Shipped this session (feature 9 - tracer control)
 - **9** Tracer control over adb (launch → capture → auto-load) - `tracer-caps`
@@ -676,7 +676,7 @@ repopulated in place via `applySpecChoices` on every specs-dir edit.
   the sidecar); native off-device unwinding would need a separate unwinder.
 - **`trace` capability argv is rejected by ares.** The `trace` cap builds
   `trace -P <pkg> -F <spec>`, but the real `trace` engine
-  (`../ARES/src/trace/trace_args.c`) accepts only `-P/-p/-A/-o` plus section
+  (`../Anubee/src/trace/trace_args.c`) accepts only `-P/-p/-A/-o` plus section
   delimiters (`--syscalls`, `--funcs`, `--lib`, `--dump`, `--correlate`) at top
   level; a top-level `-F` is an unknown-arg parse error. Rebuild the `trace` cap
   as a section-based builder (e.g. `--funcs -F <spec>`). Until then `trace` runs

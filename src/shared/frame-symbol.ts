@@ -1,5 +1,5 @@
 // Parse a backtrace `symbol` string into module/symbol/offset.
-// Grammar from ../ARES/src/common/symbolize.c:
+// Grammar from ../Anubee/src/common/symbolize.c:
 //   module!name+0xNN | module+0xNN | [anon]+0xNN | bare 0x<hex> [note]
 // `module` may be an APK-embedded path "base.apk -> inner.so" (the " -> " stays).
 // `module` is null only for a bare-address (unresolved) frame.

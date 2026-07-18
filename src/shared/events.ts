@@ -1,4 +1,4 @@
-// Event-schema types, verified against ../ARES/src/syscalls/syscalls.c json_emit
+// Event-schema types, verified against ../Anubee/src/syscalls/syscalls.c json_emit
 // (L603-689). Field names are the contract - the schema-drift test (Task 4)
 // guards them. Do not rename without updating the contract.
 
@@ -11,7 +11,7 @@ export interface BacktraceFrame {
 
 // One frame of a cfi_stack record's ordered CFI walk. `kind` tags the frame so
 // the graph can place managed vs native vs the interpreter boundary in true order
-// - verified against ../ARES/src/common/symbolize.c ares_emit_cfi_stack_json.
+// - verified against ../Anubee/src/common/symbolize.c ares_emit_cfi_stack_json.
 export interface CfiFrame {
   frame: number
   addr: string
@@ -64,7 +64,7 @@ export interface CoverageEvent {
 }
 
 // `ares funcs` native call/return records - verified against
-// ../ARES/src/funcs/funcs_emit.c (funcs_emit_call/funcs_emit_return). Unlike
+// ../Anubee/src/funcs/funcs_emit.c (funcs_emit_call/funcs_emit_return). Unlike
 // SyscallEvent's backtrace (caller frames only), FuncEvent.backtrace's frame 0
 // is the called function itself (module/symbol/entry_addr name it directly).
 export interface FuncEvent {

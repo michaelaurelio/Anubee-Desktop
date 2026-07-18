@@ -9,7 +9,7 @@ npm run build
 ```
 
 The DuckDB store and integration suites run the real DuckDB (no Electron). The
-schema-drift test reads `../ARES` when present and skips cleanly when it is not.
+schema-drift test reads `../Anubee` when present and skips cleanly when it is not.
 
 ## GUI screenshot review (giving the agent "eyes")
 

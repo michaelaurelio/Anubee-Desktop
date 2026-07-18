@@ -37,7 +37,7 @@ export interface ElfInfo {
   arch: string | null // 'arm64' | 'arm' | 'x86_64' | 'x86' | 'e_machine 0x..'
 }
 
-// One record of the dump manifest (dump_emit_module in ../ARES/src/dump/dump_emit.c).
+// One record of the dump manifest (dump_emit_module in ../Anubee/src/dump/dump_emit.c).
 export interface DumpManifest {
   type: 'dump'
   module: string

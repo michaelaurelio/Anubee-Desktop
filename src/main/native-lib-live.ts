@@ -97,7 +97,7 @@ const CHECK_BASE_CAP = 64
 // Run one batched check, pull check.jsonl, parse its modcmp records. --now
 // exits 0 on success and non-zero on real failure, so code !== 0 is a correct
 // error test. An empty result (nothing matched) is NOT an error - it returns
-// []. `-o` opens with fopen(path, "w") on the device (../ARES/src/common/emit.c),
+// []. `-o` opens with fopen(path, "w") on the device (../Anubee/src/common/emit.c),
 // which TRUNCATES: a device write from an earlier pass is gone once a later
 // pass starts. Above the 64-base cap, bases are processed in slices, and each
 // slice's run+pull+parse completes in full before the next slice's device pass
