@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chainOf, foldEvents, labelForId, capSlice, mergeGraphs, nativeNodeId, chainOfFunc, foldFuncEvents, chainOfCfi } from '@shared/graph-shape'
+import { chainOf, foldEvents, labelForId, capSlice, mergeGraphs, nativeNodeId, chainOfFunc, foldFuncEvents, chainOfCfi, coOccur } from '@shared/graph-shape'
 import type { SyscallEvent, FuncEvent, CfiFrame } from '@shared/events'
 
 function syscall(over: Partial<SyscallEvent> = {}): SyscallEvent {
@@ -285,5 +285,35 @@ describe('chainOfCfi', () => {
       'nat:libandroid.so!Specialize',
       'fn:libexample.so!checkRoot',
     ])
+  })
+})
+
+describe('coOccur', () => {
+  // J1 -> T -> S1 and J2 -> T -> S2, sharing the native trampoline T.
+  const j1 = syscall({ id: 1, java_stack: ['com.example.A.a'],
+    backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!tramp+0x4' }], syscall: 'openat' })
+  const j2 = syscall({ id: 2, java_stack: ['com.example.B.b'],
+    backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!tramp+0x4' }], syscall: 'read' })
+
+  it('a syscall lights only the chain that reaches it, not the shared sibling', () => {
+    const r = coOccur([j1, j2], 'sys:openat')
+    expect([...r.nodes].sort()).toEqual(['java:com.example.A.a', 'nat:libexample.so!tramp', 'sys:openat'])
+    expect([...r.edges].sort()).toEqual(['java:com.example.A.a=>nat:libexample.so!tramp', 'nat:libexample.so!tramp=>sys:openat'])
+  })
+
+  it('the shared native node lights both branches', () => {
+    const r = coOccur([j1, j2], 'nat:libexample.so!tramp')
+    expect([...r.nodes].sort()).toEqual([
+      'java:com.example.A.a', 'java:com.example.B.b', 'nat:libexample.so!tramp', 'sys:openat', 'sys:read'])
+  })
+
+  it('a java node lights its own subtree only', () => {
+    const r = coOccur([j1, j2], 'java:com.example.A.a')
+    expect([...r.nodes].sort()).toEqual(['java:com.example.A.a', 'nat:libexample.so!tramp', 'sys:openat'])
+    expect([...r.nodes]).not.toContain('java:com.example.B.b')
+  })
+
+  it('a node absent from every chain lights nothing', () => {
+    expect(coOccur([j1], 'sys:read')).toEqual({ nodes: [], edges: [] })
   })
 })

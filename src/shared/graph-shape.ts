@@ -212,6 +212,30 @@ export function foldEvents(events: SyscallEvent[], cap?: number): GraphSlice {
   return capSlice([...nodes.values()], [...edges.values()], events.length, cap)
 }
 
+// The set of nodes and edges lying on any event chain that passes through
+// `nodeId` - the co-occurrence oracle the highlightSets SQL must match. Unlike a
+// topological neighbourhood over the folded graph, this is faithful to the real
+// backtraces: a shared native node (JNI trampoline) does not leak sibling
+// branches in, because a chain is only counted when it actually contains nodeId.
+export interface HighlightSets {
+  nodes: string[]
+  edges: string[]
+}
+
+export function coOccur(events: SyscallEvent[], nodeId: string): HighlightSets {
+  const nodes = new Set<string>()
+  const edges = new Set<string>()
+  for (const e of events) {
+    const chain = chainOf(e)
+    if (!chain.some(c => c.id === nodeId)) continue
+    for (let i = 0; i < chain.length; i++) {
+      nodes.add(chain[i].id)
+      if (i > 0) edges.add(`${chain[i - 1].id}=>${chain[i].id}`)
+    }
+  }
+  return { nodes: [...nodes], edges: [...edges] }
+}
+
 // Combine node/edge sets from multiple sources (the syscall SQL path + each
 // engine adapter, in graph-store.ts's slice()) into one id-deduplicated set,
 // summing counts when two sources agree on the same node/edge id. The shared
