@@ -596,10 +596,10 @@ export class GraphStore {
   // The nodes and edges on every filtered chain that passes through `nodeId` -
   // the data behind the graph's backtrace-accurate highlight. Reuses the exact
   // chain CTE slice() folds (SYS_/FUNCS_CHAIN_SEL, CFI-aware) and unions both
-  // engines the same way, so the lit set is a faithful subset of the rendered
-  // graph, never a topological over-reach through a shared native node. `nodeId`
-  // is bound, not inlined. Output is bounded by the (capped) slice's node/edge
-  // count, so no limit argument is needed.
+  // engines the same way, so the lit set is faithful to the real backtraces of
+  // the rendered graph, never a topological over-reach through a shared native
+  // node (it is uncapped, so by id it may exceed the capped slice; the renderer
+  // only lights ids present on canvas). `nodeId` is bound, not inlined.
   async highlightSets(nodeId: string, filter: Filter = {}, runId?: number): Promise<HighlightSets> {
     const rid = this.resolveRun(runId)
     const { where, params } = filterToSql(filter)

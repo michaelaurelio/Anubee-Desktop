@@ -89,7 +89,7 @@ const cy = cytoscape({
     // edge should recede, and its triangle arrowhead - which scales with edge width
     // and the (high) zoom of a small subgraph - was rendering as a large grey blob.
     { selector: 'edge.dimmed', style: { 'target-arrow-shape': 'none', 'width': 1 } },
-    // Edges read grey by default; the selected node's fan-in/out lights them
+    // Edges read grey by default; the selected node's backtrace chain lights them
     // brightly so a single click clearly connects the chain.
     { selector: 'edge.highlighted', style: {
       'line-color': tc.labelText, 'target-arrow-color': tc.labelText,
