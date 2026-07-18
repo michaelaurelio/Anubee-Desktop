@@ -17,13 +17,13 @@
         --font: 13px/1.45 'Inter', system-ui, sans-serif;
         --mono: 'JetBrains Mono', ui-monospace, "SF Mono", Menlo, monospace;
       }
-      /* Brand palette: war red #C8322B, night #131316, bone #F5F3EE. Chrome maps to
+      /* Brand palette: logo gold #C9A24A, night #0F0E11, bone #F5F3EE. Chrome maps to
          these; kind + RASP colors reharmonized into a warm family, still separable. */
       :root[data-theme="dark"] {
         --surface: #0f0e11; --panel: #16151a; --panel-2: #1c1a20; --bar: #211f26;
         --border: #322e38; --border-soft: #29262f;
         --text: #e7e3d9; --muted: #97918a; --stripe: #1a181e; --hover: #23202a;
-        --accent: #c8322b; --accent-bd: #d8443b; --accent-soft: #c8322b33; --accent-fg: #f08a80;
+        --accent: #c9a24a; --accent-bd: #d8b05a; --accent-soft: #c9a24a26; --accent-fg: #e0be6a; --accent-ink: #17140d;
         --k-java: #8fbe7a; --k-native: #7fa0c8; --k-syscall: #e8845c; --k-func: #e0a94a;
         --warn-bg: #3a2f12; --warn-bd: #5c4a1a; --warn-fg: #e8c977;
         --input-bg: #0f0e11; --input-bd: #322e38;
@@ -35,7 +35,7 @@
         --surface: #f5f3ee; --panel: #fbfaf6; --panel-2: #f1eee7; --bar: #ede9e0;
         --border: #dcd6c9; --border-soft: #e8e3d8;
         --text: #201e1b; --muted: #6e675c; --stripe: #f2efe8; --hover: #f6ecea;
-        --accent: #c8322b; --accent-bd: #b02a24; --accent-soft: #f6e7e5; --accent-fg: #c8322b;
+        --accent: #b0812e; --accent-bd: #9a6f24; --accent-soft: #f2e6cf; --accent-fg: #8a6417; --accent-ink: #17140d;
         --k-java: #4f8a3f; --k-native: #3c6e9e; --k-syscall: #c25a34; --k-func: #b07c1e;
         --warn-bg: #fff3cd; --warn-bd: #ffe08a; --warn-fg: #7a5c00;
         --input-bg: #fbfaf6; --input-bd: #dcd6c9;
@@ -57,7 +57,7 @@
       .btn { background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
              padding: 4px 10px; border-radius: 5px; cursor: pointer; }
       .btn:hover { background: var(--hover); }
-      .btn.pri { background: var(--accent); border-color: var(--accent-bd); color: #fff; }
+      .btn.pri { background: var(--accent); border-color: var(--accent-bd); color: var(--accent-ink); }
 
       /* rail */
       #rail { position:absolute; top:0; bottom:0; left:0; width:46px; background:var(--bar);
@@ -67,7 +67,7 @@
       /* mark pinned at 12px (== the 46px collapsed rail's centered inset) in both
          states, so switching width never re-aligns it - only the wordmark grows */
       #rail .brand { display:flex; align-items:center; justify-content:flex-start; padding:4px 0 10px 12px; }
-      #rail .brand svg { width:22px; height:22px; fill:var(--accent); flex:0 0 auto; }
+      #rail .brand .brand-logo { width:22px; height:22px; flex:0 0 auto; }
       /* wordmark collapses to zero width so it never pushes the mark off the clipped rail */
       #rail .brand .wordmark { font-weight:700; letter-spacing:.16em; font-size:15px; color:var(--text);
         white-space:nowrap; max-width:0; margin-left:0; opacity:0; overflow:hidden;
@@ -175,7 +175,7 @@
       #graph-empty .ge-title { color:var(--text); font-size:14px; }
       #graph-empty .ge-sub { font-size:12px; }
       #ingest-progress.hidden { display: none; }
-      #ingest-progress #ingest-bar { height: 4px; background: var(--accent, #c8322b); width: 0%;
+      #ingest-progress #ingest-bar { height: 4px; background: var(--accent, #c9a24a); width: 0%;
         border-radius: 2px; transition: width 0.1s linear; }
       #ingest-progress #ingest-pct { font-size: 11px; color: var(--muted, #7f8ba0); }
 
@@ -210,7 +210,7 @@
       .cap-section-hd { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
         color: var(--muted); display: flex; align-items: center; gap: 7px; margin-top: 4px; }
       .cap-n { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;
-        border-radius: 50%; background: var(--accent, #c8322b); color: #fff; font-size: 10px; font-weight: 700; }
+        border-radius: 50%; background: var(--accent, #c9a24a); color: var(--accent-ink); font-size: 10px; font-weight: 700; }
       #capture-run-row { display: flex; gap: 8px; align-items: center; }
       .path-dot { font-size: 13px; width: 12px; display: inline-block; text-align: center; }
       .cap-input-err { display: block; font-size: 11px; color: var(--k-syscall); min-height: 14px; }
@@ -435,7 +435,7 @@
       .cs-mode-label { font-size:9px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:2px 0 5px; }
       .seg.cs-mode { display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-bottom:8px; }
       .seg.cs-mode .btn { border:0; border-radius:0; text-transform:capitalize; }
-      .seg.cs-mode .btn.on { background:var(--accent); color:#fff; }
+      .seg.cs-mode .btn.on { background:var(--accent); color:var(--accent-ink); }
       .col-row .lock-ic { width:13px; height:13px; margin-left:auto; fill:none; stroke:var(--muted); stroke-width:2; }
 
       /* uniform rows + structured cells */
@@ -479,7 +479,7 @@
       #libs .lib-live { margin-left:auto; display:flex; gap:6px; align-items:center; }
       #libs .lib-seg { display:flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; font-size:11px; }
       #libs .lib-seg button { background:transparent; border:0; color:var(--muted); padding:3px 10px; cursor:pointer; }
-      #libs .lib-seg button.on { background:var(--accent); color:#fff; }
+      #libs .lib-seg button.on { background:var(--accent); color:var(--accent-ink); }
       #libs .lib-stat { display:flex; align-items:center; gap:14px; height:30px; padding:0 12px; font-size:11px; color:var(--muted); border-top:1px solid var(--border-soft); }
       #libs .lib-stat .mod { color:var(--k-func); }
       #libs .lib-selbar { display:flex; align-items:center; gap:8px; height:34px; padding:0 12px; font-size:11px; background:var(--accent-soft); border-top:1px solid var(--accent-bd); }
@@ -560,7 +560,7 @@
     </defs></svg>
 
     <nav id="rail">
-      <span class="brand" title="Anubee"><svg viewBox="0 0 100 100" aria-label="Anubee"><path fill-rule="evenodd" d="M50 4 L80 82 L92 92 L66 92 L60 78 L40 78 L34 92 L8 92 L20 82 Z M50 34 L60 62 L40 62 Z M46 70 L54 70 L54 92 L46 92 Z"/></svg><span class="wordmark">Anubee</span></span>
+      <span class="brand" title="Anubee"><img class="brand-logo" src="./assets/logo.svg" width="22" height="22" alt="Anubee" /><span class="wordmark">Anubee</span></span>
       <button id="tab-graph" class="rail-item on" title="Graph"><svg class="ic" viewBox="0 0 24 24"><use href="#i-graph"/></svg><span class="lbl">Graph</span></button>
       <button id="tab-flame" class="rail-item" title="Flame"><svg class="ic" viewBox="0 0 24 24"><use href="#i-flame"/></svg><span class="lbl">Flame</span></button>
       <button id="tab-libs" class="rail-item" title="Libraries"><svg class="ic" viewBox="0 0 24 24"><use href="#i-lib"/></svg><span class="lbl">Libraries</span></button>

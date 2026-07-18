@@ -323,16 +323,25 @@ constants that had drifted across those three call sites. The graph's label
 backing color switches with the theme so node labels stay legible against
 both the dark and light canvas.
 
-**Brand palette.** The chrome tokens map to the Anubee logo: war red `#C8322B`
-accent, a warm near-black *night* surface ramp (dark), and a *bone* `#F5F3EE`
-surface ramp (light) - replacing the earlier cool blue-accent scheme. The four
+**Brand palette.** The chrome tokens map to the Anubee logo: an amber-gold
+accent - `--accent` `#c9a24a` (dark) / `#b0812e` (light) - a warm near-black
+*night* surface ramp (dark), and a *bone* `#F5F3EE` surface ramp (light),
+replacing the earlier war-red accent. A companion `--accent-ink` token
+(`#17140d`, same value both themes) is the text color for anything filled
+solid with `--accent`: primary buttons (`.btn.pri`), the capture form's
+numbered section badge (`.cap-n`), and the segmented-button active state
+(call-site stacked/split toggle, Libraries Loaded/Live toggle) - the pale
+`--accent-fg` tone used elsewhere for accent-colored text reads fine on the
+surface background but loses contrast sitting on top of solid gold. The four
 kind colors are reharmonized into a warm family that stays separable while
-sitting under the red accent: java sage, native slate-blue, syscall terracotta
+sitting under the accent: java sage, native slate-blue, syscall terracotta
 (moved off pure red so it does not collide with the accent), func amber; the
-RASP category colors follow the same warming. The `A`-mark logo renders as an
-inline SVG path in the left-rail `.brand` slot (war-red fill via `--accent`).
-The window/taskbar icon is `build/icon.png` (electron-builder auto-detects it;
-`src/main` also sets it on the dev `BrowserWindow` when present).
+RASP category colors follow the same warming - semantic colors (kind/RASP/warn)
+are otherwise unchanged by the gold recolor. The rail brand mark (`.brand-logo`
+in the left-rail `.brand` slot) renders the vendored `assets/logo.svg` as an
+`<img>`, replacing the earlier inline-SVG `A`-mark path. The window/taskbar
+icon is `build/icon.png` (electron-builder auto-detects it; `src/main` also
+sets it on the dev `BrowserWindow` when present).
 
 The bottom-pinned toggle (`#theme-toggle`) is **rail-aware**: while the left
 rail is collapsed it shows a single `.theme-mini` glyph of the *current* theme
@@ -340,6 +349,25 @@ rail is collapsed it shows a single `.theme-mini` glyph of the *current* theme
 rail expands it and reveals the full sliding `.theme-pill` (moon + sun + knob)
 and its label. `updateThemePill()` keeps both the pill's knob and the collapsed
 mini glyph pointing at the active theme.
+
+### Startup splash
+
+On launch, `src/main/index.ts` opens a small frameless, transparent,
+always-on-top `BrowserWindow` (`src/renderer/splash.html`, a second
+electron-vite renderer entry alongside `index.html`) showing the logo, the
+`ANUBEE` wordmark, and an indeterminate gold progress bar, while the main
+window loads behind it. The main window stays hidden (`show: false`) until
+its `ready-to-show` fires; the splash is then held for a minimum of ~600ms
+from when it first appeared (`Math.max(0, 600 - elapsed)`) so a fast load
+doesn't flash-and-vanish, after which the main window shows and the splash
+closes. Setting `ANUBEE_NO_SPLASH` skips both the splash window and the
+minimum-display wait, showing the main window immediately - used by the
+screenshot harness and E2E runs so the first window Playwright attaches to
+is the main window, not the splash.
+
+**Limitation.** The splash's progress bar is a purely decorative CSS
+animation (indeterminate) - it is not wired to real DuckDB ingest progress;
+see `BACKLOG.md`.
 
 ### Graph zoom
 

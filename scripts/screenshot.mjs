@@ -22,7 +22,7 @@ const userDataDir = mkdtempSync(resolve(tmpdir(), 'anubee-desktop-shots-'))
 
 const app = await electron.launch({
   args: [resolve(root, 'out/main/index.js'), '--no-sandbox', '--disable-gpu', `--user-data-dir=${userDataDir}`],
-  env: { ...process.env, ANUBEE_OPEN_FILE: fixture },
+  env: { ...process.env, ANUBEE_OPEN_FILE: fixture, ANUBEE_NO_SPLASH: '1' },
 })
 
 const win = await app.firstWindow()
@@ -409,7 +409,7 @@ const libFixture = resolve(root, 'tests/fixtures/lib-sample.jsonl')
 const libUserDataDir = mkdtempSync(resolve(tmpdir(), 'anubee-desktop-shots-libs-'))
 const libApp = await electron.launch({
   args: [resolve(root, 'out/main/index.js'), '--no-sandbox', '--disable-gpu', `--user-data-dir=${libUserDataDir}`],
-  env: { ...process.env, ANUBEE_OPEN_FILE: libFixture },
+  env: { ...process.env, ANUBEE_OPEN_FILE: libFixture, ANUBEE_NO_SPLASH: '1' },
 })
 const libWin = await libApp.firstWindow()
 await libWin.setViewportSize({ width: 1400, height: 900 })
