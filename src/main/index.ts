@@ -115,15 +115,26 @@ function createWindow(): void {
   else win.loadFile(resolve(__dirname, '../renderer/index.html'))
 
   if (!noSplash) {
+    // One-shot reveal: whichever path fires first (normal ready-to-show, or the
+    // safety net below) shows the main window and tears down the splash; the
+    // settled flag keeps the loser a no-op. isDestroyed guards a win closed
+    // before reveal.
+    let settled = false
+    const revealMain = (): void => {
+      if (settled) return
+      settled = true
+      if (!win.isDestroyed()) win.show()
+      splash?.close()
+      splash = null
+    }
     win.once('ready-to-show', () => {
       // Keep the splash up at least 600ms so a fast load doesn't flash-and-vanish.
       const wait = Math.max(0, 600 - (Date.now() - splashShownAt))
-      setTimeout(() => {
-        win.show()
-        splash?.close()
-        splash = null
-      }, wait)
+      setTimeout(revealMain, wait)
     })
+    // Safety net: if the renderer never reaches ready-to-show (load failure),
+    // don't strand the user on the splash - force the main window through.
+    setTimeout(revealMain, 8000)
   }
 
   win.on('close', e => {
