@@ -3,6 +3,33 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-18) - Startup splash + gold brand accent
+
+A frameless logo splash window (`src/renderer/splash.html`) shows on launch
+while the main window loads behind it, held for a ~600ms minimum so a fast
+load doesn't flash-and-vanish; `ANUBEE_NO_SPLASH` skips it for the screenshot
+harness/E2E. The brand accent moved from war red (`#c8322b`) to the logo's
+amber-gold (`--accent` `#c9a24a` dark / `#b0812e` light), with a new
+`--accent-ink` (`#17140d`) token for text on solid-gold fills (primary
+buttons, the capture form's section badge, segmented-button active states).
+The rail brand mark is now the vendored `assets/logo.svg` image rather than
+the earlier inline-SVG `A`-mark. Semantic colors (kind/RASP/warn) are
+unchanged. See `DOCUMENTATION.md`'s "Startup splash" and "Theme" sections.
+
+### Known drawbacks / follow-ups
+- **Splash progress bar is indeterminate.** It's a decorative CSS animation,
+  not wired to real DuckDB ingest progress - a long first load gives no
+  signal of how far along it is. Wire it to the same `onProgress` events that
+  drive the empty-state ingest bar.
+- **Full logo reads soft/muddy at the 22px rail size.** The rail brand mark
+  scales the full `assets/logo.svg` down to 22px, where the mark's fine detail
+  doesn't hold up at that size.
+  Draw a purpose-simplified small jackal mark for the rail (and any other
+  sub-24px use) instead of scaling the full logo.
+- **Wordmark still sets in Inter.** "Anubee" in the rail brand slot and the
+  splash card uses the same Inter font as the rest of the UI; a dedicated
+  Anubee logotype/font for the wordmark is deferred.
+
 ## Shipped (2026-07-17) - Native Libraries live-device fixes + Anubee rename
 
 Fixed the "Live device" mode end to end. Two fixes live in the tracer
