@@ -103,4 +103,7 @@ describe('filterToSql', () => {
     expect(r.where).toContain('syscall IN (?)')
     expect(r.params).toEqual(['openat'])
   })
+  it('tag.exist:no with an all-empty tagTargets matches everything (NOT FALSE)', () => {
+    expect(filterToSql({ tagged: 'no', tagTargets: { syscalls: [], natFrames: [], javaMethods: [] } })).toEqual({ where: 'NOT FALSE', params: [] })
+  })
 })

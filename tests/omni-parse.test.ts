@@ -44,6 +44,13 @@ describe('matchToken — dotted grammar', () => {
     expect(matchToken('fn.bogus:x')).toBeNull()
     expect(matchToken('syscall:')).toBeNull()
   })
+  it('unquotes a quoted value', () => {
+    expect(matchToken('stack.sym:"a b"')).toEqual({ key: 'stack.sym', value: 'a b' })
+  })
+  it('treats an unterminated quote as free text', () => {
+    expect(matchToken('stack.sym:"a')).toBeNull()
+    expect(matchToken('stack.sym:"')).toBeNull()
+  })
 })
 
 describe('filterFromParts — field mapping', () => {
