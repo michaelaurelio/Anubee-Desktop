@@ -727,3 +727,39 @@ describe('GraphStore.highlightSets', () => {
       'java:com.example.A.a', 'java:com.example.B.b', 'nat:libexample.so!tramp', 'sys:openat', 'sys:read'])
   })
 })
+
+describe('GraphStore.recordChain', () => {
+  it('returns the selected syscall record\'s own chain, matching the fold oracle', async () => {
+    store = new GraphStore()
+    const p = fixture()
+    await store.ingest(p)
+    const r = await store.recordChain(1)
+    // Event id 1: java RootCheck.run -> native check_su -> openat.
+    expect(r.nodes).toContain('sys:openat')
+    expect(r.nodes).toContain('java:com.example.app.RootCheck.run')
+    expect(r.nodes).toContain('nat:libexample.so!check_su')
+    // Every edge is an adjacent pair present in the folded slice.
+    const slice = await store.slice({}, undefined)
+    const sliceNodeIds = new Set(slice.nodes.map(n => n.id))
+    const sliceEdgeIds = new Set(slice.edges.map(e => e.id))
+    for (const n of r.nodes) expect(sliceNodeIds.has(n)).toBe(true)
+    for (const e of r.edges) expect(sliceEdgeIds.has(e)).toBe(true)
+  })
+
+  it('returns empty sets for an unknown id', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    expect(await store.recordChain(9999)).toEqual({ nodes: [], edges: [] })
+  })
+
+  it('returns a funcs call record\'s chain on a funcs run', async () => {
+    store = new GraphStore()
+    await store.ingest(funcsFixture())
+    const r = await store.recordChain(1)
+    expect(r.nodes).toContain('fn:libexample.so!checkRoot')
+    // subset of the funcs slice
+    const slice = await store.slice({}, undefined)
+    const ids = new Set(slice.nodes.map(n => n.id))
+    for (const n of r.nodes) expect(ids.has(n)).toBe(true)
+  })
+})

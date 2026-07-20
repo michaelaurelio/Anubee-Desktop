@@ -345,6 +345,7 @@ ipcMain.handle('graph:eventById', (_e, id: number, runId?: number) => store.even
 ipcMain.handle('graph:coverage', (_e, runId?: number) => store.coverage(runId))
 ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter, runId?: number) => store.nodeEvents(nodeId, filter, 500, runId))
 ipcMain.handle('graph:highlightSets', (_e, nodeId: string, filter: Filter, runId?: number) => store.highlightSets(nodeId, filter, runId))
+ipcMain.handle('graph:recordChain', (_e, id: number, runId?: number) => store.recordChain(id, runId))
 ipcMain.handle('graph:nodeOffsets', (_e, nodeId: string, filter: Filter, runId?: number) =>
   store.nodeOffsets(nodeId, filter, runId))
 

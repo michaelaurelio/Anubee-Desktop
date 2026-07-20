@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('anubee', {
     ipcRenderer.invoke('graph:nodeEvents', nodeId, filter, runId),
   highlightSets: (nodeId: string, filter: Filter, runId?: number) =>
     ipcRenderer.invoke('graph:highlightSets', nodeId, filter, runId),
+  recordChain: (id: number, runId?: number) =>
+    ipcRenderer.invoke('graph:recordChain', id, runId),
   nodeOffsets: (nodeId: string, filter: Filter, runId?: number) =>
     ipcRenderer.invoke('graph:nodeOffsets', nodeId, filter, runId),
   suggest: (runId?: number) => ipcRenderer.invoke('rasp:suggest', runId),
