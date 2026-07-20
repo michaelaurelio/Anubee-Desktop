@@ -28,7 +28,8 @@ declare global {
       stackRollup(filter: Filter, maxChains?: number, runId?: number): Promise<StackRollup>
       eventById(id: number, runId?: number): Promise<SyscallEvent | FuncEvent | undefined>
       coverage(runId?: number): Promise<CoverageEvent | undefined>
-      nodeEvents(nodeId: string, filter: Filter, runId?: number): Promise<(SyscallEvent | FuncEvent)[]>
+      nodeEvents(nodeId: string, filter: Filter, page: { limit: number; offset: number }, runId?: number): Promise<(SyscallEvent | FuncEvent)[]>
+      nodeEventCount(nodeId: string, filter: Filter, runId?: number): Promise<number>
       highlightSets(nodeId: string, filter: Filter, runId?: number): Promise<HighlightSets>
       recordChain(id: number, runId?: number): Promise<HighlightSets>
       nodeOffsets(nodeId: string, filter: Filter, runId?: number): Promise<import('@shared/origins').OffsetRow[]>

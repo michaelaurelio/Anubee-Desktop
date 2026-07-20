@@ -1,12 +1,8 @@
-// Floating offset-table popup for a selected native node: one row per call-site
-// offset (offset / syscall / count / expand) and a right-click Copy / Copy-as-JSON
-// menu. Positioned to the right of the node via placePopup. Row-expand is an inline
-// accordion showing that offset's ground-truth event. Tagging is separate now
-// (right-click -> Add Tag popup), not embedded here. See spec Phase 1b s3.2.
+// Floating popup for a selected native node: a read-only per-syscall histogram
+// (syscall / count), one row per distinct syscall reached through the node.
+// Non-interactive - the offset for a specific record is seen in that record's
+// detail card in the inspector. Positioned right of the node via placePopup.
 import type { OffsetRow } from '@shared/origins'
-import { copyText, rowJson } from '@shared/origins'
-import type { SyscallEvent } from '@shared/events'
-import { formatEvent } from './inspector'
 
 export interface NodeBox { left: number; top: number; right: number; bottom: number }
 export interface PopupPlacement { left: number; top: number }
@@ -29,35 +25,31 @@ export function popupState(rows: OffsetRow[]): { kind: 'rows' | 'empty'; rows: O
   return { kind: rows.length ? 'rows' : 'empty', rows }
 }
 
-// The event behind a row's inline expand: the row's representative event
-// (store-chosen via sampleEventId), else the first fetched event.
-export function eventForOffset(events: SyscallEvent[], row: OffsetRow): SyscallEvent | undefined {
-  return events.find(e => e.id === row.sampleEventId) ?? events[0]
+// Fold a node's per-offset rows into a per-syscall histogram: sum counts across
+// offsets that reach the same syscall, ordered by count desc then syscall asc.
+// Pure - unit-tested.
+export function aggregateBySyscall(rows: OffsetRow[]): { syscall: string; count: number }[] {
+  const totals = new Map<string, number>()
+  for (const r of rows) totals.set(r.syscall, (totals.get(r.syscall) ?? 0) + r.count)
+  return [...totals]
+    .map(([syscall, count]) => ({ syscall, count }))
+    .sort((a, b) => b.count - a.count || a.syscall.localeCompare(b.syscall))
 }
 
 let host: HTMLDivElement | undefined
-let menu: HTMLDivElement | undefined
 let onDocDown: ((e: MouseEvent) => void) | undefined
 let onKeyDown: ((e: KeyboardEvent) => void) | undefined
-let onMenuDown: ((e: MouseEvent) => void) | undefined
-
-function closeRowMenu(): void {
-  menu?.remove(); menu = undefined
-  if (onMenuDown) { document.removeEventListener('mousedown', onMenuDown); onMenuDown = undefined }
-}
 
 export function closeOffsetPopup(): void {
   host?.remove(); host = undefined
   if (onDocDown) { document.removeEventListener('mousedown', onDocDown); onDocDown = undefined }
   if (onKeyDown) { document.removeEventListener('keydown', onKeyDown); onKeyDown = undefined }
-  closeRowMenu()
 }
 
 interface ShowOpts {
   nodeId: string
   rows: OffsetRow[]
   anchor: NodeBox // the selected node's on-screen box; the popup sits to its right
-  eventForOffset: (row: OffsetRow) => SyscallEvent | undefined
 }
 
 export function showOffsetPopup(opts: ShowOpts): void {
@@ -81,30 +73,15 @@ export function showOffsetPopup(opts: ShowOpts): void {
   } else {
     const table = document.createElement('div')
     table.className = 'offset-popup-rows'
-    for (const r of state.rows) {
+    for (const r of aggregateBySyscall(state.rows)) {
       const rowEl = document.createElement('div')
       rowEl.className = 'offset-row'
       const line = document.createElement('div')
       line.className = 'offset-row-line'
-      const off = document.createElement('span'); off.className = 'offset-cell'; off.textContent = r.offset
       const reaches = document.createElement('span'); reaches.className = 'reaches-cell'; reaches.textContent = r.syscall
       const cnt = document.createElement('span'); cnt.className = 'count-cell'; cnt.textContent = String(r.count)
-      line.append(off, reaches, cnt)
-      const detail = document.createElement('pre')
-      detail.className = 'offset-row-detail'
-      detail.style.display = 'none'
-      detail.style.whiteSpace = 'pre-wrap'
-      line.onclick = () => {
-        const open = detail.style.display !== 'none'
-        table.querySelectorAll('pre.offset-row-detail').forEach(p => ((p as HTMLElement).style.display = 'none'))
-        if (!open) {
-          const ev = opts.eventForOffset(r)
-          detail.textContent = ev ? formatEvent(ev) : '(no sample event)'
-          detail.style.display = 'block'
-        }
-      }
-      rowEl.oncontextmenu = e => { e.preventDefault(); openRowMenu(e.clientX, e.clientY, r) }
-      rowEl.append(line, detail)
+      line.append(reaches, cnt)
+      rowEl.append(line)
       table.appendChild(rowEl)
     }
     host.appendChild(table)
@@ -118,24 +95,5 @@ export function showOffsetPopup(opts: ShowOpts): void {
     onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') closeOffsetPopup() }
     document.addEventListener('mousedown', onDocDown)
     document.addEventListener('keydown', onKeyDown)
-  }, 0)
-}
-
-function openRowMenu(x: number, y: number, row: OffsetRow): void {
-  closeRowMenu()
-  menu = document.createElement('div')
-  menu.className = 'offset-row-menu'
-  Object.assign(menu.style, { position: 'fixed', left: x + 'px', top: y + 'px', zIndex: '60' })
-  const item = (text: string, fn: () => void) => {
-    const b = document.createElement('div'); b.className = 'offset-menu-item'; b.textContent = text
-    b.onclick = () => { fn(); closeRowMenu() }
-    menu!.appendChild(b)
-  }
-  item('Copy', () => void window.anubee.copyToClipboard(copyText(row)))
-  item('Copy as JSON', () => void window.anubee.copyToClipboard(rowJson(row)))
-  document.body.appendChild(menu)
-  setTimeout(() => {
-    onMenuDown = (e: MouseEvent) => { if (menu && !menu.contains(e.target as Node)) closeRowMenu() }
-    document.addEventListener('mousedown', onMenuDown)
   }, 0)
 }
