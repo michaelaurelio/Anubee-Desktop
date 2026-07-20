@@ -43,6 +43,23 @@ export function filterToSql(f: Filter): { where: string; params: unknown[] } {
     clauses.push('symbol ILIKE ?')
     params.push(`%${f.symbol}%`)
   }
+  if (f.id !== undefined) {
+    if (f.idMax !== undefined) {
+      clauses.push('id BETWEEN ? AND ?')
+      params.push(f.id, f.idMax)
+    } else {
+      clauses.push('id = ?')
+      params.push(f.id)
+    }
+  }
+  if (f.javaMethod) {
+    clauses.push('len(list_filter(coalesce(java_stack, []), x -> x ILIKE ?)) > 0')
+    params.push(`%${f.javaMethod}%`)
+  }
+  if (f.stackSymbol) {
+    clauses.push('len(list_filter(list_transform(backtrace, b -> b.symbol), s -> s ILIKE ?)) > 0')
+    params.push(`%${f.stackSymbol}%`)
+  }
   if (f.tid !== undefined) {
     clauses.push('tid = ?')
     params.push(f.tid)

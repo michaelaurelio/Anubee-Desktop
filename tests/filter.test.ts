@@ -58,4 +58,23 @@ describe('filterToSql', () => {
     expect(where).toContain('symbol ILIKE ?')
     expect(params).toEqual(['%libc%', '%getProp%'])
   })
+
+  it('id exact is a bound equality', () => {
+    expect(filterToSql({ id: 1500 })).toEqual({ where: 'id = ?', params: [1500] })
+  })
+  it('id range is an inclusive BETWEEN', () => {
+    expect(filterToSql({ id: 1500, idMax: 1600 })).toEqual({ where: 'id BETWEEN ? AND ?', params: [1500, 1600] })
+  })
+  it('javaMethod is a bound substring over java_stack frames', () => {
+    const r = filterToSql({ javaMethod: 'onCreate' })
+    expect(r.where).toContain('java_stack')
+    expect(r.where).toContain('ILIKE ?')
+    expect(r.params).toEqual(['%onCreate%'])
+  })
+  it('stackSymbol is a bound substring over backtrace symbols', () => {
+    const r = filterToSql({ stackSymbol: 'checkRoot' })
+    expect(r.where).toContain('backtrace')
+    expect(r.where).toContain('b.symbol')
+    expect(r.params).toEqual(['%checkRoot%'])
+  })
 })
