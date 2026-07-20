@@ -34,10 +34,10 @@ describe('filterToSql', () => {
 
   it('text is bound across syscall, stacks, and all arg fields', () => {
     const r = filterToSql({ text: 'su' })
-    expect(r.params).toEqual(Array(9).fill('%su%'))
+    expect(r.params).toEqual(Array(10).fill('%su%'))
     // The raw user text must be bound, never inlined into the SQL.
     expect(r.where).not.toContain('su')
-    for (const col of ['args', 'string_args', 'fd_args', 'decoded_args', 'sock_args', 'out_args']) {
+    for (const col of ['args', 'string_args', 'fd_args', 'decoded_args', 'sock_args', 'out_args', 'sock_addr']) {
       expect(r.where).toContain(col)
     }
   })

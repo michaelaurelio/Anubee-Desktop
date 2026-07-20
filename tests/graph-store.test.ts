@@ -14,6 +14,7 @@ const LINES = [
   JSON.stringify({ type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 56, syscall: 'openat', args: ['0x1'], retval: 7, string_args: { '1': '/system/bin/su' }, fd_args: {}, decoded_args: {}, stack_id: 11, java_stack: ['com.example.app.RootCheck.run'], backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!check_su+0x10' }] }),
   JSON.stringify({ type: 'syscall', id: 2, pid: 100, tid: 101, syscall_nr: 56, syscall: 'openat', args: ['0x1'], retval: -2, string_args: { '1': '/sbin/magisk' }, fd_args: {}, decoded_args: {}, stack_id: 11, java_stack: ['com.example.app.RootCheck.run'], backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!check_su+0x10' }] }),
   JSON.stringify({ type: 'syscall', id: 3, pid: 100, tid: 202, syscall_nr: 62, syscall: 'read', args: ['0x5'], retval: 128, string_args: {}, fd_args: { '0': '/proc/self/status' }, decoded_args: {}, backtrace: [{ frame: 0, addr: '0x9', symbol: 'libc.so!read+0x8' }] }),
+  JSON.stringify({ type: 'syscall', id: 4, pid: 100, tid: 202, syscall_nr: 203, syscall: 'connect', args: ['0x7b'], retval: -111, string_args: {}, fd_args: { '0': 'fd=123 <anon_inode:[eventfd]>' }, decoded_args: {}, sock_addr: 'unix:@/frida-zymbiote-abc', backtrace: [{ frame: 0, addr: '0x9', symbol: 'libc.so!connect+0x8' }] }),
   JSON.stringify({ type: 'lib', pid: 100, library: 'libexample.so' }),
   '{bad line to prove tolerance}',
 ]
@@ -65,7 +66,7 @@ describe('GraphStore.ingest', () => {
   it('counts syscalls, tolerates the bad line, ignores non-syscall records', async () => {
     store = new GraphStore()
     const r = await store.ingest(fixture())
-    expect(r.eventCount).toBe(3) // 3 syscalls
+    expect(r.eventCount).toBe(4) // 4 syscalls
     expect(r.errors).toBe(1) // the malformed line only (lib is neither event nor error)
   })
 })
@@ -86,7 +87,7 @@ describe('GraphStore.table', () => {
     store = new GraphStore()
     await store.ingest(fixture())
     const rows = await store.table({}, { limit: 100, offset: 0 })
-    expect(rows).toHaveLength(3)
+    expect(rows).toHaveLength(4)
     const r1 = rows.find(r => r.id === 1)!
     expect(r1.hasJava).toBe(true)
     expect(r1.topJava).toBe('com.example.app.RootCheck.run')
@@ -97,12 +98,13 @@ describe('GraphStore.table', () => {
     expect(r3.topJava).toBeNull()
   })
 
-  it('derives a primary arg (string > fd > decoded > raw, empty when none)', async () => {
+  it('derives a primary arg (string > sock_addr > fd > decoded > raw, empty when none)', async () => {
     store = new GraphStore()
     await store.ingest(fixture())
     const rows = await store.table({}, { limit: 100, offset: 0 })
-    expect(rows.find(r => r.id === 1)!.arg).toBe('/system/bin/su')   // string_args
-    expect(rows.find(r => r.id === 3)!.arg).toBe('/proc/self/status') // fd_args
+    expect(rows.find(r => r.id === 1)!.arg).toBe('/system/bin/su')        // string_args
+    expect(rows.find(r => r.id === 3)!.arg).toBe('/proc/self/status')     // fd_args
+    expect(rows.find(r => r.id === 4)!.arg).toBe('unix:@/frida-zymbiote-abc') // sock_addr beats fd_args
   })
 })
 
@@ -110,8 +112,8 @@ describe('GraphStore.count', () => {
   it('counts all matching events regardless of the table page window', async () => {
     store = new GraphStore()
     await store.ingest(fixture())
-    expect(await store.count()).toBe(3) // 3 syscalls; lib + bad line excluded
-    expect(await store.count({ tid: 202 })).toBe(1)
+    expect(await store.count()).toBe(4) // 4 syscalls; lib + bad line excluded
+    expect(await store.count({ tid: 202 })).toBe(2)
     expect(await store.count({ hasJavaStack: true })).toBe(2)
   })
 })
@@ -493,7 +495,7 @@ describe('GraphStore filtering (filterToSql wired end-to-end)', () => {
     store = new GraphStore()
     await store.ingest(fixture())
     expect((await store.table({ hasJavaStack: true }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([1, 2])
-    expect((await store.table({ tid: 202 }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([3])
+    expect((await store.table({ tid: 202 }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([3, 4])
     expect((await store.table({ syscall: 'READ' }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([3])
     expect((await store.table({ library: 'libexample' }, { limit: 100, offset: 0 })).map(r => r.id)).toEqual([1, 2])
   })

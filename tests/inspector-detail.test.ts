@@ -22,4 +22,9 @@ describe('showRecordDetail', () => {
     showRecordDetail(host, ev({ id: 2 }))
     expect(host.querySelectorAll('.insp-head').length).toBe(1)
   })
+  it('renders sock_addr in the detail cards', () => {
+    const host = document.createElement('div')
+    showRecordDetail(host, ev({ syscall: 'connect', sock_addr: 'unix:@/frida-zymbiote-abc' }))
+    expect(host.textContent).toContain('unix:@/frida-zymbiote-abc')
+  })
 })

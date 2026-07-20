@@ -158,7 +158,9 @@ chrome-bar + File-dropdown + segmented switch + separate filter bar.
   `src/renderer/filter-controls.ts`. Free text (anything left after chips are
   pulled out) searches the syscall name, java and native stack frames, and
   every arg field - `args`, `string_args`, `fd_args`, `decoded_args`,
-  `sock_args`, `out_args` - via the `ILIKE` fragment in `filterToSql`
+  `sock_args`, `out_args` - plus the scalar `sock_addr` field (a `connect`
+  record's socket destination, e.g. the Frida abstract socket `@/frida-...`),
+  via the `ILIKE` fragment in `filterToSql`
   (`src/shared/filter.ts`). Limits: one value per key (a second `tid:` chip
   replaces the first, not OR's with it), key-name autocomplete only (no value
   suggestions from the loaded run's data), and no negation or regex grammar.
@@ -1279,6 +1281,9 @@ The right-panel node/record inspector (`src/renderer/inspector.ts` +
   `src/renderer/inspector.ts`). An overlay whose index has no raw `arg[i]`
   slot still renders, as a lone sub-row under that index. Funcs records
   (`funcDetailSections`) keep their own labeled-group Args listing, unchanged.
+  The scalar `sock_addr` field renders as its own trailing row in this card
+  when present (`inspector.ts`), and is `primaryArg`'s fallback right after
+  `string_args` for the master table's arg-column preview.
 - **Backtrace** (`appFrameIndex`, `inspector.ts`) - highlights the innermost
   **non-system** frame (the app's own lib, per the same system-lib skip list
   `nativeTargetOf` uses for suggestion attribution) against the bionic/ART/

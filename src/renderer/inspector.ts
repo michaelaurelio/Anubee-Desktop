@@ -48,6 +48,8 @@ export function formatEvent(e: SyscallEvent): string {
   const fds = Object.entries(e.fd_args)
   if (fds.length) lines.push('fd_args:\n' + fds.map(([k, v]) => `  [${k}] ${v}`).join('\n'))
 
+  if (e.sock_addr) lines.push(`sock_addr:\n  ${e.sock_addr}`)
+
   if (e.java_stack?.length) lines.push('java_stack:\n' + e.java_stack.map(m => `  ${m}`).join('\n'))
 
   lines.push('backtrace:\n' + e.backtrace.map(f => `  #${f.frame} ${f.symbol}`).join('\n'))
@@ -55,11 +57,12 @@ export function formatEvent(e: SyscallEvent): string {
 }
 
 // The single most informative argument for the inspector table's `args` column:
-// the resolved path/string arg if present, else the fd path, else the decoded
-// args, else the raw args. Pure and unit-tested.
+// the resolved path/string arg if present, else the sock_addr, else the fd path,
+// else the decoded args, else the raw args. Pure and unit-tested.
 export function primaryArg(e: SyscallEvent): string {
   const strs = Object.values(e.string_args)
   if (strs.length) return strs.join(' ')
+  if (e.sock_addr) return e.sock_addr
   const fds = Object.values(e.fd_args)
   if (fds.length) return fds.join(' ')
   const dec = Object.values(e.decoded_args)
@@ -93,6 +96,7 @@ export function eventDetailSections(e: SyscallEvent): DetailSection[] {
     ['decoded', e.decoded_args],
     ['fd', e.fd_args],
   ])
+  if (e.sock_addr) argRows.push({ k: 'sock_addr', v: e.sock_addr })
   if (argRows.length) out.push({ title: 'Args', kind: 'kv', rows: argRows })
   if (e.java_stack?.length) out.push({ title: 'Java stack', kind: 'stack', lines: e.java_stack.slice() })
   if (e.backtrace.length) out.push({ title: 'Backtrace', kind: 'stack', lines: e.backtrace.map(f => `#${f.frame} ${f.symbol}`), highlight: appFrameIndex(e.backtrace) })
