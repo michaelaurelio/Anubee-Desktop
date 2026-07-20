@@ -43,6 +43,22 @@ describe('primaryArg', () => {
   })
 })
 
+describe('sock_addr rendering', () => {
+  const conn: SyscallEvent = {
+    type: 'syscall', id: 6, pid: 1, tid: 101, syscall_nr: 203, syscall: 'connect',
+    args: ['0x7b'], retval: -111, string_args: {}, fd_args: { '0': 'fd=123' },
+    decoded_args: {}, sock_addr: 'unix:@/frida-zymbiote-abc',
+    backtrace: [{ frame: 0, addr: '0x1', symbol: 'libc.so!connect+0x8' }],
+  }
+  it('formatEvent includes sock_addr', () => {
+    expect(formatEvent(conn)).toContain('unix:@/frida-zymbiote-abc')
+  })
+  it('primaryArg falls back to sock_addr before fd', async () => {
+    const { primaryArg } = await import('../src/renderer/inspector')
+    expect(primaryArg(conn)).toBe('unix:@/frida-zymbiote-abc')
+  })
+})
+
 const rec: FuncEvent = {
   type: 'call', id: 1, pid: 9, tid: 9, module: 'libexample.so', symbol: 'checkRoot',
   args: ['0xaa'], string_args: { '0': 'ro.debuggable' }, fd_args: {}, sock_args: {},
