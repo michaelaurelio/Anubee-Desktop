@@ -110,14 +110,15 @@ than two disconnected islands. Funcs chains, list, and count all carry the
 `span IS NULL` guard, so span-tagged correlate rows never leak in.
 
 - **Funcs record inspector.** Clicking a funcs graph node lists the `call`
-  records whose chain touches it (`# · caller · retval · elapsed · args`); clicking
-  a list row - or a master-table row - opens that record's full detail (function,
-  tid, caller, retval, `elapsed_ns`, then `args`, `string_args`, `fd_args`,
-  `sock_args`, `out_args`, and the backtrace). A displayed record is the `call`
-  row merged with `retval`/`elapsed_ns`/`out_args` from its paired `return` (shared
-  `id`), joined in SQL by `GraphStore.eventById` / `nodeEvents` (engine-routed,
-  bounded, `span IS NULL`). The ghidra offset popup is syscall-only for now, so
-  node-tap skips it on a funcs run.
+  records whose chain touches it (`# · caller · retval · elapsed · args`), paged
+  in windows of 100 with the same prev/next pager as the syscall inspector;
+  clicking a list row - or a master-table row - opens that record's full detail
+  (function, tid, caller, retval, `elapsed_ns`, then `args`, `string_args`,
+  `fd_args`, `sock_args`, `out_args`, and the backtrace). A displayed record is
+  the `call` row merged with `retval`/`elapsed_ns`/`out_args` from its paired
+  `return` (shared `id`), joined in SQL by `GraphStore.eventById` / `nodeEvents`
+  (engine-routed, bounded, `span IS NULL`). The ghidra offset popup is
+  syscall-only for now, so node-tap skips it on a funcs run.
 
 ## UI shell
 
@@ -1070,28 +1071,32 @@ the tracer's library map.
 
 **Node selection and tagging.** Clicking a native node highlights the nodes and
 edges on its actual backtraces (see "Backtrace-accurate selection highlight"
-below), fills the right inspector panel with the node's filtered syscall
-records (via `nodeEvents` - the syscalls whose backtraces target that node), and
-opens an offset popup positioned to the right of the node; the popup flips to the
-left at the viewport edge via the pure `placePopup` layout helper. Clicking a
-syscall or Java node fills the inspector with the selected node's records only,
-with no offset popup. Each syscall record in the inspector is rendered as
-**sectioned cards** (Summary, Args, Java stack, Backtrace) rather than a flat
-text dump, grouping related details for readability. Tagging is now a single path:
-right-click any node to open a context menu (Copy / Add Tag), select Add Tag to open
-a themed floating tag popup (`showTagPopup`), and confirm to save. Inline tag editors
-were removed from the offset popup and inspector; `renderTagEditor` is re-themed onto
-CSS shell tokens.
+below), fills the right inspector panel with one page of the node's filtered
+syscall records (via `nodeEvents` - the syscalls whose backtraces target that
+node, paged 100 at a time), and opens an offset popup positioned to the right
+of the node; the popup flips to the left at the viewport edge via the pure
+`placePopup` layout helper. Clicking a syscall or Java node fills the inspector
+with the selected node's records only, with no offset popup. Each syscall
+record in the inspector is rendered as **sectioned cards** (Summary, Args, Java
+stack, Backtrace) rather than a flat text dump, grouping related details for
+readability. Tagging is now a single path: right-click any node to open a
+context menu (Copy / Add Tag), select Add Tag to open a themed floating tag
+popup (`showTagPopup`), and confirm to save. Inline tag editors were removed
+from the offset popup and inspector; `renderTagEditor` is re-themed onto CSS
+shell tokens.
 
-**Offset popup.** The offset popup displays a scrollable table of per-call-site
-instruction offsets: each row represents one `(offset, syscall)` pair, showing the
-offset (hex), the count of events at that offset making that specific syscall, and a
-label showing the syscall name. Right-click a row for Copy (to paste into a hex
-editor or ghidra search bar) or Copy-as-JSON (for programmatic handling). The offset
-column is clickable to reveal the exact per-offset event (raw backtrace, syscall, args,
-etc.) via a store-provided sample event id, feeding the analyst's reasoning about
-what the address does. Rows marked `[unmapped]` indicate that the offset could not
-be resolved - see "Module map and unmapped offsets" below.
+**Offset popup.** The offset popup is a read-only per-syscall histogram: rows
+are the node's offset events aggregated *by syscall* (`aggregateBySyscall`,
+`src/renderer/offset-popup.ts`) - one row per distinct syscall reached through
+the node, showing the syscall name and the summed event count, sorted by count
+descending. There is no offset column, no row-click drill-down, and no
+right-click Copy / Copy-as-JSON menu; the popup no longer resolves individual
+events. The per-record instruction offset for a specific event is seen instead
+in that event's own detail card in the inspector (its backtrace frames), once
+the record is selected from the paged records table. Rows marked `[unmapped]`
+in the underlying offset data still fold into the histogram - see "Module map
+and unmapped offsets" below for why an offset (and therefore its syscall total)
+can be unresolved.
 
 **Module map and unmapped offsets.** Offsets resolve to ghidra image-base addresses
 only when the run carries `lib` records, which the Anubee tracer emits whenever it
@@ -1221,9 +1226,16 @@ The right-panel node/record inspector (`src/renderer/inspector.ts` +
 - **Header** (`buildNodeHeader`) - a kind dot (`.insp-kdot.k-<kind>`, colored
   from the same `--k-java` / `--k-native` / `--k-syscall` / `--k-func` tokens
   the graph and flame view use) beside the kind-colored node name
-  (`.insp-head-nm.k-<kind>`), a record-count pill (`.insp-pill`, e.g. "42
-  record(s)"), and any RASP categories on the node rendered as `.cat-chip`s
+  (`.insp-head-nm.k-<kind>`), a record-count pill (`.insp-pill`, e.g. "1400
+  record(s)") showing the node's true total (`nodeEventCount`, not the page
+  length), and any RASP categories on the node rendered as `.cat-chip`s
   beneath the title row.
+- **Pager row** (`buildInspectorPager`, `.pager.insp-pager`) - sits directly
+  under the header, reusing the master table's `‹ from–to / total ›` pager
+  styling to step through the node's records 100 at a time; prev is disabled
+  on the first page and next on the last. Paging re-fetches the page and
+  auto-selects its first record into the detail cards below, the same as the
+  initial node-tap selection.
 - **Records table** (`.insp-table`) - a sticky header (`position: sticky`),
   the syscall-name cell kind-colored (`.insp-rsys`), a negative retval colored
   in the syscall/red accent (`.insp-rneg`), and the selected row picked out
