@@ -236,6 +236,19 @@ export function coOccur(events: SyscallEvent[], nodeId: string): HighlightSets {
   return { nodes: [...nodes], edges: [...edges] }
 }
 
+// Turn one ordered chain of node ids into a HighlightSets: nodes are the chain
+// (deduped), edges are the adjacent pairs. The single-record analogue of coOccur
+// (which folds many chains) - used to light a selected record's own path.
+export function setsFromChain(ids: string[]): HighlightSets {
+  const nodes = new Set<string>()
+  const edges = new Set<string>()
+  for (let i = 0; i < ids.length; i++) {
+    nodes.add(ids[i])
+    if (i > 0) edges.add(`${ids[i - 1]}=>${ids[i]}`)
+  }
+  return { nodes: [...nodes], edges: [...edges] }
+}
+
 // Combine node/edge sets from multiple sources (the syscall SQL path + each
 // engine adapter, in graph-store.ts's slice()) into one id-deduplicated set,
 // summing counts when two sources agree on the same node/edge id. The shared
