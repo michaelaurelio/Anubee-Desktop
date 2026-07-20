@@ -601,7 +601,8 @@ async function refreshDiff(): Promise<void> {
     id => badgeText(tagsByTarget(tags, id)),
     async id => {
       const e = selEpoch.bump()
-      const merged = await window.anubee.diffSlice(activeRunId!, runB!, id, currentFilter())
+      graphFilter = currentFilter() // the filter this diff slice is drawn with; keep node-tap highlight/details scoped to it
+      const merged = await window.anubee.diffSlice(activeRunId!, runB!, id, graphFilter)
       if (!selEpoch.isCurrent(e)) return // superseded by a newer selection; don't repaint the graph
       const els = mergedToElements(merged)
       cy.elements().remove()
