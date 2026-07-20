@@ -7,10 +7,10 @@ import { renderTable } from './table'
 import { serializeLayout, parseLayout, columnCatalogue, engineColumnKeys, engineDefaultColumns, type ColumnLayout, type ColumnKey } from './columns'
 import { applyWidths, nextWidth } from './column-resize'
 import { currentFilter, wireFilterControls } from './filter-controls'
-import { showNodeInspector, showRecordDetail, showFuncsNodeInspector, showFuncsRecordDetail } from './inspector'
+import { showNodeInspector, showRecordDetail, showFuncsNodeInspector, showFuncsRecordDetail, type InspectorPage } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
 import { applyHighlight, clearHighlight } from './graph-highlight'
-import { showOffsetPopup, closeOffsetPopup, eventForOffset, type NodeBox } from './offset-popup'
+import { showOffsetPopup, closeOffsetPopup, type NodeBox } from './offset-popup'
 import { showNodeMenu, closeNodeMenu, showTagPopup, closeTagPopup } from './node-menu'
 import { renderSuggestions } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
@@ -220,6 +220,13 @@ const TABLE_PAGE = 500
 
 let tableOffset = 0
 let selectedRowId: number | undefined // the row whose detail is open, so re-renders can re-highlight it
+
+const NODE_PAGE = 100 // inspector page size; mirrors TABLE_PAGE for the right panel
+
+let nodeOffset = 0 // records offset into the current node's list
+// What refreshNodeInspector needs to re-fetch a page: the tapped node's identity
+// and the filter it was tapped under (graphFilter at tap time). Undefined = no node open.
+let currentNode: { id: string; kind?: string; cats: string[]; filter: Filter } | undefined
 // The filter the on-canvas graph was rendered with (a row's bridge ANDed with the
 // toolbar filter). Every graph-scoped follow-up query (node highlight, node detail
 // records, offsets) keys off this, not currentFilter(), so it stays strictly tied
@@ -462,6 +469,28 @@ function nodeBox(node: cytoscape.NodeSingular): NodeBox {
   return { left: rect.left + bb.x1, top: rect.top + bb.y1, right: rect.left + bb.x2, bottom: rect.top + bb.y2 }
 }
 
+// Fetch and render one page of the open node's records plus the true total, then
+// paint the inspector - the right-panel analogue of refreshTable(). `epoch` is the
+// selEpoch token captured by the caller (the node tap, or an arrow click that
+// bumped it), so a slow page never overwrites a newer selection.
+async function refreshNodeInspector(epoch: number): Promise<void> {
+  const ctx = currentNode
+  if (!ctx) return
+  const [records, total] = await Promise.all([
+    window.anubee.nodeEvents(ctx.id, ctx.filter, { limit: NODE_PAGE, offset: nodeOffset }, activeRunId),
+    window.anubee.nodeEventCount(ctx.id, ctx.filter, activeRunId),
+  ])
+  if (!selEpoch.isCurrent(epoch)) return // stale: newer selection or page superseded this fetch
+  const page: InspectorPage = {
+    offset: nodeOffset,
+    total,
+    onPrev: () => { nodeOffset = Math.max(0, nodeOffset - NODE_PAGE); void refreshNodeInspector(selEpoch.bump()) },
+    onNext: () => { nodeOffset += NODE_PAGE; void refreshNodeInspector(selEpoch.bump()) },
+  }
+  if (activeEngine === 'func') showFuncsNodeInspector(ctx.id, records as FuncEvent[], page, { kind: ctx.kind, cats: ctx.cats })
+  else showNodeInspector(ctx.id, records as SyscallEvent[], page, { kind: ctx.kind, cats: ctx.cats })
+}
+
 cy.on('tap', 'node', evt => {
   const e = selEpoch.bump()
   const node = evt.target
@@ -473,33 +502,20 @@ cy.on('tap', 'node', evt => {
   showSide(true)
   const nodeKind = node.data('kind') as string | undefined
   const nodeCats = [...new Set(tagsByTarget(tags, nodeId).map(t => t.category))]
-  if (activeEngine === 'func') {
-    closeOffsetPopup()
-    void window.anubee.nodeEvents(nodeId, graphFilter, activeRunId).then(records => {
-      if (!selEpoch.isCurrent(e)) return // stale inspector repaint
-      showFuncsNodeInspector(nodeId, records as FuncEvent[], { kind: nodeKind, cats: nodeCats })
-    })
-    return
-  }
-  if (nodeKind === 'native') {
+  currentNode = { id: nodeId, kind: nodeKind, cats: nodeCats, filter: graphFilter }
+  nodeOffset = 0 // a fresh node opens on page 1
+  // Native syscall nodes (syscall engine only) also get the read-only offset
+  // histogram popup; every other node just clears any stale popup.
+  if (activeEngine !== 'func' && nodeKind === 'native') {
     const box = nodeBox(node)
-    void Promise.all([
-      window.anubee.nodeOffsets(nodeId, graphFilter, activeRunId),
-      window.anubee.nodeEvents(nodeId, graphFilter, activeRunId),
-    ]).then(([rows, rawEvents]) => {
+    void window.anubee.nodeOffsets(nodeId, graphFilter, activeRunId).then(rows => {
       if (!selEpoch.isCurrent(e)) return // node deselected / another selected during the round-trip
-      const events = rawEvents as SyscallEvent[]
-      showNodeInspector(nodeId, events, { kind: nodeKind, cats: nodeCats })
-      showOffsetPopup({ nodeId, rows, anchor: box, eventForOffset: (row) => eventForOffset(events, row) })
+      showOffsetPopup({ nodeId, rows, anchor: box })
     })
   } else {
     closeOffsetPopup()
-    void window.anubee.nodeEvents(nodeId, graphFilter, activeRunId).then(rawEvents => {
-      if (!selEpoch.isCurrent(e)) return // stale inspector repaint
-      const events = rawEvents as SyscallEvent[]
-      showNodeInspector(nodeId, events, { kind: nodeKind, cats: nodeCats })
-    })
   }
+  void refreshNodeInspector(e)
 })
 
 // Right-click any node -> Copy the identifier, or Add Tag (opens the tag popup).
