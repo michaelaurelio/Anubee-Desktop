@@ -146,25 +146,49 @@ chrome-bar + File-dropdown + segmented switch + separate filter bar.
 - **Command bar.** `#cmdbar` sits to the right of the rail and holds a single
   **omni filter** input (`#f-text`, `src/renderer/index.html`) - no separate
   syscall/library/tid fields, checkbox, or Apply button. Typing a `key:value`
-  word (`syscall:`, `lib:`, `tid:`, `java:yes|no`, `module:`, `symbol:`; a
-  quoted value like `syscall:"open at"` keeps spaces intact) turns it into a
-  removable chip on space or Enter; Enter also applies the current chips plus
-  whatever free text remains. A chip's `×` removes it and re-applies. Backspace
-  in an empty input pops the last chip back into editable `key:value` text. A
-  key-name autocomplete dropdown opens on a partial key prefix (`ArrowUp`/
-  `ArrowDown` to move, `Enter`/`Tab` to accept, `Escape` to dismiss) - it
-  suggests key names only, never values. Grammar and chip-folding live in
-  `src/shared/omni-parse.ts` (`splitWords`, `matchToken`, `filterFromParts`);
-  the DOM wiring is `src/renderer/filter-controls.ts`. Free text (anything
-  left after chips are pulled out) searches the syscall name, java and native
-  stack frames, and every arg field - `args`, `string_args`, `fd_args`,
-  `decoded_args`, `sock_args`, `out_args` - via the `ILIKE` fragment in
-  `filterToSql` (`src/shared/filter.ts`). Limits: one value per key (a second
-  `tid:` chip replaces the first, not OR's with it), key-name autocomplete
-  only (no value suggestions from the loaded run's data), and no negation or
-  regex grammar. This replaces the old two-tier chrome-bar-plus-filter-bar
-  layout, and the earlier explicit-fields-plus-Apply-button command bar, with
-  one row.
+  word (dotted namespace, keys below; a quoted value like `syscall:"open at"`
+  keeps spaces intact) turns it into a removable chip on space or Enter; Enter
+  also applies the current chips plus whatever free text remains. A chip's `×`
+  removes it and re-applies. Backspace in an empty input pops the last chip
+  back into editable `key:value` text. A key-name autocomplete dropdown opens
+  on a partial key prefix (`ArrowUp`/`ArrowDown` to move, `Enter`/`Tab` to
+  accept, `Escape` to dismiss) - it suggests key names only, never values.
+  Grammar and chip-folding live in `src/shared/omni-parse.ts` (`splitWords`,
+  `matchToken`, `filterFromParts`); the DOM wiring is
+  `src/renderer/filter-controls.ts`. Free text (anything left after chips are
+  pulled out) searches the syscall name, java and native stack frames, and
+  every arg field - `args`, `string_args`, `fd_args`, `decoded_args`,
+  `sock_args`, `out_args` - via the `ILIKE` fragment in `filterToSql`
+  (`src/shared/filter.ts`). Limits: one value per key (a second `tid:` chip
+  replaces the first, not OR's with it), key-name autocomplete only (no value
+  suggestions from the loaded run's data), and no negation or regex grammar.
+  This replaces the old two-tier chrome-bar-plus-filter-bar layout, and the
+  earlier explicit-fields-plus-Apply-button command bar, with one row.
+
+  **Filter keys:**
+
+  | key | matches |
+  |---|---|
+  | `syscall:<sub>` | syscall name substring |
+  | `tid:<int>` | exact thread id |
+  | `id:<N>` / `id:<A-B>` | exact record id, or an inclusive id range |
+  | `java.exist:yes\|no` | record has / lacks a non-empty Java stack |
+  | `java.method:<sub>` | a Java-stack method substring |
+  | `stack.lib:<sub>` | any native backtrace frame's library substring |
+  | `stack.sym:<sub>` | any native backtrace frame's symbol substring |
+  | `fn.lib:<sub>` | funcs-engine resolved callee library substring (funcs runs only) |
+  | `fn.sym:<sub>` | funcs-engine resolved callee function substring (funcs runs only) |
+  | `tag.exist:yes\|no` | record reaches / does not reach any confirmed-tagged node |
+  | `tag.name:<category>` | record reaches a node tagged with that RASP category - `root`, `debugger`, `emulator`, `integrity`, `hook`, or `custom` |
+
+  **Renamed keys** (hard rename, no aliases): `lib:` -> `stack.lib:`,
+  `module:` -> `fn.lib:`, `symbol:` -> `fn.sym:`, `java:` -> `java.exist:`.
+  Typing one of the old keys no longer matches a filter - it falls through to
+  free text instead.
+
+  `tag.exist:`/`tag.name:` currently match only `sys:`/`nat:`/`java:` node
+  targets recorded on a confirmed tag; edge (`edge:src=>dst`) and funcs-callee
+  (`fn:`) tag targets are not yet matched per record (see `BACKLOG.md`).
 
 - **Modals.** Export and Diff now open as modals from their rail buttons
   (`#export-btn`, `#diff-btn`), joining Capture, Rules, and Suggestions as

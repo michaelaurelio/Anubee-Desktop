@@ -3,6 +3,27 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-20) - Omni-filter dotted key redesign
+
+The omni filter's `key:value` grammar moved to a dotted namespace: `lib:` ->
+`stack.lib:`, `module:` -> `fn.lib:`, `symbol:` -> `fn.sym:`, and `java:` ->
+`java.exist:` (hard renames, no aliases - the old keys now fall through to free
+text). New keys: `id:<N>` / `id:<A-B>` (exact record id / inclusive range),
+`java.method:<sub>` (Java-stack method substring), `stack.sym:<sub>` (native
+backtrace symbol substring), `tag.exist:yes|no` and `tag.name:<category>`
+(record reaches / does not reach a confirmed-tagged node, optionally scoped to
+a RASP category). Full key table in `DOCUMENTATION.md`'s "Command bar"
+section.
+
+### Known drawbacks / follow-ups
+- **`tag:` filter deferred coverage.** `tag.exist:`/`tag.name:` only match
+  `sys:`/`nat:`/`java:` node tag targets per record; edge (`edge:src=>dst`) and
+  funcs-callee (`fn:`) tag targets are not yet matched. The resolver buckets
+  live in `src/shared/tag-targets.ts` (`resolveTagTargets`, which already
+  ignores `edge:`/`fn:` targets); the SQL predicate is `tagPredicate` in
+  `src/shared/filter.ts`. Extending either requires adding an edge-target and
+  a funcs-callee-target bucket to both.
+
 ## Shipped (2026-07-20) - Node-inspector pagination + offset-popup histogram
 
 The right-panel node inspector now pages the records behind a tapped node in
