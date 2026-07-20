@@ -19,13 +19,13 @@ describe('matchToken — dotted grammar', () => {
     expect(matchToken('tid:101')).toEqual({ key: 'tid', value: '101' })
     expect(matchToken('id:1500')).toEqual({ key: 'id', value: '1500' })
     expect(matchToken('id:1500-1600')).toEqual({ key: 'id', value: '1500-1600' })
-    expect(matchToken('java.exist:yes')).toEqual({ key: 'java.exist', value: 'yes' })
+    expect(matchToken('java.exist:true')).toEqual({ key: 'java.exist', value: 'true' })
     expect(matchToken('java.method:onCreate')).toEqual({ key: 'java.method', value: 'onCreate' })
     expect(matchToken('stack.lib:libc')).toEqual({ key: 'stack.lib', value: 'libc' })
     expect(matchToken('stack.sym:checkRoot')).toEqual({ key: 'stack.sym', value: 'checkRoot' })
     expect(matchToken('fn.lib:libexample')).toEqual({ key: 'fn.lib', value: 'libexample' })
     expect(matchToken('fn.sym:checkRoot')).toEqual({ key: 'fn.sym', value: 'checkRoot' })
-    expect(matchToken('tag.exist:no')).toEqual({ key: 'tag.exist', value: 'no' })
+    expect(matchToken('tag.exist:false')).toEqual({ key: 'tag.exist', value: 'false' })
     expect(matchToken('tag.name:root')).toEqual({ key: 'tag.name', value: 'root' })
   })
   it('rejects the removed legacy keys (become free text)', () => {
@@ -39,7 +39,9 @@ describe('matchToken — dotted grammar', () => {
     expect(matchToken('id:12ab')).toBeNull()
     expect(matchToken('id:1600-1500')).toBeNull() // descending range → free text
     expect(matchToken('java.exist:maybe')).toBeNull()
+    expect(matchToken('java.exist:yes')).toBeNull() // yes/no no longer accepted; true/false only
     expect(matchToken('tag.exist:1')).toBeNull()
+    expect(matchToken('tag.exist:no')).toBeNull()
     expect(matchToken('tag.name:bogus')).toBeNull()
     expect(matchToken('fn.bogus:x')).toBeNull()
     expect(matchToken('syscall:')).toBeNull()
@@ -59,13 +61,13 @@ describe('filterFromParts — field mapping', () => {
       { key: 'syscall', value: 'openat' },
       { key: 'tid', value: '101' },
       { key: 'id', value: '1500-1600' },
-      { key: 'java.exist', value: 'yes' },
+      { key: 'java.exist', value: 'true' },
       { key: 'java.method', value: 'onCreate' },
       { key: 'stack.lib', value: 'libc' },
       { key: 'stack.sym', value: 'checkRoot' },
       { key: 'fn.lib', value: 'libexample' },
       { key: 'fn.sym', value: 'openImpl' },
-      { key: 'tag.exist', value: 'yes' },
+      { key: 'tag.exist', value: 'true' },
     ] as const
     expect(filterFromParts([...chips] as never, '')).toEqual({
       syscall: 'openat', tid: 101, id: 1500, idMax: 1600,

@@ -172,13 +172,13 @@ chrome-bar + File-dropdown + segmented switch + separate filter bar.
   | `syscall:<sub>` | syscall name substring |
   | `tid:<int>` | exact thread id |
   | `id:<N>` / `id:<A-B>` | exact record id, or an inclusive id range |
-  | `java.exist:yes\|no` | record has / lacks a non-empty Java stack |
+  | `java.exist:true\|false` | record has / lacks a non-empty Java stack |
   | `java.method:<sub>` | a Java-stack method substring |
   | `stack.lib:<sub>` | any native backtrace frame's library substring |
   | `stack.sym:<sub>` | any native backtrace frame's symbol substring |
   | `fn.lib:<sub>` | funcs-engine resolved callee library substring (funcs runs only) |
   | `fn.sym:<sub>` | funcs-engine resolved callee function substring (funcs runs only) |
-  | `tag.exist:yes\|no` | record reaches / does not reach any confirmed-tagged node |
+  | `tag.exist:true\|false` | record reaches / does not reach any confirmed-tagged node |
   | `tag.name:<category>` | record reaches a node tagged with that RASP category - `root`, `debugger`, `emulator`, `integrity`, `hook`, or `custom` |
 
   **Renamed keys** (hard rename, no aliases): `lib:` -> `stack.lib:`,

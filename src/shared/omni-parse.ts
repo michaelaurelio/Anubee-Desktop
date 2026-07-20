@@ -21,13 +21,13 @@ export const OMNI_KEYS: ReadonlyArray<{ key: OmniKey; hint: string }> = [
   { key: 'syscall', hint: 'syscall name substring, e.g. syscall:openat' },
   { key: 'tid', hint: 'exact thread id, e.g. tid:101' },
   { key: 'id', hint: 'record id or range, e.g. id:1500 or id:1500-1600' },
-  { key: 'java.exist', hint: 'java.exist:yes / java.exist:no - record has a Java stack' },
+  { key: 'java.exist', hint: 'java.exist:true / java.exist:false - record has a Java stack' },
   { key: 'java.method', hint: 'Java-stack method substring, e.g. java.method:onCreate' },
   { key: 'stack.lib', hint: 'backtrace library substring, e.g. stack.lib:libc' },
   { key: 'stack.sym', hint: 'backtrace symbol substring, e.g. stack.sym:checkRoot' },
   { key: 'fn.lib', hint: 'funcs callee library substring, e.g. fn.lib:libexample' },
   { key: 'fn.sym', hint: 'funcs callee function substring, e.g. fn.sym:checkRoot' },
-  { key: 'tag.exist', hint: 'tag.exist:yes / tag.exist:no - record reaches a confirmed tag' },
+  { key: 'tag.exist', hint: 'tag.exist:true / tag.exist:false - record reaches a confirmed tag' },
   { key: 'tag.name', hint: 'tagged rule name, e.g. tag.name:root' },
 ]
 
@@ -58,7 +58,7 @@ export function matchToken(word: string): OmniToken | null {
   if (!value) return null
   if (key === 'tid' && !/^\d+$/.test(value)) return null
   if (key === 'id' && !idOk(value)) return null
-  if ((key === 'java.exist' || key === 'tag.exist') && value !== 'yes' && value !== 'no') return null
+  if ((key === 'java.exist' || key === 'tag.exist') && value !== 'true' && value !== 'false') return null
   if (key === 'tag.name' && !CATEGORIES.includes(value as RaspCategory)) return null
   return { key: key as OmniKey, value }
 }
@@ -77,13 +77,13 @@ export function filterFromParts(chips: OmniToken[], text: string): Filter {
         if (hi !== undefined) f.idMax = Number(hi)
         break
       }
-      case 'java.exist': f.hasJavaStack = c.value === 'yes'; break
+      case 'java.exist': f.hasJavaStack = c.value === 'true'; break
       case 'java.method': f.javaMethod = c.value; break
       case 'stack.lib': f.library = c.value; break
       case 'stack.sym': f.stackSymbol = c.value; break
       case 'fn.lib': f.module = c.value; break
       case 'fn.sym': f.symbol = c.value; break
-      case 'tag.exist': f.tagged = c.value === 'yes' ? 'yes' : 'no'; break
+      case 'tag.exist': f.tagged = c.value === 'true' ? 'yes' : 'no'; break
       case 'tag.name': f.tagName = c.value as RaspCategory; break
     }
   }

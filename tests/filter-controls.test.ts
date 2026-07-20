@@ -75,7 +75,7 @@ describe('apply and removal', () => {
 
   it('chip x removes the chip and refreshes', () => {
     const { input, refresh } = setup()
-    type(input, 'java.exist:yes')
+    type(input, 'java.exist:true')
     key(input, ' ')
     ;(document.querySelector('#omni-chips .chip-x') as HTMLElement).click()
     expect(document.querySelectorAll('#omni-chips .chip')).toHaveLength(0)
@@ -171,7 +171,7 @@ describe('tag resolver injection', () => {
   it('populates tagTargets for a tag.exist chip via the resolver', () => {
     const { input } = setup()
     setTagResolver(() => ({ syscalls: ['openat'], natFrames: [], javaMethods: [] }))
-    type(input, 'tag.exist:yes')
+    type(input, 'tag.exist:true')
     key(input, ' ')
     expect(currentFilter()).toEqual({
       tagged: 'yes', tagTargets: { syscalls: ['openat'], natFrames: [], javaMethods: [] },
