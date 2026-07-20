@@ -556,10 +556,12 @@ export class GraphStore {
     filter: Filter = {},
     limit = 500,
     runId?: number,
+    offset = 0,
   ): Promise<(SyscallEvent | FuncEvent)[]> {
     const rid = this.resolveRun(runId)
     const { where, params } = filterToSql(filter)
     const lim = Math.max(0, Math.trunc(limit))
+    const off = Math.max(0, Math.trunc(offset))
     if (this.engineOf(rid) === 'funcs') {
       const fnScoped = `run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where})`
       const cte =
@@ -571,7 +573,7 @@ export class GraphStore {
          SELECT to_json(c) AS js, r.retval AS retval, r.elapsed_ns AS elapsed, to_json(r.out_args) AS out_args
          FROM ev c JOIN chains ON c.id = chains.eid AND c.run_id = ${rid} AND c.type = 'call' AND c.span IS NULL
          LEFT JOIN ev r ON r.run_id = ${rid} AND r.type = 'return' AND r.span IS NULL AND r.id = c.id
-         WHERE list_contains(chain, ?) ORDER BY c.id LIMIT ${lim}`,
+         WHERE list_contains(chain, ?) ORDER BY c.id LIMIT ${lim} OFFSET ${off}`,
         [...params, nodeId],
       )
       return rows.map(row => {
@@ -584,13 +586,43 @@ export class GraphStore {
     const cte = `WITH ${this.cfiCte(rid)}, chains AS (SELECT e.id AS eid, ${SYS_CHAIN_SEL} AS chain FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id WHERE ${scoped})`
     const rows = await this.rows(
       `${cte} SELECT to_json(ev) AS js FROM ev JOIN chains ON ev.id = chains.eid AND ev.run_id = ${rid}
-       WHERE list_contains(chain, ?) ORDER BY ev.id LIMIT ${lim}`,
+       WHERE list_contains(chain, ?) ORDER BY ev.id LIMIT ${lim} OFFSET ${off}`,
       [...params, nodeId],
     )
     return rows.map(r => {
       const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
       return ev as SyscallEvent
     })
+  }
+
+  // The true number of records whose chain passes through `nodeId` - the total
+  // behind the inspector pager. Reuses nodeEvents' CFI-aware chain CTE but counts
+  // rows instead of materializing them, so a 100k-record node never hits the heap.
+  async nodeEventCount(nodeId: string, filter: Filter = {}, runId?: number): Promise<number> {
+    const rid = this.resolveRun(runId)
+    const { where, params } = filterToSql(filter)
+    if (this.engineOf(rid) === 'funcs') {
+      const fnScoped = `run_id = ${rid} AND type = 'call' AND span IS NULL AND (${where})`
+      const cte =
+        `WITH h AS (SELECT list(DISTINCT module || '!' || symbol) AS fns FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL),
+              ${this.cfiCte(rid)},
+              chains AS (SELECT e.id AS eid, ${FUNCS_CHAIN_SEL} AS chain FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id, h WHERE ${fnScoped})`
+      const rows = await this.rows(
+        `${cte} SELECT count(*) AS c FROM ev c JOIN chains ON c.id = chains.eid
+         AND c.run_id = ${rid} AND c.type = 'call' AND c.span IS NULL
+         WHERE list_contains(chain, ?)`,
+        [...params, nodeId],
+      )
+      return num(rows[0]?.c) ?? 0
+    }
+    const scoped = `run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`
+    const cte = `WITH ${this.cfiCte(rid)}, chains AS (SELECT e.id AS eid, ${SYS_CHAIN_SEL} AS chain FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id WHERE ${scoped})`
+    const rows = await this.rows(
+      `${cte} SELECT count(*) AS c FROM ev JOIN chains ON ev.id = chains.eid AND ev.run_id = ${rid}
+       WHERE list_contains(chain, ?)`,
+      [...params, nodeId],
+    )
+    return num(rows[0]?.c) ?? 0
   }
 
   // The nodes and edges on every filtered chain that passes through `nodeId` -

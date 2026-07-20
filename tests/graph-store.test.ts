@@ -564,6 +564,23 @@ describe('GraphStore.nodeEvents', () => {
     expect(events).toHaveLength(1)
     expect(events[0].id).toBe(1)
   })
+
+  it('windows records by offset and reports the true total via nodeEventCount', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    // sys:openat has 2 records (ids 1,2). Page size 1 walks them.
+    expect(await store.nodeEventCount('sys:openat')).toBe(2)
+    expect((await store.nodeEvents('sys:openat', {}, 1, undefined, 0)).map(e => e.id)).toEqual([1])
+    expect((await store.nodeEvents('sys:openat', {}, 1, undefined, 1)).map(e => e.id)).toEqual([2])
+    expect(await store.nodeEvents('sys:openat', {}, 1, undefined, 99)).toEqual([])
+  })
+
+  it('nodeEventCount respects the filter', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    expect(await store.nodeEventCount('sys:openat', { tid: 101 })).toBe(2)
+    expect(await store.nodeEventCount('sys:openat', { tid: 999 })).toBe(0)
+  })
 })
 
 const FUNCS_DETAIL_LINES = [
