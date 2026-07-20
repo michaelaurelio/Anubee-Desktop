@@ -345,6 +345,7 @@ export class GraphStore {
          backtrace[1].symbol AS topNative,
          coalesce(
            nullif(array_to_string(map_values(string_args), ' '), ''),
+           nullif(sock_addr, ''),
            nullif(array_to_string(map_values(fd_args), ' '), ''),
            nullif(array_to_string(map_values(decoded_args), ' '), ''),
            nullif(array_to_string(args, ' '), '')
