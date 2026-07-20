@@ -3,6 +3,26 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-20) - Row-select auto-highlight + graph-scoped highlight/details
+
+Selecting a master-table row now lights that record's own call path
+(java -> native -> syscall) on the freshly rendered bridge graph immediately,
+with no node click needed (`recordChain`, `setsFromChain`); the rest of the
+bridge stays dimmed until a node is tapped. Tapping a node still re-lights the
+backtrace-accurate co-occurrence set through it, but that highlight and the
+node's detail records (`nodeEvents`, `nodeOffsets`) are now both scoped
+strictly to `graphFilter` - the filter the rendered graph was actually drawn
+with - rather than the master table's live filter, which can drift out of
+sync with what's on canvas. See `DOCUMENTATION.md`'s "Row-select
+auto-highlight" and "Backtrace-accurate selection highlight" sections.
+
+### Known drawbacks / follow-ups
+- Graph highlight cap-connectivity: `highlightSets` is uncapped while the slice is
+  capped at `GRAPH_SLICE_CAP` (1500) nodes in GROUP BY order. When a single bridge
+  exceeds the cap, a highlighted node can reference a cap-dropped intermediate and
+  render disconnected again. Rare (bridges are small); resolve alongside the
+  deferred per-interaction chain-rebuild / cap-connectivity performance work.
+
 ## Shipped (2026-07-18) - Opt-in tid/retval columns + full-args record detail
 
 The syscall engine's `tid` and `retval` columns are now catalogue-only by
