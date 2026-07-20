@@ -126,10 +126,11 @@ export function filterToSql(f: Filter): { where: string; params: unknown[] } {
         "OR coalesce(array_to_string(map_values(fd_args), ' '), '') ILIKE ? " +
         "OR coalesce(array_to_string(map_values(decoded_args), ' '), '') ILIKE ? " +
         "OR coalesce(array_to_string(map_values(sock_args), ' '), '') ILIKE ? " +
-        "OR coalesce(array_to_string(map_values(out_args), ' '), '') ILIKE ?)",
+        "OR coalesce(array_to_string(map_values(out_args), ' '), '') ILIKE ? " +
+        "OR coalesce(sock_addr, '') ILIKE ?)",
     )
     const like = `%${f.text}%`
-    params.push(like, like, like, like, like, like, like, like, like)
+    params.push(like, like, like, like, like, like, like, like, like, like)
   }
 
   return { where: clauses.length ? clauses.join(' AND ') : 'TRUE', params }
