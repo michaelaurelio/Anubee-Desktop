@@ -1,12 +1,26 @@
-// The filter grammar shared by the master table and the graph slice.
+import type { RaspCategory } from './project-store'
+
+export interface TagTargets {
+  syscalls: string[]    // from sys:<name> tags
+  natFrames: string[]   // "mod!sym" from nat:<mod>!<sym> tags
+  javaMethods: string[] // cleaned method from java:<method> tags
+}
+
 export interface Filter {
   syscall?: string
   tid?: number
-  hasJavaStack?: boolean
-  library?: string
+  hasJavaStack?: boolean   // java.exist
+  library?: string         // stack.lib
+  module?: string          // fn.lib
+  symbol?: string          // fn.sym
   text?: string
-  module?: string
-  symbol?: string
+  id?: number              // id:N or lower bound of id:A-B
+  idMax?: number           // upper bound of id:A-B
+  javaMethod?: string      // java.method
+  stackSymbol?: string     // stack.sym
+  tagged?: 'yes' | 'no'    // tag.exist
+  tagName?: RaspCategory   // tag.name
+  tagTargets?: TagTargets  // injected by the renderer when tagged/tagName is set
 }
 
 // Translate a Filter into a parameterised SQL WHERE fragment over the `ev`

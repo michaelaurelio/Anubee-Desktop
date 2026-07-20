@@ -13,78 +13,75 @@ describe('splitWords', () => {
   })
 })
 
-describe('matchToken', () => {
-  it('recognizes every grammar key', () => {
+describe('matchToken — dotted grammar', () => {
+  it('recognizes every key', () => {
     expect(matchToken('syscall:openat')).toEqual({ key: 'syscall', value: 'openat' })
-    expect(matchToken('lib:libc')).toEqual({ key: 'lib', value: 'libc' })
     expect(matchToken('tid:101')).toEqual({ key: 'tid', value: '101' })
-    expect(matchToken('java:yes')).toEqual({ key: 'java', value: 'yes' })
-    expect(matchToken('java:no')).toEqual({ key: 'java', value: 'no' })
-    expect(matchToken('module:libexample')).toEqual({ key: 'module', value: 'libexample' })
-    expect(matchToken('symbol:checkRoot')).toEqual({ key: 'symbol', value: 'checkRoot' })
+    expect(matchToken('id:1500')).toEqual({ key: 'id', value: '1500' })
+    expect(matchToken('id:1500-1600')).toEqual({ key: 'id', value: '1500-1600' })
+    expect(matchToken('java.exist:yes')).toEqual({ key: 'java.exist', value: 'yes' })
+    expect(matchToken('java.method:onCreate')).toEqual({ key: 'java.method', value: 'onCreate' })
+    expect(matchToken('stack.lib:libc')).toEqual({ key: 'stack.lib', value: 'libc' })
+    expect(matchToken('stack.sym:checkRoot')).toEqual({ key: 'stack.sym', value: 'checkRoot' })
+    expect(matchToken('fn.lib:libexample')).toEqual({ key: 'fn.lib', value: 'libexample' })
+    expect(matchToken('fn.sym:checkRoot')).toEqual({ key: 'fn.sym', value: 'checkRoot' })
+    expect(matchToken('tag.exist:no')).toEqual({ key: 'tag.exist', value: 'no' })
+    expect(matchToken('tag.name:root')).toEqual({ key: 'tag.name', value: 'root' })
   })
-  it('unquotes a quoted value', () => {
-    expect(matchToken('symbol:"a b"')).toEqual({ key: 'symbol', value: 'a b' })
+  it('rejects the removed legacy keys (become free text)', () => {
+    expect(matchToken('lib:libc')).toBeNull()
+    expect(matchToken('module:x')).toBeNull()
+    expect(matchToken('symbol:x')).toBeNull()
+    expect(matchToken('java:yes')).toBeNull()
   })
-  it('rejects unknown keys, empty values, bad tid, bad java', () => {
-    expect(matchToken('bogus:x')).toBeNull()
-    expect(matchToken('syscall:')).toBeNull()
+  it('validates value shapes', () => {
     expect(matchToken('tid:abc')).toBeNull()
-    expect(matchToken('java:maybe')).toBeNull()
-    expect(matchToken('/proc/self')).toBeNull()
-  })
-  it('leaves an unterminated quote as free text', () => {
-    expect(matchToken('symbol:"a')).toBeNull()
-    expect(matchToken('symbol:"')).toBeNull()
+    expect(matchToken('id:12ab')).toBeNull()
+    expect(matchToken('id:1600-1500')).toBeNull() // descending range → free text
+    expect(matchToken('java.exist:maybe')).toBeNull()
+    expect(matchToken('tag.exist:1')).toBeNull()
+    expect(matchToken('tag.name:bogus')).toBeNull()
+    expect(matchToken('fn.bogus:x')).toBeNull()
+    expect(matchToken('syscall:')).toBeNull()
   })
 })
 
-describe('filterFromParts', () => {
-  it('maps chips onto the Filter fields', () => {
-    expect(
-      filterFromParts(
-        [
-          { key: 'syscall', value: 'openat' },
-          { key: 'lib', value: 'libc' },
-          { key: 'tid', value: '101' },
-          { key: 'java', value: 'yes' },
-          { key: 'module', value: 'libexample' },
-          { key: 'symbol', value: 'checkRoot' },
-        ],
-        ' /proc/self ',
-      ),
-    ).toEqual({
-      syscall: 'openat',
-      library: 'libc',
-      tid: 101,
-      hasJavaStack: true,
-      module: 'libexample',
-      symbol: 'checkRoot',
-      text: '/proc/self',
+describe('filterFromParts — field mapping', () => {
+  it('maps every key onto its Filter field', () => {
+    const chips = [
+      { key: 'syscall', value: 'openat' },
+      { key: 'tid', value: '101' },
+      { key: 'id', value: '1500-1600' },
+      { key: 'java.exist', value: 'yes' },
+      { key: 'java.method', value: 'onCreate' },
+      { key: 'stack.lib', value: 'libc' },
+      { key: 'stack.sym', value: 'checkRoot' },
+      { key: 'fn.lib', value: 'libexample' },
+      { key: 'fn.sym', value: 'openImpl' },
+      { key: 'tag.exist', value: 'yes' },
+    ] as const
+    expect(filterFromParts([...chips] as never, '')).toEqual({
+      syscall: 'openat', tid: 101, id: 1500, idMax: 1600,
+      hasJavaStack: true, javaMethod: 'onCreate', library: 'libc',
+      stackSymbol: 'checkRoot', module: 'libexample', symbol: 'openImpl', tagged: 'yes',
     })
   })
-  it('java:no maps to hasJavaStack false', () => {
-    expect(filterFromParts([{ key: 'java', value: 'no' }], '')).toEqual({ hasJavaStack: false })
+  it('id exact sets id without idMax', () => {
+    expect(filterFromParts([{ key: 'id', value: '1500' }] as never, '')).toEqual({ id: 1500 })
   })
-  it('later duplicate key wins', () => {
-    expect(
-      filterFromParts(
-        [
-          { key: 'syscall', value: 'read' },
-          { key: 'syscall', value: 'openat' },
-        ],
-        '',
-      ),
-    ).toEqual({ syscall: 'openat' })
-  })
-  it('empty parts give an empty filter', () => {
-    expect(filterFromParts([], '  ')).toEqual({})
+  it('tag.name sets tagName', () => {
+    expect(filterFromParts([{ key: 'tag.name', value: 'root' }] as never, '')).toEqual({ tagName: 'root' })
   })
 })
 
 describe('OMNI_KEYS', () => {
-  it('lists all six keys with hints', () => {
-    expect(OMNI_KEYS.map(k => k.key)).toEqual(['syscall', 'lib', 'tid', 'java', 'module', 'symbol'])
-    for (const k of OMNI_KEYS) expect(k.hint.length).toBeGreaterThan(0)
+  it('lists all keys once, in grouped order', () => {
+    expect(OMNI_KEYS.map(k => k.key)).toEqual([
+      'syscall', 'tid', 'id',
+      'java.exist', 'java.method',
+      'stack.lib', 'stack.sym',
+      'fn.lib', 'fn.sym',
+      'tag.exist', 'tag.name',
+    ])
   })
 })
