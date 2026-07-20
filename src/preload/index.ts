@@ -26,8 +26,10 @@ contextBridge.exposeInMainWorld('anubee', {
     ipcRenderer.invoke('graph:stackRollup', filter, maxChains, runId),
   eventById: (id: number, runId?: number) => ipcRenderer.invoke('graph:eventById', id, runId),
   coverage: (runId?: number) => ipcRenderer.invoke('graph:coverage', runId),
-  nodeEvents: (nodeId: string, filter: Filter, runId?: number) =>
-    ipcRenderer.invoke('graph:nodeEvents', nodeId, filter, runId),
+  nodeEvents: (nodeId: string, filter: Filter, page: { limit: number; offset: number }, runId?: number) =>
+    ipcRenderer.invoke('graph:nodeEvents', nodeId, filter, page, runId),
+  nodeEventCount: (nodeId: string, filter: Filter, runId?: number) =>
+    ipcRenderer.invoke('graph:nodeEventCount', nodeId, filter, runId),
   highlightSets: (nodeId: string, filter: Filter, runId?: number) =>
     ipcRenderer.invoke('graph:highlightSets', nodeId, filter, runId),
   recordChain: (id: number, runId?: number) =>
