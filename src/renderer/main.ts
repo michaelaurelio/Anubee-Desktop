@@ -24,6 +24,7 @@ import { renderFlame } from './flame-view'
 import { buildFlame } from '@shared/flame-shape'
 import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
 import type { GraphSlice } from '@shared/graph-shape'
+import type { Filter } from '@shared/filter'
 import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices, renderPreflightRow } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
 import { showModal, closeModal, isModalOpen } from './modal'
@@ -219,6 +220,11 @@ const TABLE_PAGE = 500
 
 let tableOffset = 0
 let selectedRowId: number | undefined // the row whose detail is open, so re-renders can re-highlight it
+// The filter the on-canvas graph was rendered with (a row's bridge ANDed with the
+// toolbar filter). Every graph-scoped follow-up query (node highlight, node detail
+// records, offsets) keys off this, not currentFilter(), so it stays strictly tied
+// to what is drawn - the graph only re-renders on row selection.
+let graphFilter: Filter = {}
 const selEpoch = makeEpoch() // guards stale-async paints across row-select / node-tap / canvas-clear
 let currentLayout: ColumnLayout = parseLayout(activeEngine, savedColumns(activeEngine))
 
@@ -435,9 +441,13 @@ async function selectRow(row: TableRow): Promise<void> {
   }
 
   showView('graph')
-  const slice = await window.anubee.slice(filterForRow(row, currentFilter()), GRAPH_SLICE_CAP, activeRunId)
+  graphFilter = filterForRow(row, currentFilter())
+  const slice = await window.anubee.slice(graphFilter, GRAPH_SLICE_CAP, activeRunId)
   if (!selEpoch.isCurrent(e)) return // stale slice; do not repaint the graph for a row the user left
   await renderSlice(slice)
+  const recordSets = await window.anubee.recordChain(row.id, activeRunId)
+  if (!selEpoch.isCurrent(e)) return // stale: user left the row during the round-trip
+  applyHighlight(cy, recordSets) // light this record's own path; rest of the bridge dims
 }
 
 // Exposed for the screenshot harness / debugging to drive the graph deterministically.
@@ -456,7 +466,7 @@ cy.on('tap', 'node', evt => {
   const e = selEpoch.bump()
   const node = evt.target
   const nodeId = node.id()
-  void window.anubee.highlightSets(nodeId, currentFilter(), activeRunId).then(sets => {
+  void window.anubee.highlightSets(nodeId, graphFilter, activeRunId).then(sets => {
     if (!selEpoch.isCurrent(e)) return // stale: another node selected / deselected mid-round-trip
     applyHighlight(cy, sets)
   })
@@ -465,7 +475,7 @@ cy.on('tap', 'node', evt => {
   const nodeCats = [...new Set(tagsByTarget(tags, nodeId).map(t => t.category))]
   if (activeEngine === 'func') {
     closeOffsetPopup()
-    void window.anubee.nodeEvents(nodeId, currentFilter(), activeRunId).then(records => {
+    void window.anubee.nodeEvents(nodeId, graphFilter, activeRunId).then(records => {
       if (!selEpoch.isCurrent(e)) return // stale inspector repaint
       showFuncsNodeInspector(nodeId, records as FuncEvent[], { kind: nodeKind, cats: nodeCats })
     })
@@ -474,8 +484,8 @@ cy.on('tap', 'node', evt => {
   if (nodeKind === 'native') {
     const box = nodeBox(node)
     void Promise.all([
-      window.anubee.nodeOffsets(nodeId, currentFilter(), activeRunId),
-      window.anubee.nodeEvents(nodeId, currentFilter(), activeRunId),
+      window.anubee.nodeOffsets(nodeId, graphFilter, activeRunId),
+      window.anubee.nodeEvents(nodeId, graphFilter, activeRunId),
     ]).then(([rows, rawEvents]) => {
       if (!selEpoch.isCurrent(e)) return // node deselected / another selected during the round-trip
       const events = rawEvents as SyscallEvent[]
@@ -484,7 +494,7 @@ cy.on('tap', 'node', evt => {
     })
   } else {
     closeOffsetPopup()
-    void window.anubee.nodeEvents(nodeId, currentFilter(), activeRunId).then(rawEvents => {
+    void window.anubee.nodeEvents(nodeId, graphFilter, activeRunId).then(rawEvents => {
       if (!selEpoch.isCurrent(e)) return // stale inspector repaint
       const events = rawEvents as SyscallEvent[]
       showNodeInspector(nodeId, events, { kind: nodeKind, cats: nodeCats })
@@ -591,7 +601,8 @@ async function refreshDiff(): Promise<void> {
     id => badgeText(tagsByTarget(tags, id)),
     async id => {
       const e = selEpoch.bump()
-      const merged = await window.anubee.diffSlice(activeRunId!, runB!, id, currentFilter())
+      graphFilter = currentFilter() // the filter this diff slice is drawn with; keep node-tap highlight/details scoped to it
+      const merged = await window.anubee.diffSlice(activeRunId!, runB!, id, graphFilter)
       if (!selEpoch.isCurrent(e)) return // superseded by a newer selection; don't repaint the graph
       const els = mergedToElements(merged)
       cy.elements().remove()

@@ -30,6 +30,7 @@ declare global {
       coverage(runId?: number): Promise<CoverageEvent | undefined>
       nodeEvents(nodeId: string, filter: Filter, runId?: number): Promise<(SyscallEvent | FuncEvent)[]>
       highlightSets(nodeId: string, filter: Filter, runId?: number): Promise<HighlightSets>
+      recordChain(id: number, runId?: number): Promise<HighlightSets>
       nodeOffsets(nodeId: string, filter: Filter, runId?: number): Promise<import('@shared/origins').OffsetRow[]>
       suggest: (runId?: number) => Promise<import('@shared/rasp-heuristics').Suggestion[]>
       rulesGet(runId?: number): Promise<{

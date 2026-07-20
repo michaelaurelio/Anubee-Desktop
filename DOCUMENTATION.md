@@ -1104,7 +1104,19 @@ or work with a tracer-side change to prime the module map from `/proc/<pid>/maps
 attach time. Once `lib` records are available, the desktop re-ingests the same `.jsonl`
 file and computes offsets from the module load bases.
 
-**Backtrace-accurate selection highlight.** Selecting a graph node highlights the
+**Row-select auto-highlight.** Selecting a master-table row renders the row's
+*bridge* (every event sharing its Java method, or its syscall+tid -
+`filterForRow`) as an aggregated graph, and - with no node click required -
+immediately lights that specific record's own call path (java -> native ->
+syscall) so its directed arrows are visible right away. `selectRow`
+(`src/renderer/main.ts`) draws the slice, then fetches `recordChain(row.id,
+runId)` (`GraphStore.recordChain`, `src/main/graph-store.ts`; same
+`SYS_CHAIN_SEL`/`FUNCS_CHAIN_SEL` chain SQL as the slice itself, folded through
+`setsFromChain` in `src/shared/graph-shape.ts`) and applies it with the same
+`applyHighlight` a node tap uses. The rest of the bridge stays dimmed until a
+node is tapped.
+
+**Backtrace-accurate selection highlight.** Tapping a graph node re-lights the
 nodes and edges that actually lie on that node's backtraces, not a topological
 neighbourhood of the folded graph. The earlier approach walked predecessors and
 successors over the aggregated graph's edges; because those edges are pairwise
@@ -1115,7 +1127,7 @@ syscall. The fix moves the highlight to co-occurrence over the same per-event
 chains the graph was built from: the main process's `highlightSets(nodeId,
 filter, runId)` (`src/main/graph-store.ts`) reuses `SYS_CHAIN_SEL` /
 `FUNCS_CHAIN_SEL` - the CFI-aware chain SQL that also folds the graph - filters
-to chains that actually contain the clicked node, and returns the distinct node
+to chains that actually contain the tapped node, and returns the distinct node
 and edge ids on those chains. The fetch is async, guarded by the selection
 epoch so a stale response from a superseded click cannot overwrite the current
 selection. The renderer's `applyHighlight` (`src/renderer/graph-highlight.ts`)
@@ -1126,6 +1138,14 @@ all light together, so a click surfaces the exact caller-callee path rather
 than a direction-dependent slice. Edges in the selected path keep the brighter,
 thicker stroke styling (`width` 3.5, full-strength `labelText` color,
 `arrow-scale` 1.3) to illuminate the chain from the selected node outward.
+
+Both this highlight and the tapped node's detail records (`nodeEvents`,
+`nodeOffsets`) are scoped strictly to `graphFilter` - the exact filter the
+currently rendered slice was drawn with (captured from `filterForRow` at
+row-select time), not the master table's live filter, which may have changed
+since. So a lit node is always on-canvas and connected to the rendered graph,
+and the detail panel lists only records that actually have a path on the drawn
+graph.
 
 **RASP category coloring on native blocks.** When a native node is tagged with a
 RASP category (debugger, root, hook, etc.), the node's box gains a visual marker

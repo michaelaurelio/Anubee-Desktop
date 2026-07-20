@@ -2,7 +2,7 @@ import { openSync, readSync, closeSync, existsSync } from 'node:fs'
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api'
 import type { SyscallEvent, CoverageEvent, FuncEvent } from '@shared/events'
 import { filterToSql, type Filter } from '@shared/filter'
-import { capSlice, labelForId, mergeGraphs, type GraphNode, type GraphEdge, type GraphSlice, type HighlightSets } from '@shared/graph-shape'
+import { capSlice, labelForId, mergeGraphs, setsFromChain, type GraphNode, type GraphEdge, type GraphSlice, type HighlightSets } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
 import { compileWhere, scoreWith, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
@@ -634,6 +634,34 @@ export class GraphStore {
     await collect(fnCte, params)
 
     return { nodes: [...nodes], edges: [...edges] }
+  }
+
+  // The one selected record's own call chain as a HighlightSets - the data behind
+  // the row-select auto-highlight. Reuses the exact chain CTE slice() folds from
+  // (SYS_/FUNCS_CHAIN_SEL, CFI-aware) scoped to a single id, so the lit path is a
+  // faithful subset of the rendered graph. Empty sets when the id matches no row.
+  async recordChain(id: number, runId?: number): Promise<HighlightSets> {
+    const rid = this.resolveRun(runId)
+    const eid = Math.trunc(id)
+    if (this.engineOf(rid) === 'funcs') {
+      const cte =
+        `WITH h AS (SELECT list(DISTINCT module || '!' || symbol) AS fns FROM ev WHERE run_id = ${rid} AND type = 'call' AND span IS NULL),
+              ${this.cfiCte(rid)},
+              chains AS (SELECT ${FUNCS_CHAIN_SEL} AS chain
+                FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id, h
+                WHERE run_id = ${rid} AND type = 'call' AND span IS NULL AND id = ${eid})`
+      const rows = await this.rows(`${cte} SELECT chain FROM chains`)
+      if (rows.length === 0) return { nodes: [], edges: [] }
+      return setsFromChain((rows[0].chain as { items: string[] }).items)
+    }
+    const cte =
+      `WITH ${this.cfiCte(rid)},
+            chains AS (SELECT ${SYS_CHAIN_SEL} AS chain
+              FROM ev e LEFT JOIN cfi c ON e.stack_id = c.stack_id
+              WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND id = ${eid})`
+    const rows = await this.rows(`${cte} SELECT chain FROM chains`)
+    if (rows.length === 0) return { nodes: [], edges: [] }
+    return setsFromChain((rows[0].chain as { items: string[] }).items)
   }
 
   // Module-relative call-site offsets for a native function node: the ghidra

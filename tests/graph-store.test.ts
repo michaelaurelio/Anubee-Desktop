@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GraphStore } from '../src/main/graph-store'
 import { parseJsonl, isSyscall, isCall } from '@shared/anubee-parse'
-import { foldEvents, foldFuncEvents, chainOfCfi, coOccur, type GraphSlice } from '@shared/graph-shape'
+import { foldEvents, foldFuncEvents, chainOfCfi, coOccur, chainOf, setsFromChain, type GraphSlice } from '@shared/graph-shape'
 import type { Rule } from '@shared/rasp-heuristics'
 
 // A trace with 2 root-check bridges (java + native), 1 java-less read, a
@@ -725,5 +725,75 @@ describe('GraphStore.highlightSets', () => {
     const shared = await store.highlightSets('nat:libexample.so!tramp')
     expect([...shared.nodes].sort()).toEqual([
       'java:com.example.A.a', 'java:com.example.B.b', 'nat:libexample.so!tramp', 'sys:openat', 'sys:read'])
+  })
+})
+
+describe('GraphStore.recordChain', () => {
+  it('returns the selected syscall record\'s own chain, matching the fold oracle', async () => {
+    store = new GraphStore()
+    const p = fixture()
+    await store.ingest(p)
+    const r = await store.recordChain(1)
+    // Oracle: event id 1's own chain (java RootCheck.run -> native check_su -> openat),
+    // folded to sets exactly as recordChain does.
+    const ev1 = parseJsonl(LINES.join('\n')).events.filter(isSyscall).find(e => e.id === 1)!
+    const oracle = setsFromChain(chainOf(ev1).map(c => c.id))
+    expect([...r.nodes].sort()).toEqual([...oracle.nodes].sort())
+    expect([...r.edges].sort()).toEqual([...oracle.edges].sort())
+    // Strict subset of the slice the graph is actually drawn with (the record's bridge),
+    // not the unfiltered slice.
+    const slice = await store.slice({ text: 'com.example.app.RootCheck.run', hasJavaStack: true }, undefined)
+    const sliceNodeIds = new Set(slice.nodes.map(n => n.id))
+    const sliceEdgeIds = new Set(slice.edges.map(e => e.id))
+    for (const n of r.nodes) expect(sliceNodeIds.has(n)).toBe(true)
+    for (const e of r.edges) expect(sliceEdgeIds.has(e)).toBe(true)
+  })
+
+  it('returns empty sets for an unknown id', async () => {
+    store = new GraphStore()
+    await store.ingest(fixture())
+    expect(await store.recordChain(9999)).toEqual({ nodes: [], edges: [] })
+  })
+
+  it('returns a funcs call record\'s chain on a funcs run', async () => {
+    store = new GraphStore()
+    await store.ingest(funcsFixture())
+    const r = await store.recordChain(1)
+    expect(r.nodes).toContain('fn:libexample.so!checkRoot')
+    // subset of the funcs slice
+    const slice = await store.slice({}, undefined)
+    const ids = new Set(slice.nodes.map(n => n.id))
+    for (const n of r.nodes) expect(ids.has(n)).toBe(true)
+  })
+
+  it('uses the cfi_stack sidecar chain for a record whose stack_id has one', async () => {
+    const sys = JSON.stringify({
+      type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 29, syscall: 'ioctl',
+      args: [], retval: 0, string_args: {}, fd_args: {}, decoded_args: {}, stack_id: 11,
+      java_stack: ['com.android.internal.os.Zygote.callPostForkChildHooks'],
+      backtrace: [{ frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8' }],
+    })
+    const cfi = JSON.stringify({
+      type: 'cfi_stack', pid: 100, tid: 101, stack_id: 11,
+      cfi_backtrace: [
+        { frame: 0, addr: '0x1', symbol: 'libc.so!__ioctl+0x8', kind: 'native' },
+        { frame: 1, addr: '0x5', symbol: 'boot.oat!com.android.internal.os.Zygote.callPostForkChildHooks+0x28', kind: 'managed' },
+        { frame: 2, addr: '0x7', symbol: 'libandroid_runtime.so!SpecializeCommon+0x69a0', kind: 'native' },
+      ],
+    })
+    dir = mkdtempSync(join(tmpdir(), 'anubee-cfi-record-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, sys + '\n')
+    writeFileSync(p + '.stacks', cfi + '\n')
+    store = new GraphStore()
+    await store.ingest(p)
+    const r = await store.recordChain(1)
+    // CFI-recovered chain (includes the outer-native SpecializeCommon caller the FP
+    // backtrace drops), folded to sets exactly as recordChain does.
+    const oracle = setsFromChain(chainOfCfi(JSON.parse(cfi).cfi_backtrace, 'sys:ioctl').map(n => n.id))
+    expect([...r.nodes].sort()).toEqual([...oracle.nodes].sort())
+    expect([...r.edges].sort()).toEqual([...oracle.edges].sort())
+    // The CFI-only outer-native caller is present (proves the CFI path, not the FP fallback).
+    expect(r.nodes).toContain('nat:libandroid_runtime.so!SpecializeCommon')
   })
 })

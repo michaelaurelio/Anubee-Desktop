@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chainOf, foldEvents, labelForId, capSlice, mergeGraphs, nativeNodeId, chainOfFunc, foldFuncEvents, chainOfCfi, coOccur } from '@shared/graph-shape'
+import { chainOf, foldEvents, labelForId, capSlice, mergeGraphs, nativeNodeId, chainOfFunc, foldFuncEvents, chainOfCfi, coOccur, setsFromChain } from '@shared/graph-shape'
 import type { SyscallEvent, FuncEvent, CfiFrame } from '@shared/events'
 
 function syscall(over: Partial<SyscallEvent> = {}): SyscallEvent {
@@ -328,5 +328,24 @@ describe('coOccur', () => {
 
   it('a node absent from every chain lights nothing', () => {
     expect(coOccur([j1], 'sys:read')).toEqual({ nodes: [], edges: [] })
+  })
+})
+
+describe('setsFromChain', () => {
+  it('turns a chain into nodes plus adjacent-pair edges', () => {
+    const r = setsFromChain(['java:A', 'nat:libexample.so!f', 'sys:openat'])
+    expect(r.nodes).toEqual(['java:A', 'nat:libexample.so!f', 'sys:openat'])
+    expect(r.edges).toEqual(['java:A=>nat:libexample.so!f', 'nat:libexample.so!f=>sys:openat'])
+  })
+
+  it('yields no edges for empty or single-node chains', () => {
+    expect(setsFromChain([])).toEqual({ nodes: [], edges: [] })
+    expect(setsFromChain(['sys:read'])).toEqual({ nodes: ['sys:read'], edges: [] })
+  })
+
+  it('dedupes repeated node ids but keeps positional edges', () => {
+    const r = setsFromChain(['nat:x', 'nat:y', 'nat:x'])
+    expect(r.nodes).toEqual(['nat:x', 'nat:y'])
+    expect(r.edges).toEqual(['nat:x=>nat:y', 'nat:y=>nat:x'])
   })
 })
