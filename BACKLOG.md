@@ -3,6 +3,38 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-20) - Node-inspector pagination + offset-popup histogram
+
+The right-panel node inspector now pages the records behind a tapped node in
+windows of 100 with a prev/next arrow pager mirroring the master table
+(`buildInspectorPager`, `.pager.insp-pager`); the header pill shows the node's
+true total via a new `nodeEventCount` store query rather than a capped page
+length. `main.ts` owns the paging state (`nodeOffset`, `currentNode`,
+`refreshNodeInspector`), the right-panel analogue of `tableOffset`/`refreshTable`.
+Both engines paginate (`showNodeInspector`, `showFuncsNodeInspector`). The
+native-node offset popup became a read-only per-syscall histogram
+(`aggregateBySyscall`): rows are aggregated by syscall (`syscall` + summed
+`count`, sorted count-desc then syscall-asc), dropping the offset column, the
+row-click inline detail, and the right-click Copy menu - the per-record offset
+now lives in that record's detail card. See `DOCUMENTATION.md`'s "Offset popup"
+and "Detail panel redesign" sections.
+
+### Known drawbacks / follow-ups
+- **Orphaned shared helpers.** `copyText` / `rowJson` (`src/shared/origins.ts`)
+  and the `sampleEventId` plumbing were the offset popup's only production
+  consumers; after the Copy / row-expand removal they are referenced only by
+  their own tests. Left in place deliberately - `origins.ts` documents them as
+  shared with the "(later) Session MCP", so they are intended future API, not
+  dead code. Delete if the Session MCP work is dropped.
+- **Highlight can be dropped by very fast paging.** `onPrev` / `onNext` bump
+  `selEpoch` (needed so an out-of-order page can't paint over a newer one),
+  which also invalidates the original tap's still-in-flight `highlightSets`
+  continuation. Clicking next/prev before that resolves on a large run means the
+  node's graph highlight silently never applies. Same node, so cosmetic only.
+- **Offset-popup empty-state wording.** The empty note still reads "no
+  call-sites in the current filter", phrased for the old per-offset table rather
+  than the new per-syscall histogram. Cosmetic.
+
 ## Shipped (2026-07-20) - Row-select auto-highlight + graph-scoped highlight/details
 
 Selecting a master-table row now lights that record's own call path
