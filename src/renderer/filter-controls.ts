@@ -1,4 +1,6 @@
 import type { Filter } from '@shared/filter'
+import type { TagTargets } from '@shared/filter'
+import type { RaspCategory } from '@shared/project-store'
 import { splitWords, matchToken, filterFromParts, OMNI_KEYS, type OmniToken } from '@shared/omni-parse'
 
 // Chip state is the source of truth for structured filters; whatever is left
@@ -6,13 +8,23 @@ import { splitWords, matchToken, filterFromParts, OMNI_KEYS, type OmniToken } fr
 // unchanged, so every consumer in main.ts stays untouched.
 let chips: OmniToken[] = []
 let acIndex = 0
+let tagResolver: ((cat?: RaspCategory) => TagTargets) | null = null
+
+// Register how a tag.* chip resolves to bounded target lists. main.ts wires this
+// from its live confirmed-tag set; tests inject a stub. Keeps this module free of
+// any tag-store knowledge - it only calls the injected resolver.
+export function setTagResolver(fn: ((cat?: RaspCategory) => TagTargets) | null): void {
+  tagResolver = fn
+}
 
 function input(): HTMLInputElement | null {
   return document.getElementById('f-text') as HTMLInputElement | null
 }
 
 export function currentFilter(): Filter {
-  return filterFromParts(chips, input()?.value ?? '')
+  const f = filterFromParts(chips, input()?.value ?? '')
+  if ((f.tagged || f.tagName) && tagResolver) f.tagTargets = tagResolver(f.tagName)
+  return f
 }
 
 function renderChips(refresh: () => void): void {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
-import { currentFilter, wireFilterControls } from '../src/renderer/filter-controls'
+import { currentFilter, wireFilterControls, setTagResolver } from '../src/renderer/filter-controls'
 
 function setup(): { input: HTMLInputElement; refresh: ReturnType<typeof vi.fn> } {
   document.body.innerHTML =
@@ -75,7 +75,7 @@ describe('apply and removal', () => {
 
   it('chip x removes the chip and refreshes', () => {
     const { input, refresh } = setup()
-    type(input, 'java:yes')
+    type(input, 'java.exist:true')
     key(input, ' ')
     ;(document.querySelector('#omni-chips .chip-x') as HTMLElement).click()
     expect(document.querySelectorAll('#omni-chips .chip')).toHaveLength(0)
@@ -85,33 +85,33 @@ describe('apply and removal', () => {
 
   it('Backspace in an empty input pops the last chip back as text, no refresh', () => {
     const { input, refresh } = setup()
-    type(input, 'lib:libc')
+    type(input, 'stack.lib:libc')
     key(input, ' ')
     type(input, '')
     key(input, 'Backspace')
     expect(document.querySelectorAll('#omni-chips .chip')).toHaveLength(0)
-    expect(input.value).toBe('lib:libc')
+    expect(input.value).toBe('stack.lib:libc')
     expect(refresh).not.toHaveBeenCalled()
   })
 
   it('pops a spaced value back re-quoted', () => {
     const { input } = setup()
-    type(input, 'symbol:"a b"')
+    type(input, 'fn.sym:"a b"')
     key(input, ' ')
     type(input, '')
     key(input, 'Backspace')
-    expect(input.value).toBe('symbol:"a b"')
+    expect(input.value).toBe('fn.sym:"a b"')
   })
 })
 
 describe('autocomplete', () => {
   it('lists matching keys for the current word prefix', () => {
     const { input } = setup()
-    type(input, 'sy')
+    type(input, 'st')
     const ac = document.getElementById('omni-ac')!
     expect(ac.classList.contains('hidden')).toBe(false)
-    expect(ac.textContent).toContain('syscall:')
-    expect(ac.textContent).toContain('symbol:')
+    expect(ac.textContent).toContain('stack.lib:')
+    expect(ac.textContent).toContain('stack.sym:')
   })
 
   it('Tab accepts the highlighted key', () => {
@@ -126,7 +126,7 @@ describe('autocomplete', () => {
     const { input, refresh } = setup()
     type(input, 'ja')
     key(input, 'Enter')
-    expect(input.value).toBe('java:')
+    expect(input.value).toBe('java.exist:')
     expect(refresh).not.toHaveBeenCalled()
   })
 
@@ -145,15 +145,15 @@ describe('autocomplete', () => {
 
   it('ArrowDown/ArrowUp cycle the highlighted key', () => {
     const { input } = setup()
-    type(input, 'sy') // matches syscall + symbol
+    type(input, 'st') // matches stack.lib + stack.sym
     key(input, 'ArrowDown')
     let on = document.querySelector('#omni-ac .ac-row.on b')
-    expect(on?.textContent).toBe('symbol:')
+    expect(on?.textContent).toBe('stack.sym:')
     key(input, 'ArrowUp')
     on = document.querySelector('#omni-ac .ac-row.on b')
-    expect(on?.textContent).toBe('syscall:')
+    expect(on?.textContent).toBe('stack.lib:')
     key(input, 'Tab')
-    expect(input.value).toBe('syscall:')
+    expect(input.value).toBe('stack.lib:')
   })
 })
 
@@ -164,5 +164,48 @@ describe('currentFilter', () => {
     key(input, ' ')
     type(input, '/proc/self')
     expect(currentFilter()).toEqual({ syscall: 'openat', text: '/proc/self' })
+  })
+})
+
+describe('tag resolver injection', () => {
+  it('populates tagTargets for a tag.exist chip via the resolver', () => {
+    const { input } = setup()
+    setTagResolver(() => ({ syscalls: ['openat'], natFrames: [], javaMethods: [] }))
+    type(input, 'tag.exist:true')
+    key(input, ' ')
+    expect(currentFilter()).toEqual({
+      tagged: 'yes', tagTargets: { syscalls: ['openat'], natFrames: [], javaMethods: [] },
+    })
+    setTagResolver(null)
+  })
+  it('passes the category to the resolver for tag.name', () => {
+    const { input } = setup()
+    const seen: (string | undefined)[] = []
+    setTagResolver(cat => { seen.push(cat); return { syscalls: [], natFrames: [], javaMethods: [] } })
+    type(input, 'tag.name:root')
+    key(input, ' ')
+    currentFilter()
+    expect(seen).toContain('root')
+    setTagResolver(null)
+  })
+  it('does not call the resolver when no tag chip is present', () => {
+    const { input } = setup()
+    let calls = 0
+    setTagResolver(() => { calls++; return { syscalls: [], natFrames: [], javaMethods: [] } })
+    type(input, 'syscall:openat')
+    key(input, ' ')
+    currentFilter()
+    expect(calls).toBe(0)
+    setTagResolver(null)
+  })
+})
+
+describe('autocomplete — dotted keys', () => {
+  it('typing "java." offers both java.* keys', () => {
+    const { input } = setup()
+    type(input, 'java.')
+    const rows = [...document.querySelectorAll('#omni-ac .ac-row b')].map(b => b.textContent)
+    expect(rows).toContain('java.exist:')
+    expect(rows).toContain('java.method:')
   })
 })

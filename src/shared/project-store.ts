@@ -34,7 +34,7 @@ export interface Sidecar {
   dismissed?: Dismissed[]
 }
 
-const CATEGORIES: RaspCategory[] = ['root', 'debugger', 'emulator', 'integrity', 'hook', 'custom']
+export const CATEGORIES: RaspCategory[] = ['root', 'debugger', 'emulator', 'integrity', 'hook', 'custom']
 
 // Validate one entry into a Tag, or return null (caller records the error).
 function coerceTag(v: unknown): Tag | null {

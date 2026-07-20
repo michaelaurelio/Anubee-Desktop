@@ -6,7 +6,8 @@ import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
 import { serializeLayout, parseLayout, columnCatalogue, engineColumnKeys, engineDefaultColumns, type ColumnLayout, type ColumnKey } from './columns'
 import { applyWidths, nextWidth } from './column-resize'
-import { currentFilter, wireFilterControls } from './filter-controls'
+import { currentFilter, wireFilterControls, setTagResolver } from './filter-controls'
+import { resolveTagTargets } from '@shared/tag-targets'
 import { showNodeInspector, showRecordDetail, showFuncsNodeInspector, showFuncsRecordDetail, type InspectorPage } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
 import { applyHighlight, clearHighlight } from './graph-highlight'
@@ -934,6 +935,7 @@ document.getElementById('pager-next')?.addEventListener('click', () => {
   void refreshTable()
 })
 wireFilterControls(() => { tableOffset = 0; void refreshTable(); refreshMiddle() })
+setTagResolver(cat => resolveTagTargets(tags, cat))
 wireExport()
 
 function openColumnsModal(): void {
