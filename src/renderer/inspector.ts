@@ -174,10 +174,11 @@ export interface NodeInspectorOpts {
   cats?: string[]
 }
 
-// Build the node-inspector header: a kind dot + kind-colored node name + a
-// record-count pill, and one `.cat-chip` per tag category underneath. Cells
-// use textContent so trace strings/tags can't inject markup.
-function buildNodeHeader(nodeId: string, count: number, unit: string, opts?: NodeInspectorOpts): HTMLDivElement {
+// Build the node-inspector header: a kind dot + kind-colored node name, and one
+// `.cat-chip` per tag category underneath. The record count lives in the pager
+// row's range readout, so it is not repeated here. Cells use textContent so
+// trace strings/tags can't inject markup.
+function buildNodeHeader(nodeId: string, opts?: NodeInspectorOpts): HTMLDivElement {
   const head = document.createElement('div')
   head.className = 'insp-head'
 
@@ -193,10 +194,6 @@ function buildNodeHeader(nodeId: string, count: number, unit: string, opts?: Nod
   if (opts?.kind) nm.classList.add(`k-${opts.kind}`)
   nm.textContent = nodeId
   title.appendChild(nm)
-  const pill = document.createElement('span')
-  pill.className = 'insp-pill'
-  pill.textContent = `${count} ${unit}`
-  title.appendChild(pill)
   head.appendChild(title)
 
   if (opts?.cats?.length) {
@@ -222,7 +219,7 @@ export function showNodeInspector(nodeId: string, events: SyscallEvent[], page: 
   if (!host) return
   host.innerHTML = ''
 
-  host.appendChild(buildNodeHeader(nodeId, page.total, 'record(s)', opts))
+  host.appendChild(buildNodeHeader(nodeId, opts))
   host.appendChild(buildInspectorPager(page, events.length))
 
   const detail = document.createElement('div')
@@ -375,7 +372,7 @@ export function showFuncsNodeInspector(nodeId: string, records: FuncEvent[], pag
   const host = document.getElementById('inspector')
   if (!host) return
   host.innerHTML = ''
-  host.appendChild(buildNodeHeader(nodeId, page.total, 'call(s)', opts))
+  host.appendChild(buildNodeHeader(nodeId, opts))
   host.appendChild(buildInspectorPager(page, records.length))
 
   const detail = document.createElement('div')

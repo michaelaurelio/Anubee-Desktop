@@ -1226,14 +1226,14 @@ The right-panel node/record inspector (`src/renderer/inspector.ts` +
 - **Header** (`buildNodeHeader`) - a kind dot (`.insp-kdot.k-<kind>`, colored
   from the same `--k-java` / `--k-native` / `--k-syscall` / `--k-func` tokens
   the graph and flame view use) beside the kind-colored node name
-  (`.insp-head-nm.k-<kind>`), a record-count pill (`.insp-pill`, e.g. "1400
-  record(s)") showing the node's true total (`nodeEventCount`, not the page
-  length), and any RASP categories on the node rendered as `.cat-chip`s
-  beneath the title row.
+  (`.insp-head-nm.k-<kind>`), and any RASP categories on the node rendered as
+  `.cat-chip`s beneath the title row. The record count is not repeated here - it
+  is the `/ total` in the pager row's range readout below.
 - **Pager row** (`buildInspectorPager`, `.pager.insp-pager`) - sits directly
   under the header, reusing the master table's `‹ from–to / total ›` pager
-  styling to step through the node's records 100 at a time; prev is disabled
-  on the first page and next on the last. Paging re-fetches the page and
+  styling to step through the node's records 100 at a time; the `total` is the
+  node's true record count (`nodeEventCount`, not the page length); prev is
+  disabled on the first page and next on the last. Paging re-fetches the page and
   auto-selects its first record into the detail cards below, the same as the
   initial node-tap selection.
 - **Records table** (`.insp-table`) - a sticky header (`position: sticky`),
