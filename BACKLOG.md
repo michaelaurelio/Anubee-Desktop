@@ -23,6 +23,16 @@ section.
   ignores `edge:`/`fn:` targets); the SQL predicate is `tagPredicate` in
   `src/shared/filter.ts`. Extending either requires adding an edge-target and
   a funcs-callee-target bucket to both.
+- **Latent CFI-managed java tag round-trip gap.** The `tag:` filter's java
+  matching queries `java_stack` (flat dotted method names, offset-stripped)
+  against tagged `java:` targets. But CFI-managed java node ids built by
+  `cfiNodeId` in `src/shared/graph-shape.ts` strip a `Class!method` prefix
+  (`^.*!`) in addition to the offset. So a tag created on a CFI-managed node
+  whose symbol carried a `!` prefix resolves to a bucket value that a flat
+  `java_stack` row can never equal - the tag filter would silently return zero
+  rows for it. Latent today (no CFI/managed-stack fixtures exist; current
+  `java_stack` samples are plain dotted names); resolve when CFI java support
+  lands, alongside the edge/fn deferral above.
 
 ## Shipped (2026-07-20) - Node-inspector pagination + offset-popup histogram
 
