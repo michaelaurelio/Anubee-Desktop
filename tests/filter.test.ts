@@ -77,4 +77,30 @@ describe('filterToSql', () => {
     expect(r.where).toContain('b.symbol')
     expect(r.params).toEqual(['%checkRoot%'])
   })
+
+  const TT = { syscalls: ['openat'], natFrames: ['libexample.so!checkRoot'], javaMethods: ['com.x.Y.isRooted'] }
+
+  it('tag.exist:yes ORs the three bucket predicates with bound IN lists', () => {
+    const r = filterToSql({ tagged: 'yes', tagTargets: TT })
+    expect(r.where).toContain('syscall IN (?)')
+    expect(r.where).toContain('backtrace')
+    expect(r.where).toContain('java_stack')
+    expect(r.where.startsWith('NOT ')).toBe(false)
+    expect(r.params).toEqual(['openat', 'libexample.so!checkRoot', 'com.x.Y.isRooted'])
+  })
+  it('tag.exist:no negates the predicate', () => {
+    const r = filterToSql({ tagged: 'no', tagTargets: TT })
+    expect(r.where.startsWith('NOT ')).toBe(true)
+    expect(r.params).toEqual(['openat', 'libexample.so!checkRoot', 'com.x.Y.isRooted'])
+  })
+  it('an empty tagTargets matches nothing (FALSE), not everything', () => {
+    const r = filterToSql({ tagged: 'yes', tagTargets: { syscalls: [], natFrames: [], javaMethods: [] } })
+    expect(r.where).toBe('FALSE')
+    expect(r.params).toEqual([])
+  })
+  it('tagName reuses the predicate (renderer pre-scopes the targets)', () => {
+    const r = filterToSql({ tagName: 'root', tagTargets: { syscalls: ['openat'], natFrames: [], javaMethods: [] } })
+    expect(r.where).toContain('syscall IN (?)')
+    expect(r.params).toEqual(['openat'])
+  })
 })
