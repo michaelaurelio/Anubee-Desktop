@@ -150,13 +150,13 @@ describe('triageDir', () => {
   })
   it('resolves the pulled .so by the manifest path basename', () => {
     const dir = mkdtempSync(join(tmpdir(), 'triage-'))
-    const soName = 'libexample.so.21471.7284e78000.so'
+    const soName = 'libexample.so.7.1000.so'
     writeFileSync(join(dir, soName), 'ELF')
     writeFileSync(join(dir, 'manifest.jsonl'), JSON.stringify({
       type: 'dump',
       module: 'libexample.so',
       path: `/data/local/tmp/anubee-dump-x/${soName}`,
-      base: '0x7284e78000', pid: 21471, raw: false,
+      base: '0x1000', pid: 7, raw: false,
     }) + '\n')
     const out = triageDir(dir)
     expect(out).toHaveLength(1)
