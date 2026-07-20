@@ -1,15 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { popupState, eventForOffset } from '../src/renderer/offset-popup'
+import { popupState, aggregateBySyscall } from '../src/renderer/offset-popup'
 import type { OffsetRow } from '@shared/origins'
-import type { SyscallEvent } from '@shared/events'
 
 const row: OffsetRow = { module: 'libexample.so', offset: '0x10', symbol: 'check_su',
   syscall: 'openat', argsSample: {}, count: 3, sampleEventId: 1 }
-
-const ev = (id: number): SyscallEvent => ({
-  type: 'syscall', id, pid: 1, tid: 1, syscall_nr: 1, syscall: 'openat',
-  args: [], retval: 0, string_args: {}, fd_args: {}, decoded_args: {}, backtrace: [],
-})
 
 describe('popupState', () => {
   it('reports empty when there are no rows', () => {
@@ -23,16 +17,20 @@ describe('popupState', () => {
   })
 })
 
-describe('eventForOffset', () => {
-  it('resolves the row sample event by id', () => {
-    const events = [ev(1), ev(2), ev(3)]
-    const r = { ...row, sampleEventId: 2 }
-    expect(eventForOffset(events, r)?.id).toBe(2)
+describe('aggregateBySyscall', () => {
+  it('folds distinct offsets of the same syscall into one summed row', () => {
+    const rows: OffsetRow[] = [
+      { ...row, offset: '0x10', syscall: 'openat', count: 5 },
+      { ...row, offset: '0x40', syscall: 'openat', count: 3 },
+      { ...row, offset: '0x80', syscall: 'read', count: 9 },
+    ]
+    expect(aggregateBySyscall(rows)).toEqual([
+      { syscall: 'read', count: 9 },
+      { syscall: 'openat', count: 8 },
+    ])
   })
-  it('falls back to the first event when the sample is absent', () => {
-    const events = [ev(5), ev(6)]
-    const r = { ...row, sampleEventId: 999 }
-    expect(eventForOffset(events, r)?.id).toBe(5)
+  it('returns an empty array for no rows', () => {
+    expect(aggregateBySyscall([])).toEqual([])
   })
 })
 
