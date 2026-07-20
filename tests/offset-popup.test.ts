@@ -29,6 +29,16 @@ describe('aggregateBySyscall', () => {
       { syscall: 'openat', count: 8 },
     ])
   })
+  it('breaks equal-count ties by syscall name ascending', () => {
+    const rows: OffsetRow[] = [
+      { ...row, offset: '0x10', syscall: 'read', count: 4 },
+      { ...row, offset: '0x40', syscall: 'openat', count: 4 },
+    ]
+    expect(aggregateBySyscall(rows)).toEqual([
+      { syscall: 'openat', count: 4 },
+      { syscall: 'read', count: 4 },
+    ])
+  })
   it('returns an empty array for no rows', () => {
     expect(aggregateBySyscall([])).toEqual([])
   })
