@@ -239,22 +239,10 @@
       .offset-popup-head { font-family: var(--mono); font-weight: 600; padding: 0 0 6px 0; margin-bottom: 6px;
         border-bottom: 1px solid var(--border-soft); color: var(--text); word-break: break-all; font-size: 12px; }
       .offset-popup-rows { display: flex; flex-direction: column; gap: 4px; }
-      .offset-row { cursor: pointer; }
-      .offset-row-line { display: flex; gap: 12px; align-items: center; padding: 4px; border-radius: 4px;
-        cursor: pointer; }
-      .offset-row-line:hover { background: var(--hover); }
-      .offset-cell { font-family: var(--mono); color: var(--text); flex: 0 0 auto; }
+      .offset-row-line { display: flex; gap: 12px; align-items: center; padding: 4px; border-radius: 4px; }
       .reaches-cell { color: var(--text); flex: 1 1 auto; font-size: 12px; }
       .count-cell { font-family: var(--mono); color: var(--muted); text-align: right; flex: 0 0 40px;
         background: var(--hover); padding: 2px 6px; border-radius: 3px; }
-      .offset-row-detail { margin: 4px 0 0 0; padding: 6px; background: var(--hover); border-radius: 4px;
-        color: var(--text); font-size: 11px; border: 1px solid var(--border-soft); }
-      .offset-row-menu { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-        box-shadow: var(--shadow); min-width: 120px; z-index: 60; }
-      .offset-menu-item { padding: 4px 8px; cursor: pointer; font-size: 12px; color: var(--text);
-        border-bottom: 1px solid var(--border-soft); }
-      .offset-menu-item:last-child { border-bottom: 0; }
-      .offset-menu-item:hover { background: var(--hover); }
       .offset-popup-empty { color: var(--muted); padding: 8px; font-size: 12px; text-align: center; }
       /* tag editor: category + note + save + existing tags (right-click Add Tag) */
       .tag-editor { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px;
@@ -268,6 +256,7 @@
       .tag-editor button:hover { background: var(--hover); }
       .tag-editor .tag-existing { display: flex; flex-direction: column; gap: 3px; color: var(--muted); }
       /* inspector: records-behind-a-node table + detail */
+      .insp-pager { padding: 4px 0 8px; }
       .insp-head { font-weight: 600; color: var(--text); margin-bottom: 6px; word-break: break-all; font-size: 12px; }
       .insp-head-title { display: flex; align-items: center; gap: 8px; }
       .insp-kdot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: var(--muted); }

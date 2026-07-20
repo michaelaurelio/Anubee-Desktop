@@ -1,5 +1,39 @@
 import type { SyscallEvent, FuncEvent } from '@shared/events'
 
+// The pager descriptor a node inspector renders: which window of records it shows
+// (`offset`), how many exist in total, and the arrow callbacks (owned by main.ts,
+// mirroring the master table's tableOffset/refreshTable).
+export interface InspectorPage {
+  offset: number
+  total: number
+  onPrev: () => void
+  onNext: () => void
+}
+
+// Build the inspector pager row (prev / "a-b / total" / next), styled like the
+// master-table pager. Disabled at the ends. "next" is off once this page reaches
+// the total (offset + pageLen === total on the last page), so no page constant is
+// needed here - main.ts owns NODE_PAGE.
+function buildInspectorPager(page: InspectorPage, pageLen: number): HTMLElement {
+  const bar = document.createElement('div')
+  bar.className = 'pager insp-pager'
+  const prev = document.createElement('button')
+  prev.className = 'icon-btn'; prev.title = 'previous page'
+  prev.innerHTML = '<svg class="ic" viewBox="0 0 24 24"><use href="#i-cl"/></svg>'
+  prev.disabled = page.offset <= 0
+  prev.onclick = () => page.onPrev()
+  const rng = document.createElement('span')
+  rng.className = 'rng'
+  rng.textContent = page.total === 0 ? '0 / 0' : `${page.offset + 1}–${page.offset + pageLen} / ${page.total}`
+  const next = document.createElement('button')
+  next.className = 'icon-btn'; next.title = 'next page'
+  next.innerHTML = '<svg class="ic" viewBox="0 0 24 24"><use href="#i-cr"/></svg>'
+  next.disabled = page.offset + pageLen >= page.total
+  next.onclick = () => page.onNext()
+  bar.append(prev, rng, next)
+  return bar
+}
+
 // A readable multi-line summary of one raw syscall record. Pure and unit-tested.
 export function formatEvent(e: SyscallEvent): string {
   const lines: string[] = []
@@ -183,12 +217,13 @@ function buildNodeHeader(nodeId: string, count: number, unit: string, opts?: Nod
 // (id, syscall, tid, retval, primary arg); clicking a row shows that record's
 // full formatted detail below. Cells use textContent so trace strings can't
 // inject markup. DOM side-effect, not unit-tested.
-export function showNodeInspector(nodeId: string, events: SyscallEvent[], opts?: NodeInspectorOpts): void {
+export function showNodeInspector(nodeId: string, events: SyscallEvent[], page: InspectorPage, opts?: NodeInspectorOpts): void {
   const host = document.getElementById('inspector')
   if (!host) return
   host.innerHTML = ''
 
-  host.appendChild(buildNodeHeader(nodeId, events.length, 'record(s)', opts))
+  host.appendChild(buildNodeHeader(nodeId, page.total, 'record(s)', opts))
+  host.appendChild(buildInspectorPager(page, events.length))
 
   const detail = document.createElement('div')
   detail.className = 'insp-detail'
@@ -210,7 +245,7 @@ export function showNodeInspector(nodeId: string, events: SyscallEvent[], opts?:
 
   const tbody = document.createElement('tbody')
   let selected: HTMLTableRowElement | undefined
-  for (const ev of events.slice(0, 500)) {
+  for (const ev of events) {
     const tr = document.createElement('tr')
     const cells = [String(ev.id), ev.syscall, String(ev.tid), String(ev.retval), primaryArg(ev)]
     for (let i = 0; i < cells.length; i++) {
@@ -336,11 +371,12 @@ function renderFuncDetail(host: HTMLElement, e: FuncEvent): void {
 
 // Render the funcs records behind a clicked node: a compact table
 // (# / caller / retval / elapsed / args); clicking a row shows that record's detail.
-export function showFuncsNodeInspector(nodeId: string, records: FuncEvent[], opts?: NodeInspectorOpts): void {
+export function showFuncsNodeInspector(nodeId: string, records: FuncEvent[], page: InspectorPage, opts?: NodeInspectorOpts): void {
   const host = document.getElementById('inspector')
   if (!host) return
   host.innerHTML = ''
-  host.appendChild(buildNodeHeader(nodeId, records.length, 'call(s)', opts))
+  host.appendChild(buildNodeHeader(nodeId, page.total, 'call(s)', opts))
+  host.appendChild(buildInspectorPager(page, records.length))
 
   const detail = document.createElement('div')
   detail.className = 'insp-detail'
@@ -357,7 +393,7 @@ export function showFuncsNodeInspector(nodeId: string, records: FuncEvent[], opt
 
   const tbody = document.createElement('tbody')
   let selected: HTMLTableRowElement | undefined
-  for (const ev of records.slice(0, 500)) {
+  for (const ev of records) {
     const tr = document.createElement('tr')
     const cells = [String(ev.id), funcCaller(ev),
       ev.retval === undefined ? '-' : String(ev.retval),
