@@ -189,8 +189,11 @@
       #loadbar.error #loadbar-fill { width:100%; background:#c0392b; animation:none; transition:width .1s linear; }
       @keyframes lb-sweep { 0%{transform:translateX(-120%)} 100%{transform:translateX(360%)} }
 
-      #table-skeleton { padding:8px 12px; }
+      #table-skeleton { padding:8px 12px; flex:1 1 auto; }
       #table-skeleton.hidden { display:none; }
+      /* while the skeleton is up (load in flight) the real scroll body is empty - collapse
+         it so the skeleton fills the panel instead of splitting the flex space with it. */
+      #table:has(#table-skeleton:not(.hidden)) .table-scroll { display:none; }
       #table-skeleton .sk-row { display:flex; gap:12px; padding:8px 0; border-bottom:1px solid var(--stripe); }
       #table-skeleton .sk { height:10px; border-radius:3px; display:inline-block;
         background:linear-gradient(90deg,var(--panel-2) 25%,var(--hover) 50%,var(--panel-2) 75%);
@@ -620,7 +623,6 @@
           </div>
           <button id="cols-btn" class="cols-btn" title="choose columns"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cols"/></svg> columns</button>
         </div>
-        <div class="table-scroll"></div>
         <div id="table-skeleton" class="hidden">
           <div class="sk-row"><span class="sk" style="width:22%"></span><span class="sk" style="width:40%"></span><span class="sk" style="width:15%"></span></div>
           <div class="sk-row"><span class="sk" style="width:30%"></span><span class="sk" style="width:28%"></span><span class="sk" style="width:20%"></span></div>
@@ -628,6 +630,7 @@
           <div class="sk-row"><span class="sk" style="width:26%"></span><span class="sk" style="width:34%"></span><span class="sk" style="width:22%"></span></div>
           <div class="sk-row"><span class="sk" style="width:20%"></span><span class="sk" style="width:38%"></span><span class="sk" style="width:18%"></span></div>
         </div>
+        <div class="table-scroll"></div>
       </div>
       <div class="resize-handle hidden" id="table-resize" data-resize="table" title="drag to resize"></div>
       <div id="view">

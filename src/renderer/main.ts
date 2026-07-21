@@ -899,6 +899,7 @@ window.anubee.onEstimate(({ fileBytes, throughput }) => {
   // so the dialog goes away the instant work starts, and raise the estimated bar.
   closeModal()
   document.getElementById('empty-state')?.classList.add('hidden')
+  showTablePanel(true) // reveal the table panel now so the skeleton (inside it) is visible during load
   ingest.begin(fileBytes, throughput)
 })
 window.anubee.onLoaded(s => {
@@ -931,7 +932,10 @@ window.anubee.onLoaded(s => {
 // Centralized ingest failure: covers all four broadcasting load paths (run-open,
 // project-open, capture-ingest, preload auto-load). restoreEmpty only when no
 // run is loaded, so a failed re-open does not blank an existing run's table.
-window.anubee.onIngestFail(({ message, file }) => ingest.fail(message, file, activeRunId === undefined))
+window.anubee.onIngestFail(({ message, file }) => {
+  ingest.fail(message, file, activeRunId === undefined)
+  if (activeRunId === undefined) showTablePanel(false) // failed first load: revert the panel onEstimate opened
+})
 initLoadingUi()
 document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))
 document.getElementById('tab-flame')?.addEventListener('click', () => showView('flame'))
