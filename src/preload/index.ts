@@ -56,6 +56,10 @@ contextBridge.exposeInMainWorld('anubee', {
   logSave: (text: string) => ipcRenderer.invoke('log:save', text),
   onProgress: (cb: (pct: number) => void) =>
     ipcRenderer.on('trace:progress', (_e, pct) => cb(pct as number)),
+  onEstimate: (cb: (e: { fileBytes: number; throughput: number }) => void) =>
+    ipcRenderer.on('trace:estimate', (_e, e) => cb(e as { fileBytes: number; throughput: number })),
+  onIngestFail: (cb: (e: { message: string; file: string }) => void) =>
+    ipcRenderer.on('trace:fail', (_e, e) => cb(e as { message: string; file: string })),
   onLoaded: (cb: (s: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }) => void) =>
     ipcRenderer.on('trace:loaded', (_e, s) => cb(s as { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] })),
   getTracerConfig: () => ipcRenderer.invoke('tracer:config:get'),
