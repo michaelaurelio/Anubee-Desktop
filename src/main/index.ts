@@ -1,7 +1,9 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, clipboard, shell } from 'electron'
 import { resolve } from 'path'
-import { writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { writeFileSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { GraphStore } from './graph-store'
+import { loadThroughput, saveThroughput } from './ingest-calibration'
+import { updateThroughput } from '@shared/ingest-estimate'
 import type { Filter } from '@shared/filter'
 import { loadTags, saveTags, loadSidecarRules, saveSidecarRules, loadDismissed, saveDismissed, sidecarPath } from './sidecar'
 import type { Tag, Dismissed } from '@shared/project-store'
@@ -158,7 +160,23 @@ async function ingestPath(
   path: string,
   broadcast: boolean,
 ): Promise<{ runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }> {
+  // Only the primary (broadcasting) open drives the renderer loading bar. A
+  // compare-load (broadcast=false) emits no trace:loaded, so it must not raise a
+  // bar that would never be cleared.
+  const userData = app.getPath('userData')
+  let fileBytes = 0
+  if (broadcast) {
+    try { fileBytes = statSync(path).size } catch { fileBytes = 0 }
+    const throughput = loadThroughput(userData)
+    win.webContents.send('trace:estimate', { fileBytes, throughput })
+  }
+  const t0 = performance.now()
   const summary = await store.ingest(path, pct => win.webContents.send('trace:progress', pct))
+  const actualMs = performance.now() - t0
+  if (broadcast && fileBytes > 0) {
+    const next = updateThroughput(loadThroughput(userData), fileBytes, actualMs)
+    saveThroughput(userData, next)
+  }
   if (broadcast) win.webContents.send('trace:loaded', summary)
   return summary
 }
