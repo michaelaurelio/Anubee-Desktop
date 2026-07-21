@@ -56,6 +56,7 @@ declare global {
       logSave(text: string): Promise<string | null>
       onProgress(cb: (pct: number) => void): void
       onEstimate(cb: (e: { fileBytes: number; throughput: number }) => void): void
+      onIngestFail(cb: (e: { message: string; file: string }) => void): void
       onLoaded(cb: (s: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }) => void): void
       getTracerConfig(): Promise<{ anubeeBinary: string; specsDir: string }>
       setTracerConfig(cfg: { anubeeBinary: string; specsDir: string }): Promise<void>

@@ -165,16 +165,29 @@ async function ingestPath(
   // bar that would never be cleared.
   const userData = app.getPath('userData')
   let fileBytes = 0
+  // Cache the throughput read taken for the estimate and reuse it for the
+  // post-ingest EWMA update - one disk read, single writer, no writer between.
+  let throughput = 0
   if (broadcast) {
     try { fileBytes = statSync(path).size } catch { fileBytes = 0 }
-    const throughput = loadThroughput(userData)
+    throughput = loadThroughput(userData)
     win.webContents.send('trace:estimate', { fileBytes, throughput })
   }
   const t0 = performance.now()
-  const summary = await store.ingest(path, pct => win.webContents.send('trace:progress', pct))
+  // Centralize ingest failure here so all four broadcasting entry points
+  // (run-open, project-open, capture-ingest, preload auto-load) clear the
+  // renderer bar uniformly. Re-throw so the invoke still rejects and runLogged
+  // keeps logging on the caller side.
+  let summary: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }
+  try {
+    summary = await store.ingest(path, pct => win.webContents.send('trace:progress', pct))
+  } catch (e) {
+    if (broadcast) win.webContents.send('trace:fail', { message: e instanceof Error ? e.message : String(e), file: basename(path) })
+    throw e
+  }
   const actualMs = performance.now() - t0
   if (broadcast && fileBytes > 0) {
-    const next = updateThroughput(loadThroughput(userData), fileBytes, actualMs)
+    const next = updateThroughput(throughput, fileBytes, actualMs)
     saveThroughput(userData, next)
   }
   if (broadcast) win.webContents.send('trace:loaded', summary)

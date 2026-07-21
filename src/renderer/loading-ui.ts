@@ -115,17 +115,23 @@ export const ingest = {
     phaseToast?.remove()
     phaseToast = null
   },
-  fail(msg: string): void {
+  fail(msg: string, file?: string, restoreEmpty = true): void {
     stopRaf()
     owner = 'none'
     hide(skeleton)
     phaseToast?.remove()
     phaseToast = null
-    show(emptyState)          // restore "No run loaded" so the canvas is not blank
+    // Only paint "No run loaded" back when there is nothing else on the canvas;
+    // a failed re-open over an existing run must not blank its table.
+    if (restoreEmpty) show(emptyState)
     topbar.flashError()
-    addToast('Failed to load: ' + msg, true)
+    addToast('Failed to load ' + (file ? file + ': ' : '') + msg, true)
   },
 }
+
+// A standalone corner error toast, no bar/skeleton/empty-state side effects.
+// Used for graph-slice load failures where the ingest bar must stay untouched.
+export function errorToast(msg: string): void { addToast(msg, true) }
 
 // ---- graph (indeterminate sweep + overlay) ----
 export const graph = {

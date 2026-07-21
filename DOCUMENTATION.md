@@ -1404,9 +1404,19 @@ progress and completion or failure is never silent-and-blank:
   shimmering skeleton instead of an empty table, then swaps to the real rows
   once the load completes.
 - **Silent success, loud failure.** A load that succeeds simply lands the
-  data on screen - the bar fills to 100% and clears, no success toast. A load
-  that fails flashes the bar red, shows a `Failed to load: ...` toast, and
-  restores the "No run loaded" empty-state so the canvas is never left blank.
+  data on screen - the bar fills to 100% and clears, no success toast. Ingest
+  failure is centralized in the main process: `ingestPath` (`src/main/index.ts`)
+  catches a `store.ingest` error and sends `trace:fail { message, file }`, so
+  all four broadcasting load paths (run-open, project-open, capture-ingest,
+  preload auto-load) clear the bar uniformly. The renderer's `onIngestFail`
+  flashes the bar red and shows a `Failed to load <basename>: <reason>` toast;
+  it restores the "No run loaded" empty-state only when no run is currently
+  loaded, so a failed *re-open* does not blank an already-loaded run's table.
+- **Graph-slice failure.** If a row selection's slice/chain fetch rejects,
+  `selectRow` clears that selection's loader (epoch-guarded, so a stale
+  rejection cannot clear a newer selection's loader) and shows a brief
+  `Graph load failed: <reason>` toast via `errorToast`, leaving the prior graph
+  in place - it does **not** flash the ingest bar or restore the empty-state.
 - **Owner-guarded single bar.** `src/renderer/loading-ui.ts` is the sole
   owner of this DOM state (`ingest`/`graph`/`topbar` in that module); the
   renderer's `selectRow` (`src/renderer/main.ts`) additionally guards graph

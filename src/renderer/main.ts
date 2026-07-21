@@ -29,7 +29,7 @@ import type { Filter } from '@shared/filter'
 import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices, renderPreflightRow } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
 import { showModal, closeModal, isModalOpen } from './modal'
-import { initLoadingUi, ingest, graph } from './loading-ui'
+import { initLoadingUi, ingest, graph, errorToast } from './loading-ui'
 import { renderLogModal } from './log-view'
 import { logAppend } from './log-store'
 import { runLogged } from './run-logged'
@@ -443,22 +443,32 @@ async function selectRow(row: TableRow): Promise<void> {
   showSide(true)
   graph.begin() // top-bar sweep + overlay spinner; the newest selection owns them
   const host = document.getElementById('inspector')
-  const ev = await window.anubee.eventById(row.id, activeRunId)
-  if (!selEpoch.isCurrent(e)) return // a newer selection superseded this row; it owns the loader now
-  if (host && ev) {
-    if (activeEngine === 'func') showFuncsRecordDetail(host, ev as FuncEvent)
-    else showRecordDetail(host, ev as SyscallEvent)
-  }
+  try {
+    const ev = await window.anubee.eventById(row.id, activeRunId)
+    if (!selEpoch.isCurrent(e)) return // a newer selection superseded this row; it owns the loader now
+    if (host && ev) {
+      if (activeEngine === 'func') showFuncsRecordDetail(host, ev as FuncEvent)
+      else showRecordDetail(host, ev as SyscallEvent)
+    }
 
-  showView('graph')
-  graphFilter = filterForRow(row, currentFilter())
-  const slice = await window.anubee.slice(graphFilter, GRAPH_SLICE_CAP, activeRunId)
-  if (!selEpoch.isCurrent(e)) return // stale slice; newer selection owns the loader
-  await renderSlice(slice)
-  graph.end() // this selection's graph is drawn; clear its loader
-  const recordSets = await window.anubee.recordChain(row.id, activeRunId)
-  if (!selEpoch.isCurrent(e)) return // stale: user left the row during the round-trip
-  applyHighlight(cy, recordSets) // light this record's own path; rest of the bridge dims
+    showView('graph')
+    graphFilter = filterForRow(row, currentFilter())
+    const slice = await window.anubee.slice(graphFilter, GRAPH_SLICE_CAP, activeRunId)
+    if (!selEpoch.isCurrent(e)) return // stale slice; newer selection owns the loader
+    await renderSlice(slice)
+    graph.end() // this selection's graph is drawn; clear its loader
+    const recordSets = await window.anubee.recordChain(row.id, activeRunId)
+    if (!selEpoch.isCurrent(e)) return // stale: user left the row during the round-trip
+    applyHighlight(cy, recordSets) // light this record's own path; rest of the bridge dims
+  } catch (err) {
+    // A graph-slice fetch rejected: clear this selection's loader (only if it
+    // still owns it) and toast, leaving the prior graph in place. A stale
+    // rejection whose selection was superseded must not clear a newer loader.
+    if (selEpoch.isCurrent(e)) {
+      graph.end()
+      errorToast('Graph load failed: ' + (err instanceof Error ? err.message : String(err)))
+    }
+  }
 }
 
 // Exposed for the screenshot harness / debugging to drive the graph deterministically.
@@ -918,6 +928,10 @@ window.anubee.onLoaded(s => {
     coverageChip = cov ? `${cov.snaps.total} snapshots · ${cov.snaps.truncated} truncated · CFI walks ${cov.cfi.walks}` : ''
   })
 })
+// Centralized ingest failure: covers all four broadcasting load paths (run-open,
+// project-open, capture-ingest, preload auto-load). restoreEmpty only when no
+// run is loaded, so a failed re-open does not blank an existing run's table.
+window.anubee.onIngestFail(({ message, file }) => ingest.fail(message, file, activeRunId === undefined))
 initLoadingUi()
 document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))
 document.getElementById('tab-flame')?.addEventListener('click', () => showView('flame'))
@@ -1027,10 +1041,14 @@ document.getElementById('file-open')?.addEventListener('click', () => {
   showModal({ title: 'Open', width: 260, render: host => {
     const menu = document.createElement('div'); menu.className = 'modal-menu'
     const runBtn = modalMenuItem('open-run', 'i-file', 'Open run (JSONL)…')
-    runBtn.onclick = () => void runLogged('open', () => window.anubee.openFile(), () => null)
-      .catch(e => ingest.fail(e instanceof Error ? e.message : String(e)))
+    // Failure UI is centralized in main's trace:fail -> onIngestFail; runLogged
+    // still logs then rethrows, so terminate the promise to avoid an unhandled
+    // rejection without double-toasting.
+    runBtn.onclick = () => void runLogged('open', () => window.anubee.openFile(), () => null).catch(() => {})
     const projBtn = modalMenuItem('open-project', 'i-package', 'Open project…')
-    projBtn.onclick = () => void runLogged('open-project', () => window.anubee.openProject(), () => null)
+    // Same as the run-open path: failure UI comes from main's trace:fail ->
+    // onIngestFail, runLogged logs then rethrows, so terminate the promise.
+    projBtn.onclick = () => void runLogged('open-project', () => window.anubee.openProject(), () => null).catch(() => {})
     menu.append(runBtn, projBtn)
     host.appendChild(menu)
   }})
@@ -1094,7 +1112,9 @@ window.anubee.onPreflightCheck(c => {
 window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')) {
     e.preventDefault()
-    void window.anubee.openFile().catch(err => ingest.fail(err instanceof Error ? err.message : String(err)))
+    // Failure UI is centralized in main's trace:fail -> onIngestFail; just
+    // terminate the promise so a rejected open is not an unhandled rejection.
+    void window.anubee.openFile().catch(() => {})
   }
 })
 

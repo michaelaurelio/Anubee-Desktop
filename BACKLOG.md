@@ -29,6 +29,16 @@ section.
   Electron (no GPU/display); the wiring is typecheck- and full-suite-clean but
   the interactive open/select/fail/rapid-click behavior described above still
   needs a live pass.
+- **Silent 0-event load on a garbage-but-readable file.** DuckDB `read_json`
+  runs with `ignore_errors=true`, so a readable file with no valid JSONL records
+  parses to 0 events WITHOUT throwing. `store.ingest` resolves normally, so
+  `trace:fail` never fires and there is no error toast - the load just shows an
+  empty run. Not covered by the centralized failure path; needs a separate
+  "0 events parsed" guard if this should surface as a warning.
+- **`trace:progress`/`onProgress` IPC is now dead.** The old
+  `#ingest-progress` handler was removed, so no renderer code subscribes to
+  `onProgress`, yet main's `ingestPath` still emits `trace:progress` per line and
+  the preload bridge is still exposed. Candidate for removal on both ends.
 
 ## Shipped (2026-07-20) - Omni-filter dotted key redesign
 
@@ -509,10 +519,12 @@ buffer), `run-logged` (action wrapper), `log-view` (modal).
   `onChange` (fires only after a successful save), and `rules-view.ts` was left
   untouched, so a *failed* rule save produces no `error` entry. Instrument the
   `rulesSave` call sites directly when rule-save failures need surfacing.
-- **Ingest progress bar can stick on a failed first load.** `onProgress` shows
-  the bar and only `onLoaded` hides it; if a first ingest errors before it
-  completes, the bar stays. Pre-existing behavior inherited from the old status
-  pill; hide the bar on an ingest-error path.
+- **Ingest progress bar can stick on a failed first load - RESOLVED 2026-07-21.**
+  `onProgress` showed the bar and only `onLoaded` hid it; if a first ingest
+  errored before it completed, the bar stayed. Now main's `ingestPath` sends
+  `trace:fail` on any ingest error and the renderer's `onIngestFail` calls
+  `ingest.fail`, clearing the bar/skeleton/toast for all four broadcasting load
+  paths (see "Shipped (2026-07-21) - Loading feedback" above).
 - **Clear-sentinel value overload.** `logClear` notifies subscribers with a
   `LogEntry` whose label and message are both empty, and the modal treats that as
   a redraw signal; a future `logAppend('', '')` would be silently swallowed. No

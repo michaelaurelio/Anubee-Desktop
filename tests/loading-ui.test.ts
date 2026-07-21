@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { initLoadingUi, topbar, ingest, graph } from '../src/renderer/loading-ui'
+import { initLoadingUi, topbar, ingest, graph, errorToast } from '../src/renderer/loading-ui'
 
 function setupDom(): void {
   document.body.innerHTML = `
@@ -58,6 +58,34 @@ describe('ingest loading state', () => {
     expect(el('loadbar').classList.contains('error')).toBe(true)
     const toast = el('toasts').querySelector('.toast.err')
     expect(toast?.textContent).toContain('bad file')
+  })
+
+  it('fail with a basename includes it in the toast text', () => {
+    ingest.begin(1_000, 80_000)
+    ingest.fail('parse error', 'run.jsonl')
+    const toast = el('toasts').querySelector('.toast.err')
+    expect(toast?.textContent).toContain('Failed to load run.jsonl: parse error')
+  })
+
+  it('fail with restoreEmpty=false leaves the empty-state hidden but still flashes and toasts', () => {
+    el('empty-state').classList.add('hidden')
+    ingest.begin(1_000, 80_000)
+    ingest.fail('parse error', 'run.jsonl', false)
+    expect(hidden('empty-state')).toBe(true)            // stays hidden over the existing run
+    expect(hidden('table-skeleton')).toBe(true)         // cleared
+    expect(el('loadbar').classList.contains('error')).toBe(true)
+    const toast = el('toasts').querySelector('.toast.err')
+    expect(toast?.textContent).toContain('run.jsonl')
+  })
+})
+
+describe('graph error toast', () => {
+  beforeEach(setupDom)
+
+  it('errorToast appends a .toast.err with the text', () => {
+    errorToast('Graph load failed: x')
+    const toast = el('toasts').querySelector('.toast.err')
+    expect(toast?.textContent).toContain('Graph load failed: x')
   })
 })
 
