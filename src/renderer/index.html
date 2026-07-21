@@ -167,7 +167,6 @@
       #empty-state.hidden { display: none; }
       #empty-state .es-logo { width: 88px; height: 88px; opacity: .9; margin-bottom: 4px; }
       #empty-state .es-title { font-size: 15px; color: var(--text); }
-      #ingest-progress { margin-top: 14px; width: 240px; }
       #graph-empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
         justify-content:center; gap:10px; color:var(--muted); z-index:2; pointer-events:none; }
       #graph-empty.hidden { display:none; }
@@ -176,10 +175,43 @@
       #graph-empty .ge-ring svg { width:24px; height:24px; fill:none; stroke:var(--muted); stroke-width:1.6; }
       #graph-empty .ge-title { color:var(--text); font-size:14px; }
       #graph-empty .ge-sub { font-size:12px; }
-      #ingest-progress.hidden { display: none; }
-      #ingest-progress #ingest-bar { height: 4px; background: var(--accent, #c9a24a); width: 0%;
-        border-radius: 2px; transition: width 0.1s linear; }
-      #ingest-progress #ingest-pct { font-size: 11px; color: var(--muted, #7f8ba0); }
+
+      /* loading feedback */
+      #loadbar { position:fixed; top:0; left:0; right:0; height:3px; z-index:9999;
+        background:var(--panel-2); overflow:hidden; }
+      #loadbar.hidden { display:none; }
+      #loadbar-fill { height:100%; width:0%;
+        background:linear-gradient(90deg,var(--accent),var(--accent-fg));
+        transition:width .12s linear; }
+      #loadbar.sweep #loadbar-fill { width:34%; border-radius:0;
+        background:linear-gradient(90deg,transparent,var(--accent),var(--accent-fg),transparent);
+        animation:lb-sweep 1.1s ease-in-out infinite; transition:none; }
+      #loadbar.error #loadbar-fill { width:100%; background:#c0392b; animation:none; transition:width .1s linear; }
+      @keyframes lb-sweep { 0%{transform:translateX(-120%)} 100%{transform:translateX(360%)} }
+
+      #table-skeleton { padding:8px 12px; }
+      #table-skeleton.hidden { display:none; }
+      #table-skeleton .sk-row { display:flex; gap:12px; padding:8px 0; border-bottom:1px solid var(--stripe); }
+      #table-skeleton .sk { height:10px; border-radius:3px; display:inline-block;
+        background:linear-gradient(90deg,var(--panel-2) 25%,var(--hover) 50%,var(--panel-2) 75%);
+        background-size:200% 100%; animation:sk-shimmer 1.3s linear infinite; }
+      @keyframes sk-shimmer { to { background-position:-200% 0; } }
+
+      #graph-overlay { position:absolute; inset:0; z-index:3; display:flex; flex-direction:column;
+        align-items:center; justify-content:center; gap:12px; background:#0f0e1155; }
+      #graph-overlay.hidden { display:none; }
+      #graph-overlay .go-spin { width:38px; height:38px; }
+      #graph-overlay .go-spin circle { fill:none; stroke:var(--accent); stroke-width:2.6;
+        stroke-linecap:round; stroke-dasharray:70 40; transform-origin:center; animation:go-spin 1s linear infinite; }
+      #graph-overlay .go-txt { font-size:11px; color:var(--muted); }
+      @keyframes go-spin { to { transform:rotate(360deg); } }
+
+      #toasts { position:fixed; right:14px; bottom:14px; z-index:9999; display:flex; flex-direction:column; gap:8px; }
+      #toasts .toast { background:var(--panel); border:1px solid var(--border); border-radius:8px;
+        padding:9px 13px; font-size:11px; color:var(--text); box-shadow:0 6px 20px #0008;
+        display:flex; align-items:center; gap:9px; max-width:320px; }
+      #toasts .toast.err { border-color:#c0392b66; }
+      #toasts .toast .tx { background:none; border:0; color:var(--muted); cursor:pointer; font-size:13px; line-height:1; padding:0 2px; }
 
       /* side */
       #side { width: var(--side-w); flex: 0 0 auto; display: flex; flex-direction: column;
@@ -549,6 +581,8 @@
       <g id="i-chevron-down"><path d="m6 9 6 6 6-6"/></g>
     </defs></svg>
 
+    <div id="loadbar" class="hidden"><div id="loadbar-fill"></div></div>
+    <div id="toasts"></div>
     <nav id="rail">
       <span class="brand" title="Anubee"><img class="brand-logo" src="./assets/logo.svg" width="22" height="22" alt="Anubee" /><span class="wordmark">Anubee</span></span>
       <button id="tab-graph" class="rail-item on" title="Graph"><svg class="ic" viewBox="0 0 24 24"><use href="#i-graph"/></svg><span class="lbl">Graph</span></button>
@@ -587,6 +621,13 @@
           <button id="cols-btn" class="cols-btn" title="choose columns"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cols"/></svg> columns</button>
         </div>
         <div class="table-scroll"></div>
+        <div id="table-skeleton" class="hidden">
+          <div class="sk-row"><span class="sk" style="width:22%"></span><span class="sk" style="width:40%"></span><span class="sk" style="width:15%"></span></div>
+          <div class="sk-row"><span class="sk" style="width:30%"></span><span class="sk" style="width:28%"></span><span class="sk" style="width:20%"></span></div>
+          <div class="sk-row"><span class="sk" style="width:18%"></span><span class="sk" style="width:46%"></span><span class="sk" style="width:12%"></span></div>
+          <div class="sk-row"><span class="sk" style="width:26%"></span><span class="sk" style="width:34%"></span><span class="sk" style="width:22%"></span></div>
+          <div class="sk-row"><span class="sk" style="width:20%"></span><span class="sk" style="width:38%"></span><span class="sk" style="width:18%"></span></div>
+        </div>
       </div>
       <div class="resize-handle hidden" id="table-resize" data-resize="table" title="drag to resize"></div>
       <div id="view">
@@ -611,12 +652,15 @@
           <img class="es-logo" src="./assets/logo.svg" width="88" height="88" alt="Anubee" />
           <div class="es-title">No run loaded</div>
           <div>Open a run to begin - use <b>Open</b> in the left rail.</div>
-          <div id="ingest-progress" class="hidden"><div id="ingest-bar"></div><span id="ingest-pct"></span></div>
         </div>
         <div id="graph-empty" class="hidden">
           <div class="ge-ring"><svg viewBox="0 0 24 24"><use href="#i-graph"/></svg></div>
           <div class="ge-title">Pick a row to trace its call chain</div>
           <div class="ge-sub">select any event on the left - its java &rarr; native &rarr; syscall path draws here</div>
+        </div>
+        <div id="graph-overlay" class="hidden">
+          <svg class="go-spin" viewBox="0 0 44 44"><circle cx="22" cy="22" r="17"/></svg>
+          <div class="go-txt">Tracing call chain&hellip;</div>
         </div>
       </div>
       <div class="resize-handle hidden" id="side-resize" data-resize="side" title="drag to resize"></div>
