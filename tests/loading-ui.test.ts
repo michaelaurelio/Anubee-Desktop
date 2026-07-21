@@ -97,4 +97,15 @@ describe('topbar ownership', () => {
     vi.runAllTimers()
     expect(hidden('loadbar')).toBe(true)
   })
+
+  it('a graph takeover during the ingest.end() fade survives the stale hide timer', () => {
+    ingest.begin(80_000_000, 80_000)
+    ingest.end()    // schedules a delayed hide, but ownership is now 'none'
+    graph.begin()   // takes over before the delayed hide fires
+    vi.runAllTimers()
+    expect(hidden('loadbar')).toBe(false)
+    expect(el('loadbar').classList.contains('sweep')).toBe(true)
+    expect(hidden('graph-overlay')).toBe(false)
+    graph.end()
+  })
 })

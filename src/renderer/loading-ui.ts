@@ -110,7 +110,7 @@ export const ingest = {
     if (loadbarFill) loadbarFill.style.width = '100%'
     owner = 'none'
     // brief fill-to-100 before clearing (silent success)
-    setTimeout(() => topbar.hide(), 200)
+    setTimeout(() => { if (owner === 'none') topbar.hide() }, 200)
     hide(skeleton)
     phaseToast?.remove()
     phaseToast = null
