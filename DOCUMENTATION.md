@@ -1381,3 +1381,34 @@ guess (see `BACKLOG.md`):
   `.dimmed` edge style (off-path edges) now sets `target-arrow-shape: none` and
   `width: 1`: a de-emphasized edge should recede and carries no arrowhead at
   all, rather than trying to tune arrow-scale/width numbers to shrink it.
+
+## Loading feedback
+
+Every load path now speaks the same loading language instead of ad-hoc
+spinners, so a big run and a small one both give the user a sense of
+progress and completion or failure is never silent-and-blank:
+
+- **Top bar - ingest (determinate, estimated).** Opening a run bytes the
+  file, feeds `fileBytes` and the running `throughput` (bytes/ms) to an EWMA
+  file-size predictor (`@shared/ingest-estimate`), and animates the top bar
+  toward a predicted total duration. This is **not** a true mid-`read_json`
+  percent - DuckDB's `read_json` has no progress callback - so the bar is an
+  estimate calibrated from past loads (persisted to `ingest-calibration.json`
+  under `userData`), not a measurement of actual bytes parsed.
+- **Top bar - graph (indeterminate sweep).** Selecting a row raises the same
+  top bar in an indeterminate left-to-right sweep while the graph slice and
+  record chain are fetched, plus a spinner overlay on the graph canvas
+  itself. An in-flight ingest owns the bar first; a graph selection during
+  ingest does not steal it.
+- **Table skeleton.** While a run ingests, the master table area shows a
+  shimmering skeleton instead of an empty table, then swaps to the real rows
+  once the load completes.
+- **Silent success, loud failure.** A load that succeeds simply lands the
+  data on screen - the bar fills to 100% and clears, no success toast. A load
+  that fails flashes the bar red, shows a `Failed to load: ...` toast, and
+  restores the "No run loaded" empty-state so the canvas is never left blank.
+- **Owner-guarded single bar.** `src/renderer/loading-ui.ts` is the sole
+  owner of this DOM state (`ingest`/`graph`/`topbar` in that module); the
+  renderer's `selectRow` (`src/renderer/main.ts`) additionally guards graph
+  loader clears with the existing `selEpoch` so a superseded selection never
+  clears the loader out from under the selection that replaced it.

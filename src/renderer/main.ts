@@ -29,6 +29,7 @@ import type { Filter } from '@shared/filter'
 import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices, renderPreflightRow } from './capture-view'
 import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
 import { showModal, closeModal, isModalOpen } from './modal'
+import { initLoadingUi, ingest, graph } from './loading-ui'
 import { renderLogModal } from './log-view'
 import { logAppend } from './log-store'
 import { runLogged } from './run-logged'
@@ -440,9 +441,10 @@ async function selectRow(row: TableRow): Promise<void> {
   selectedRowId = row.id
   highlightTableRow(row.id)
   showSide(true)
+  graph.begin() // top-bar sweep + overlay spinner; the newest selection owns them
   const host = document.getElementById('inspector')
   const ev = await window.anubee.eventById(row.id, activeRunId)
-  if (!selEpoch.isCurrent(e)) return // a newer selection superseded this row; drop the stale detail
+  if (!selEpoch.isCurrent(e)) return // a newer selection superseded this row; it owns the loader now
   if (host && ev) {
     if (activeEngine === 'func') showFuncsRecordDetail(host, ev as FuncEvent)
     else showRecordDetail(host, ev as SyscallEvent)
@@ -451,8 +453,9 @@ async function selectRow(row: TableRow): Promise<void> {
   showView('graph')
   graphFilter = filterForRow(row, currentFilter())
   const slice = await window.anubee.slice(graphFilter, GRAPH_SLICE_CAP, activeRunId)
-  if (!selEpoch.isCurrent(e)) return // stale slice; do not repaint the graph for a row the user left
+  if (!selEpoch.isCurrent(e)) return // stale slice; newer selection owns the loader
   await renderSlice(slice)
+  graph.end() // this selection's graph is drawn; clear its loader
   const recordSets = await window.anubee.recordChain(row.id, activeRunId)
   if (!selEpoch.isCurrent(e)) return // stale: user left the row during the round-trip
   applyHighlight(cy, recordSets) // light this record's own path; rest of the bridge dims
@@ -881,23 +884,21 @@ function wireExport(): void {
   })
 }
 
-window.anubee.onProgress(pct => {
-  const wrap = document.getElementById('ingest-progress')
-  const bar = document.getElementById('ingest-bar')
-  const label = document.getElementById('ingest-pct')
-  if (!wrap || !bar || !label) return
-  wrap.classList.remove('hidden')
-  bar.style.width = `${pct}%`
-  label.textContent = `Loading... ${pct}%`
+window.anubee.onEstimate(({ fileBytes, throughput }) => {
+  // Start of a primary load: close the Open modal now (not only on trace:loaded)
+  // so the dialog goes away the instant work starts, and raise the estimated bar.
+  closeModal()
+  document.getElementById('empty-state')?.classList.add('hidden')
+  ingest.begin(fileBytes, throughput)
 })
 window.anubee.onLoaded(s => {
   closeModal() // any successful load closes the open (run / project / capture) modal that triggered it
+  ingest.phase('Building view') // ingest SQL is done; the refresh tail runs under the same bar
   activeRunId = s.runId
   activeEngine = s.kinds.includes('funcs') && !s.kinds.includes('syscall') ? 'func' : 'syscall'
   tableOffset = 0 // a fresh run starts at page 1; a stale offset could land past its row count
   selectedRowId = undefined
   document.getElementById('empty-state')?.classList.add('hidden')
-  document.getElementById('ingest-progress')?.classList.add('hidden')
   showTablePanel(true)
   document.getElementById('graph-empty')?.classList.remove('hidden')
   showSide(false) // clear a prior run's open detail; refreshOrphans re-opens it if this run has orphans
@@ -909,6 +910,7 @@ window.anubee.onLoaded(s => {
     void refreshSuggestions()
     void refreshOrphans()
     libView.refresh() // Libraries tab may be parked on a stale run's rows; no-ops while live
+    ingest.end() // fill the bar to 100% and clear; the data is now on screen
   })
   // Coverage health text (not graph data) - stored, not shown, until a row
   // is selected and renderSlice surfaces it via the chip.
@@ -916,6 +918,7 @@ window.anubee.onLoaded(s => {
     coverageChip = cov ? `${cov.snaps.total} snapshots · ${cov.snaps.truncated} truncated · CFI walks ${cov.cfi.walks}` : ''
   })
 })
+initLoadingUi()
 document.getElementById('tab-graph')?.addEventListener('click', () => showView('graph'))
 document.getElementById('tab-flame')?.addEventListener('click', () => showView('flame'))
 document.getElementById('tab-libs')?.addEventListener('click', () => showView('libs'))
@@ -1025,6 +1028,7 @@ document.getElementById('file-open')?.addEventListener('click', () => {
     const menu = document.createElement('div'); menu.className = 'modal-menu'
     const runBtn = modalMenuItem('open-run', 'i-file', 'Open run (JSONL)…')
     runBtn.onclick = () => void runLogged('open', () => window.anubee.openFile(), () => null)
+      .catch(e => ingest.fail(e instanceof Error ? e.message : String(e)))
     const projBtn = modalMenuItem('open-project', 'i-package', 'Open project…')
     projBtn.onclick = () => void runLogged('open-project', () => window.anubee.openProject(), () => null)
     menu.append(runBtn, projBtn)
@@ -1088,7 +1092,10 @@ window.anubee.onPreflightCheck(c => {
 
 // Ctrl/Cmd+O opens a run (replaces the removed native-menu accelerator).
 window.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); void window.anubee.openFile() }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')) {
+    e.preventDefault()
+    void window.anubee.openFile().catch(err => ingest.fail(err instanceof Error ? err.message : String(err)))
+  }
 })
 
 document.getElementById('app-quit')?.addEventListener('click', () => window.anubee.requestClose())

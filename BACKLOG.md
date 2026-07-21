@@ -3,6 +3,33 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-21) - Loading feedback wired into open-run and record-select flows
+
+Every load path now speaks one loading language instead of ad-hoc spinners:
+opening a run raises the top bar as a determinate, EWMA-estimated fill
+(`ingest.begin`/`phase`/`end`/`fail` in `src/renderer/loading-ui.ts`) plus a
+table skeleton; selecting a row raises the same bar as an indeterminate sweep
+plus a graph overlay spinner (`graph.begin`/`end`), guarded by the existing
+`selEpoch` so a superseded selection cannot clear the loader out from under
+the selection that replaced it. Success is silent (bar fills and clears, no
+toast); failure flashes the bar red, shows a `Failed to load: ...` toast, and
+restores the "No run loaded" empty-state. The old `#ingest-progress`/
+`#ingest-bar`/`#ingest-pct` DOM handler is removed from `main.ts` (the
+`onProgress` preload bridge is left in place, unused, since `trace:progress`
+still fires from the store). See `DOCUMENTATION.md`'s "Loading feedback"
+section.
+
+### Known drawbacks / follow-ups
+- **Graph loader has no duration predictor.** `graph.begin()` always raises an
+  indeterminate sweep - there is no equivalent to the ingest EWMA estimator for
+  a graph-slice fetch, so even a large, slow slice never shows a determinate
+  fill. Add a size/row-count-based predictor if graph fetches on very large
+  runs turn out slow enough to want a real progress read.
+- **Manual GUI smoke deferred.** This session's sandbox cannot launch
+  Electron (no GPU/display); the wiring is typecheck- and full-suite-clean but
+  the interactive open/select/fail/rapid-click behavior described above still
+  needs a live pass.
+
 ## Shipped (2026-07-20) - Omni-filter dotted key redesign
 
 The omni filter's `key:value` grammar moved to a dotted namespace: `lib:` ->
