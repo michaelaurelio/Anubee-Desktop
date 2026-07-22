@@ -4,7 +4,7 @@
 // Verified against ../Anubee src/*/*.c argp tables (see spec s2).
 
 export type OutputKind = 'jsonl' | 'stdout'
-export type InputKind = 'package' | 'text' | 'bool' | 'csv' | 'pattern' | 'spec' | 'analyzer' | 'int'
+export type InputKind = 'package' | 'text' | 'bool' | 'csv' | 'pattern' | 'spec' | 'globlist' | 'int'
 
 export interface CapInput {
   key: string
@@ -23,11 +23,8 @@ export interface Capability {
   label: string
   engine: string
   outputKind: OutputKind
-  loud?: boolean
-  // Engine embeds the shared common_args block (-b/-Q/-v). Only syscalls, funcs,
-  // and correlate do; drives COMMON_TUNING_INPUTS + commonArgv. trace is jsonl
-  // too but hand-rolls its args and takes these only inside sections, so it is
-  // deliberately excluded.
+  // Engine embeds the shared common_args block (-b/-Q/-v). Drives
+  // COMMON_TUNING_INPUTS + commonArgv.
   common?: boolean
   inputs: CapInput[]
   buildArgv(vals: CapValues): string[]
@@ -45,6 +42,19 @@ function intVal(v: CapValues[string]): number | undefined {
   if (typeof v !== 'string' || v.trim() === '') return undefined
   const n = Number(v)
   return Number.isInteger(n) ? n : undefined
+}
+
+// argp accumulates at most 64 -l selectors and warns on the rest (see
+// ../Anubee/src/syscalls/syscalls.c, `case 'l'`). Reject past the cap here so
+// the analyst sees it in the form instead of in a device log.
+export const LIB_SELECTOR_CAP = 64
+
+// A globlist value is stored newline-joined in CapValues (which holds only
+// string | boolean | undefined). Newline cannot appear in a selector -
+// SAFE_PATTERN rejects it - so no escaping is needed.
+export function libList(v: CapValues[string]): string[] {
+  if (typeof v !== 'string') return []
+  return v.split('\n').map(x => x.trim()).filter(Boolean)
 }
 
 // Shared common_args flags for a `common` capability. Emit -b/-Q only when the
@@ -81,31 +91,26 @@ export const SNAPSHOT_INPUT: CapInput = {
 
 export const CAPABILITIES: Capability[] = [
   {
-    id: 'syscalls', label: 'syscalls (stealthy)', engine: 'syscalls', outputKind: 'jsonl', common: true,
+    id: 'syscalls', label: 'syscalls', engine: 'syscalls', outputKind: 'jsonl', common: true,
     inputs: [
       { key: 'pkg', label: 'package', kind: 'package', required: true },
-      { key: 'lib', label: 'library filter', kind: 'text' },
-      { key: 'all', label: 'capture all libraries', kind: 'bool' },
+      { key: 'libs', label: 'library filters', kind: 'globlist' },
       { key: 'syscalls', label: 'syscalls (comma-separated)', kind: 'csv' },
       SNAPSHOT_INPUT,
       ...COMMON_TUNING_INPUTS,
     ],
+    // No -a: Anubee removed it (commit ad14f98). Absence of every -l selector
+    // IS capture-all, so an empty list needs no flag and no validate().
     buildArgv(v) {
       const a = ['syscalls', '-P', s(v.pkg)]
-      if (v.all) a.push('-a')
-      else if (v.lib) a.push('-l', s(v.lib))
+      for (const sel of libList(v.libs)) a.push('-l', sel)
       if (v.syscalls) a.push('-s', s(v.syscalls))
       if (v.snapshot) a.push('--snapshot')
       return a
     },
-    // anubee rejects `syscalls -P <pkg>` alone: a stack-origin library filter (-l)
-    // or capture-all (-a) is mandatory. Enforce it before a run is dispatched.
-    validate(v) {
-      return v.lib || v.all ? [] : ['provide a library filter or check "capture all libraries"']
-    },
   },
   {
-    id: 'funcs', label: 'funcs (uprobe, detectable)', engine: 'funcs', outputKind: 'jsonl', common: true,
+    id: 'funcs', label: 'funcs', engine: 'funcs', outputKind: 'jsonl', common: true,
     inputs: [
       { key: 'pkg', label: 'package', kind: 'package', required: true },
       { key: 'spec', label: 'probe spec', kind: 'spec', required: true },
@@ -116,37 +121,6 @@ export const CAPABILITIES: Capability[] = [
       const a = ['funcs', '-P', s(v.pkg), '-F', `${DEVICE_SPECS}/${s(v.spec)}`]
       if (v.snapshot) a.push('--snapshot')
       return a
-    },
-  },
-  {
-    id: 'correlate', label: 'correlate (loud)', engine: 'correlate', outputKind: 'jsonl', loud: true, common: true,
-    inputs: [
-      { key: 'pkg', label: 'package', kind: 'package', required: true },
-      { key: 'spec', label: 'probe spec', kind: 'spec', required: true },
-      ...COMMON_TUNING_INPUTS,
-    ],
-    buildArgv(v) {
-      return ['correlate', '-P', s(v.pkg), '-F', `${DEVICE_SPECS}/${s(v.spec)}`]
-    },
-  },
-  {
-    id: 'trace', label: 'trace (syscalls+funcs, loud)', engine: 'trace', outputKind: 'jsonl', loud: true,
-    inputs: [
-      { key: 'pkg', label: 'package', kind: 'package', required: true },
-      { key: 'spec', label: 'probe spec', kind: 'spec', required: true },
-    ],
-    buildArgv(v) {
-      return ['trace', '-P', s(v.pkg), '-F', `${DEVICE_SPECS}/${s(v.spec)}`]
-    },
-  },
-  {
-    id: 'mod', label: 'mod (named analyzer)', engine: 'mod', outputKind: 'stdout',
-    inputs: [
-      { key: 'analyzer', label: 'analyzer', kind: 'analyzer', required: true },
-      { key: 'pkg', label: 'package', kind: 'package', required: true },
-    ],
-    buildArgv(v) {
-      return ['mod', s(v.analyzer), '-P', s(v.pkg)]
     },
   },
 ]
@@ -181,6 +155,15 @@ function inputError(inp: CapInput, vals: CapValues): string | undefined {
     const min = inp.min ?? 1
     const n = Number(v)
     if (!Number.isInteger(n) || n < min) return `must be a whole number >= ${min}`
+    return undefined
+  }
+  if (inp.kind === 'globlist') {
+    const list = libList(v)
+    if (list.length > LIB_SELECTOR_CAP) return `accepts at most ${LIB_SELECTOR_CAP} selectors`
+    // isSafePattern, not isSafeToken: a selector may be a glob (e_*), which
+    // isSafeToken rejects. Both still forbid quotes, spaces and $ ` ( ).
+    const bad = list.find(x => !isSafePattern(x))
+    if (bad) return `selector "${bad}" has unsupported characters (allowed: letters, digits, . _ - / : , + and the globs * ? [ ])`
     return undefined
   }
   if (inp.kind !== 'bool' && typeof v === 'string' && v && !isSafeToken(v)) {
