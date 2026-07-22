@@ -57,6 +57,14 @@ describe('captureFooter state machine', () => {
     expect(primary(s).id).toBe('cap-stop-open')
   })
 
+  // F1: once the device process has exited and pull/ingest is in flight,
+  // there is nothing left for Stop to signal - the footer drops to a
+  // non-interactive busy note instead of buttons that can no longer act.
+  it('running + finishing: a busy note, no buttons at all', () => {
+    const s = st({ running: true, finishing: true, counters: '3,517 events' })
+    expect(captureFooter(s)).toEqual({ left: { kind: 'note', text: 'Pulling & ingesting…' }, buttons: [] })
+  })
+
   it('exactly one primary in every state', () => {
     const states: FooterState[] = [
       st({ configValid: false }), st({}), st({ preflight: 'running' }),

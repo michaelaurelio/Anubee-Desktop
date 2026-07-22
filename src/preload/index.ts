@@ -69,10 +69,17 @@ contextBridge.exposeInMainWorld('anubee', {
   tracerStart: (capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) =>
     ipcRenderer.invoke('tracer:start', capId, vals, timeoutSecs, savePath),
   tracerStop: (discard?: boolean) => ipcRenderer.invoke('tracer:stop', discard),
-  tracerIsRunning: () => ipcRenderer.invoke('tracer:isRunning'),
+  tracerIsRunning: () => ipcRenderer.invoke('tracer:isRunning') as
+    Promise<{ running: boolean; argv: string | null; phase: 'idle' | 'device' | 'finishing' }>,
   onTracerDone: (cb: (result: { code: number; kind: string; runId?: number; error?: string }) => void) =>
     ipcRenderer.on('tracer:done', (_e, r) =>
       cb(r as { code: number; kind: string; runId?: number; error?: string })),
+  // Fired once, when the device-side process exits and pull+ingest takes
+  // over ('finishing' - see run-lifecycle.ts). There is no live process left
+  // to signal at that point, so the Capture footer swaps to a non-interactive
+  // busy state instead of offering Stop buttons that can no longer act.
+  onTracerPhase: (cb: (p: { phase: 'finishing' }) => void) =>
+    ipcRenderer.on('tracer:phase', (_e, p) => cb(p as { phase: 'finishing' })),
   pickSavePath: () => ipcRenderer.invoke('tracer:pickSavePath'),
   tracerCheckPaths: (binaryPath: string, specsDir: string) =>
     ipcRenderer.invoke('tracer:checkPaths', binaryPath, specsDir),

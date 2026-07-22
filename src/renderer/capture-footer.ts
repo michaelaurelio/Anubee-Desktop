@@ -8,6 +8,12 @@ export interface FooterState {
   configValid: boolean
   preflight: PreflightState
   running: boolean
+  // True once the device-side process has exited and pull+ingest is in
+  // flight (main's 'finishing' phase - see run-lifecycle.ts). Only meaningful
+  // while running is true. There is no live process left to signal at this
+  // point, so the footer drops to a non-interactive busy note instead of
+  // offering Stop buttons that can no longer act.
+  finishing?: boolean
   failReason?: string
   counters?: string
 }
@@ -23,6 +29,9 @@ const btn = (id: string, label: string, primary = false, disabled = false): Foot
 
 export function captureFooter(st: FooterState): FooterSpec {
   if (st.running) {
+    if (st.finishing) {
+      return { left: { kind: 'note', text: 'Pulling & ingesting…' }, buttons: [] }
+    }
     return {
       left: { kind: 'counters', text: st.counters ?? '' },
       buttons: [btn('cap-stop-discard', 'Stop & discard'), btn('cap-stop-open', 'Stop & open run', true)],

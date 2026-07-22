@@ -711,6 +711,11 @@ function wireCapture(): (() => void) | undefined {
   let specNames: string[] = []
   let preflight: PreflightState = 'none'
   let running = false
+  // True once main reports the run has moved from 'device' to 'finishing'
+  // (device process exited, pull+ingest in flight - see run-lifecycle.ts).
+  // There is nothing left for Stop to signal at that point; captureFooter
+  // drops to a non-interactive busy note instead of offering it.
+  let finishing = false
   let failReason = ''
   let counters = ''
   let lineCount = 0 // tracked independently of consoleHost's (capped) DOM node count
@@ -722,7 +727,7 @@ function wireCapture(): (() => void) | undefined {
   // ---- footer ------------------------------------------------------------
   const paintFooter = (): void => {
     renderCaptureFooter(footHost,
-      captureFooter({ configValid: configValid(), preflight, running, failReason, counters }),
+      captureFooter({ configValid: configValid(), preflight, running, finishing, failReason, counters }),
       onFooterClick)
   }
 
@@ -902,7 +907,7 @@ function wireCapture(): (() => void) | undefined {
   async function startCapture(): Promise<void> {
     const errs = validateInputs(cap(), vals)
     if (errs.length) { failReason = errs.join('; '); preflight = 'failed'; paintFooter(); return }
-    running = true; counters = ''; lineCount = 0
+    running = true; finishing = false; counters = ''; lineCount = 0
     shell!.classList.remove('state-config'); shell!.classList.add('state-running')
     setLiveBadge(true)
     consoleHost!.innerHTML = ''
@@ -977,20 +982,40 @@ function wireCapture(): (() => void) | undefined {
   }
 
   // ---- run completion (broadcast) -----------------------------------------
-  // Fires once per real run - via tracer:done - whichever Capture instance is
-  // live when it does, not necessarily the instance whose startCapture()
-  // called tracer:start (that instance may have been closed and replaced by a
-  // reattached one while the run/pull/ingest were still in flight).
+  // Fires via tracer:done, dispatched through captureDoneSink to whichever
+  // Capture instance is live at that moment - not necessarily the instance
+  // whose startCapture() called tracer:start (that instance may have been
+  // closed and replaced by a reattached one while the run/pull/ingest were
+  // still in flight). On a successful jsonl capture, though, no instance is
+  // live by the time this fires: ingestPath's own trace:loaded/trace:estimate
+  // broadcasts close the Capture modal (see window.anubee.onLoaded /
+  // onEstimate below) before tracer:done arrives, tearing this sink down with
+  // it (cleanupCapture). So this finalizes the console line/badge/footer only
+  // for the paths where a Capture instance is still open to show them
+  // (discard, error, or a pull/ingest that produced no runId) - the graph
+  // switch on success is handled unconditionally, outside this sink, by the
+  // module-scope onTracerDone handler below, so it runs the same regardless
+  // of whether a Capture instance happens to still be open.
   captureDoneSink = (result: { code: number; kind: string; runId?: number; error?: string }): void => {
     appendConsoleLine(consoleHost,
       result.error ? `--- error: ${result.error} ---` : `--- done (exit ${result.code}, kind ${result.kind}) ---`)
     running = false
+    finishing = false
     setLiveBadge(false)
     shell.classList.remove('state-running'); shell.classList.add('state-config')
     // The run consumed the pushed binary and the launched package; keep the
     // preflight pass so a repeat run does not need another adb round-trip.
     paintFooter()
-    if (!result.error && result.kind === 'jsonl' && result.runId !== undefined) showView('graph')
+  }
+
+  // ---- run phase (broadcast) -----------------------------------------------
+  // Fired once, when main moves the run from 'device' to 'finishing' (process
+  // exited, pull+ingest in flight - see run-lifecycle.ts). Dispatched through
+  // captureFinishingSink, mirroring captureDoneSink/captureLineSink, so it
+  // reaches whichever Capture instance is live.
+  captureFinishingSink = (): void => {
+    finishing = true
+    paintFooter()
   }
 
   // A run may still be active from before this modal instance existed - e.g.
@@ -1004,9 +1029,10 @@ function wireCapture(): (() => void) | undefined {
   // document.querySelector('.modal-head .modal-title') would paint into
   // whatever modal happens to be open by then, not this (by-then-gone) one.
   let closed = false
-  void window.anubee.tracerIsRunning().then(({ running: isRunning, argv }) => {
+  void window.anubee.tracerIsRunning().then(({ running: isRunning, argv, phase }) => {
     if (!isRunning || closed) return
     running = true
+    finishing = phase === 'finishing'
     shell.classList.remove('state-config'); shell.classList.add('state-running')
     setLiveBadge(true)
     consoleHost.innerHTML = ''
@@ -1023,14 +1049,15 @@ function wireCapture(): (() => void) | undefined {
   })
 
   // Closing the modal mid-run must not leave this instance's captureLineSink/
-  // captureDoneSink writing into detached nodes, nor let a superseded
-  // runPreflight or tracerIsRunning continuation resolve into them - the run
-  // itself is untouched and is recovered on reopen by the tracerIsRunning
-  // check above.
+  // captureDoneSink/captureFinishingSink writing into detached nodes, nor let
+  // a superseded runPreflight or tracerIsRunning continuation resolve into
+  // them - the run itself is untouched and is recovered on reopen by the
+  // tracerIsRunning check above.
   return function cleanupCapture(): void {
     closed = true
     captureLineSink = undefined
     captureDoneSink = undefined
+    captureFinishingSink = undefined
     preflightEpoch.bump()
   }
 }
@@ -1278,6 +1305,10 @@ let captureLineSink: ((line: string) => void) | undefined
 // when that is a reattach that never called tracer:start itself.
 let captureDoneSink: ((result: { code: number; kind: string; runId?: number; error?: string }) => void) | undefined
 
+// Set by wireCapture on each modal open, mirroring captureDoneSink; the
+// tracer:phase subscription is registered once, so it dispatches through this.
+let captureFinishingSink: (() => void) | undefined
+
 // Registered once (not per Capture-modal open) so re-opening Capture doesn't
 // stack tracer:line subscriptions; dispatches through captureLineSink to
 // whichever cap-console is live.
@@ -1288,8 +1319,25 @@ window.anubee.onTracerLine(line => {
 
 // Registered once, mirroring onTracerLine above; dispatches through
 // captureDoneSink to whichever Capture instance is live.
+//
+// The graph-view switch on a successful jsonl capture lives here, not inside
+// captureDoneSink: ingest's own trace:loaded/trace:estimate broadcasts close
+// the Capture modal (see onLoaded/onEstimate below) before tracer:done
+// arrives, tearing captureDoneSink down with it (cleanupCapture) - so on
+// exactly the success path this exists for, no Capture instance is left to
+// react from inside the sink. This handler is registered once and never torn
+// down, so every outcome (discard, error, success) runs through the same
+// place and the switch happens regardless of whether a Capture instance
+// happens to still be open.
 window.anubee.onTracerDone(result => {
   captureDoneSink?.(result)
+  if (!result.error && result.kind === 'jsonl' && result.runId !== undefined) showView('graph')
+})
+
+// Registered once, mirroring onTracerDone above; dispatches through
+// captureFinishingSink to whichever Capture instance is live.
+window.anubee.onTracerPhase(() => {
+  captureFinishingSink?.()
 })
 
 // Ctrl/Cmd+O opens a run (replaces the removed native-menu accelerator).
