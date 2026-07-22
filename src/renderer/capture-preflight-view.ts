@@ -23,6 +23,13 @@ export function resetPreflightPane(host: HTMLElement): void {
 
 export function appendPreflightCheck(host: HTMLElement, c: PreflightCheck): void {
   host.querySelector('.pf-empty')?.remove()
+  // A fresh check result supersedes a stale marking: the pane is, by
+  // definition, no longer stale once new results are streaming into it.
+  // Clear all three stale artefacts before appending so the new row never
+  // lands after the stale reason or inherits the dimming.
+  host.classList.remove('pf-stale')
+  host.querySelector('.pf-stale-badge')?.remove()
+  host.querySelector('.pf-stale-reason')?.remove()
   const row = document.createElement('div')
   row.className = 'pf-row'
   row.dataset.check = c.id

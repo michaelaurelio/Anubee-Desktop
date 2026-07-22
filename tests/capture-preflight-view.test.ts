@@ -66,6 +66,31 @@ describe('capture preflight pane', () => {
     expect(host.querySelector('.pf-stale-badge')).toBeNull()
   })
 
+  it('clears the stale badge, reason, and class when a fresh check arrives', () => {
+    const host = document.createElement('div')
+    resetPreflightPane(host)
+    appendPreflightCheck(host, ok('device', 'device reachable'))
+    markPreflightStale(host, 'engine changed since the last preflight')
+    appendPreflightCheck(host, ok('root', 'root available (su)'))
+    expect(host.querySelector('.pf-stale-badge')).toBeNull()
+    expect(host.querySelector('.pf-stale-reason')).toBeNull()
+    expect(host.classList.contains('pf-stale')).toBe(false)
+    expect(host.lastElementChild!.querySelector('.pf-label')!.textContent).toBe('root available (su)')
+  })
+
+  it('still dims rows and shows the badge when marked stale after appending', () => {
+    const host = document.createElement('div')
+    resetPreflightPane(host)
+    appendPreflightCheck(host, ok('device', 'device reachable'))
+    appendPreflightCheck(host, ok('root', 'root available (su)'))
+    markPreflightStale(host, 'engine changed since the last preflight')
+    expect(host.classList.contains('pf-stale')).toBe(true)
+    expect(host.querySelector('.pf-stale-badge')!.textContent).toBe('stale')
+    expect(host.querySelector('.pf-stale-reason')!.textContent)
+      .toBe('engine changed since the last preflight')
+    expect(host.querySelectorAll('.pf-row')).toHaveLength(2)
+  })
+
   it('summarises pass count and the first failure', () => {
     expect(preflightSummary([ok('a', 'A'), ok('b', 'B')]))
       .toEqual({ passed: 2, total: 2, firstFail: undefined })
