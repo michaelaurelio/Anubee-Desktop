@@ -1,7 +1,45 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
-import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices } from '../src/renderer/capture-view'
-import { capById } from '../src/shared/tracer-caps'
+import {
+  renderCapabilityForm, renderEngineSegments, specsDirRow,
+  appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices,
+} from '../src/renderer/capture-view'
+import { capById, CAPABILITIES } from '../src/shared/tracer-caps'
+
+const addChip = (host: HTMLElement, text: string): void => {
+  const inp = host.querySelector<HTMLInputElement>('.chip-add')!
+  inp.value = text
+  inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+}
+
+describe('renderEngineSegments', () => {
+  it('renders one segment per engine and marks the current one', () => {
+    const host = document.createElement('div')
+    renderEngineSegments(host, CAPABILITIES, 'syscalls', () => {})
+    const segs = [...host.querySelectorAll<HTMLElement>('[data-engine]')]
+    expect(segs.map(s => s.dataset.engine)).toEqual(['syscalls', 'funcs'])
+    expect(segs[0].classList.contains('on')).toBe(true)
+    expect(segs[1].classList.contains('on')).toBe(false)
+  })
+
+  it('reports a pick and does not re-fire for the current engine', () => {
+    const host = document.createElement('div')
+    const picks: string[] = []
+    renderEngineSegments(host, CAPABILITIES, 'syscalls', id => picks.push(id))
+    host.querySelector<HTMLElement>('[data-engine="funcs"]')!.click()
+    host.querySelector<HTMLElement>('[data-engine="syscalls"]')!.click()
+    expect(picks).toEqual(['funcs'])
+  })
+
+  it('describes each engine and badges the stealthy one', () => {
+    const host = document.createElement('div')
+    renderEngineSegments(host, CAPABILITIES, 'syscalls', () => {})
+    expect(host.querySelector('.engine-desc')!.textContent!.toLowerCase()).toContain('syscall')
+    expect(host.querySelector('.engine-badge')!.textContent).toBe('injectionless')
+    renderEngineSegments(host, CAPABILITIES, 'funcs', () => {})
+    expect(host.querySelector('.engine-badge')!.textContent).toBe('detectable')
+  })
+})
 
 describe('renderCapabilityForm', () => {
   it('renders one control per input and reports changes', () => {
@@ -10,73 +48,92 @@ describe('renderCapabilityForm', () => {
     renderCapabilityForm(host, capById('syscalls')!, {}, v => { latest = v })
     const pkg = host.querySelector<HTMLInputElement>('[data-key="pkg"]')!
     expect(pkg).toBeTruthy()
-    expect(host.querySelector('[data-key="lib"]')).toBeTruthy()
-    expect(host.querySelector<HTMLInputElement>('[data-key="all"]')!.type).toBe('checkbox')
-    pkg.value = 'com.android.deskclock'
+    pkg.value = 'dev.anubee.detector'
     pkg.dispatchEvent(new Event('input'))
-    expect(latest).toMatchObject({ pkg: 'com.android.deskclock' })
+    expect(latest).toMatchObject({ pkg: 'dev.anubee.detector' })
   })
 
-  it('does NOT render a loud banner for correlate', () => {
-    const host = document.createElement('div')
-    renderCapabilityForm(host, capById('correlate')!, {}, () => {})
-    expect(host.querySelector('.loud-warn')).toBeNull()
-  })
-
-  it('renders an error span per input', () => {
+  it('renders a chip list, not a checkbox, for the library filter', () => {
     const host = document.createElement('div')
     renderCapabilityForm(host, capById('syscalls')!, {}, () => {})
-    expect(host.querySelector('[data-err="pkg"]')).not.toBeNull()
+    expect(host.querySelector('.chip-list[data-key="libs"]')).not.toBeNull()
+    expect(host.querySelector('[data-key="all"]')).toBeNull()
+    expect(host.querySelector('[data-key="lib"]')).toBeNull()
   })
 
-  it('renders tuning inputs inside a collapsible Advanced section', () => {
+  it('shows the capture-all hint when no selector is set', () => {
     const host = document.createElement('div')
     renderCapabilityForm(host, capById('syscalls')!, {}, () => {})
-    const adv = host.querySelector<HTMLDetailsElement>('details.cap-advanced')
-    expect(adv).not.toBeNull()
-    expect(adv!.open).toBe(false)
-    expect(adv!.querySelector('summary')!.textContent).toBe('Advanced')
-    // primary field stays outside the disclosure
-    expect(host.querySelector('[data-key="pkg"]')!.closest('details.cap-advanced')).toBeNull()
-    // tuning fields live inside it
-    const buf = host.querySelector<HTMLInputElement>('[data-key="bufmb"]')!
-    expect(buf.type).toBe('number')
-    expect(buf.min).toBe('1')
-    expect(buf.placeholder).toBe('4')
-    expect(buf.closest('details.cap-advanced')).not.toBeNull()
+    expect(host.querySelector('.chip-empty')!.textContent).toContain('every library')
   })
 
-  it('emits no Advanced section for a cap without advanced inputs', () => {
-    const host = document.createElement('div')
-    renderCapabilityForm(host, capById('mod')!, {}, () => {})
-    expect(host.querySelector('details.cap-advanced')).toBeNull()
-  })
-
-  it('reports number-input changes through onChange', () => {
+  it('adds a chip on Enter and reports it newline-joined', () => {
     const host = document.createElement('div')
     let latest: Record<string, unknown> = {}
     renderCapabilityForm(host, capById('syscalls')!, {}, v => { latest = v })
-    const buf = host.querySelector<HTMLInputElement>('[data-key="bufmb"]')!
-    buf.value = '8'
-    buf.dispatchEvent(new Event('input'))
-    expect(latest).toMatchObject({ bufmb: '8' })
+    addChip(host, 'libsentinel.so')
+    addChip(host, 'e_*')
+    expect(latest.libs).toBe('libsentinel.so\ne_*')
+    expect([...host.querySelectorAll('.chip')].map(c => (c as HTMLElement).dataset.chip))
+      .toEqual(['libsentinel.so', 'e_*'])
+    expect(host.querySelector('.chip-empty')).toBeNull()
+    expect(host.querySelector<HTMLInputElement>('.chip-add')!.value).toBe('')
   })
 
-  it('renders the --snapshot checkbox inside Advanced for syscalls/funcs', () => {
-    for (const id of ['syscalls', 'funcs']) {
-      const host = document.createElement('div')
-      renderCapabilityForm(host, capById(id)!, {}, () => {})
-      const cb = host.querySelector<HTMLInputElement>('[data-key="snapshot"]')
-      expect(cb).not.toBeNull()
-      expect(cb!.type).toBe('checkbox')
-      expect(cb!.closest('details.cap-advanced')).not.toBeNull()
-    }
-  })
-
-  it('renders no --snapshot checkbox for correlate', () => {
+  it('removes a chip and restores the hint when the last one goes', () => {
     const host = document.createElement('div')
-    renderCapabilityForm(host, capById('correlate')!, {}, () => {})
-    expect(host.querySelector('[data-key="snapshot"]')).toBeNull()
+    let latest: Record<string, unknown> = {}
+    renderCapabilityForm(host, capById('syscalls')!, { libs: 'libsentinel.so' }, v => { latest = v })
+    host.querySelector<HTMLButtonElement>('.chip [data-role="chipdel"]')!.click()
+    expect(latest.libs).toBe('')
+    expect(host.querySelector('.chip-empty')).not.toBeNull()
+  })
+
+  it('ignores a blank or duplicate chip', () => {
+    const host = document.createElement('div')
+    renderCapabilityForm(host, capById('syscalls')!, {}, () => {})
+    addChip(host, '   ')
+    addChip(host, 'libsentinel.so')
+    addChip(host, 'libsentinel.so')
+    expect(host.querySelectorAll('.chip')).toHaveLength(1)
+  })
+
+  it('seeds chips from existing values', () => {
+    const host = document.createElement('div')
+    renderCapabilityForm(host, capById('syscalls')!, { libs: 'a.so\nb.so' }, () => {})
+    expect(host.querySelectorAll('.chip')).toHaveLength(2)
+  })
+
+  it('no longer injects the specs-dir row into the argument form', () => {
+    const host = document.createElement('div')
+    renderCapabilityForm(host, capById('funcs')!, {}, () => {})
+    expect(host.querySelector('[data-config="specsDir"]')).toBeNull()
+    expect(host.querySelector('select[data-key="spec"]')).not.toBeNull()
+  })
+
+  it('reserves a fixed-height error slot per row so errors never reflow', () => {
+    const host = document.createElement('div')
+    renderCapabilityForm(host, capById('syscalls')!, {}, () => {})
+    const slots = host.querySelectorAll('.cap-input-err')
+    expect(slots.length).toBeGreaterThan(0)
+    for (const s of slots) expect((s as HTMLElement).dataset.err).toBeTruthy()
+  })
+
+  it('renders an error span for the chip list', () => {
+    const host = document.createElement('div')
+    renderCapabilityForm(host, capById('syscalls')!, {}, () => {})
+    applyFieldErrors(host, { libs: 'too many' })
+    expect(host.querySelector('[data-err="libs"]')!.textContent).toBe('too many')
+  })
+})
+
+describe('specsDirRow', () => {
+  it('is exported for the host-setup block and keeps its markers', () => {
+    const row = specsDirRow('/host/specs')
+    expect(row.querySelector<HTMLInputElement>('[data-config="specsDir"]')!.value).toBe('/host/specs')
+    expect(row.querySelector('[data-role="specsBrowse"]')).not.toBeNull()
+    expect(row.querySelector('[data-role="specsDot"]')).not.toBeNull()
+    expect(row.querySelector('[data-err="specsDir"]')).not.toBeNull()
   })
 })
 
@@ -86,7 +143,7 @@ describe('applyFieldErrors', () => {
     renderCapabilityForm(host, capById('syscalls')!, {}, () => {})
     applyFieldErrors(host, { pkg: 'is required' })
     expect((host.querySelector('[data-err="pkg"]') as HTMLElement).textContent).toBe('is required')
-    expect((host.querySelector('[data-err="lib"]') as HTMLElement).textContent).toBe('')
+    expect((host.querySelector('[data-err="libs"]') as HTMLElement).textContent).toBe('')
   })
 })
 
@@ -102,7 +159,7 @@ describe('renderDot', () => {
 })
 
 describe('renderCapabilityForm spec engine', () => {
-  it('renders the spec input as a select seeded from vals, plus a specs-dir row', () => {
+  it('renders the spec input as a select seeded from vals', () => {
     const host = document.createElement('div')
     renderCapabilityForm(host, capById('funcs')!, { spec: 'b.spec' }, () => {},
       { specNames: ['a.spec', 'b.spec'], specsDir: '/host/specs' })
@@ -111,11 +168,6 @@ describe('renderCapabilityForm spec engine', () => {
     expect(sel.disabled).toBe(false)
     expect(Array.from(sel.options).map(o => o.value)).toEqual(['', 'a.spec', 'b.spec'])
     expect(sel.value).toBe('b.spec')
-    const dir = host.querySelector<HTMLInputElement>('[data-config="specsDir"]')!
-    expect(dir.value).toBe('/host/specs')
-    expect(host.querySelector('[data-role="specsBrowse"]')).not.toBeNull()
-    expect(host.querySelector('[data-role="specsDot"]')).not.toBeNull()
-    expect(host.querySelector('[data-err="specsDir"]')).not.toBeNull()
   })
 
   it('disables the spec select with a placeholder when no specs are available', () => {
