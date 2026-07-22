@@ -9,8 +9,12 @@ and open verification items. Newest concerns first.
 the only two whose output the desktop's JSONL parser can actually load.
 `correlate`, `trace`, and `mod` are removed: `correlate` emits a `type: "func"`
 record the parser does not recognize, `trace`'s `-o` is a filename *prefix*
-that writes three separate files instead of one, and `mod` writes only to
-stdout, nothing to pull. Anubee also removed its `syscalls -a` capture-all
+that writes three separate files instead of one, and `mod` does write
+structured JSONL via its own `-o FILE` flag, but its record types (`spawn`,
+`proc_exit`, `execve`, `prop`, `file_access`, `massdelete_detect`,
+`exfil_detect`, `accessibility_detect`, `fileless_detect`,
+`screencapture_detect`) are none the parser recognizes - there is a file,
+just nothing in it the parser can turn into a graph. Anubee also removed its `syscalls -a` capture-all
 flag upstream; the desktop still emitted it, so every capture-all run died in
 argp - fixed by making the library filter a repeatable, glob-capable chip list
 (`-l` per selector, up to 64, OR'd) where an empty list *is* capture-all, no

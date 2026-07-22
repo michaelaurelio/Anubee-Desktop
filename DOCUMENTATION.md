@@ -986,7 +986,12 @@ are deliberately absent, not merely unimplemented: `correlate` emits a
 `type: "func"` record the parser does not recognize; `trace`'s `-o` is a
 filename *prefix*, not a path - it writes three separate files
 (`<prefix>.syscalls.jsonl`, `.funcs.jsonl`, `.lib.jsonl`), which the current
-single-file pull cannot handle; `mod` writes only to stdout, nothing to pull.
+single-file pull cannot handle; `mod` does have its own `-o FILE` flag and
+does write structured JSONL to it, but its record types (`spawn`,
+`proc_exit`, `execve`, `prop`, `file_access`, `massdelete_detect`,
+`exfil_detect`, `accessibility_detect`, `fileless_detect`,
+`screencapture_detect`) are none the parser recognizes - there is a file,
+just nothing in it the parser can turn into a graph.
 `lib` and `dump` are not tracer-caps capabilities at all - they are driven by
 the separate Native Libraries live-capture and dump paths documented above, not
 the Capture modal. See `BACKLOG.md` for what re-adding `correlate`/`trace`
@@ -1064,7 +1069,7 @@ capture on modal reopen (`tracerIsRunning`) enters this state directly.
 ```mermaid
 stateDiagram-v2
     [*] --> Incomplete
-    [*] --> Running: capture already in progress (modal reattaches)
+    [*] --> Running: capture already in progress (modal reattaches, local preflight stays 'none')
     Incomplete --> Valid: required fields filled
     Valid --> Incomplete: a required field is cleared
     Valid --> Checking: click Preflight
@@ -1078,17 +1083,27 @@ stateDiagram-v2
     Passed --> Stale: config edited
     Passed --> Running: click Start capture
     Stale --> Checking: click Preflight
-    Running --> Passed: tracer:done (Stop, or the run/timeout ends)
+    Running --> Passed: tracer:done, this instance ran its own preflight
+    Running --> Incomplete: tracer:done, reattached instance, required fields still empty
+    Running --> Valid: tracer:done, reattached instance, required fields happen to be filled
 ```
 
 `Stale` renders with the same `Preflight` button as `Incomplete`/`Valid`
 (gated the same way on `configValid`), distinguished only by the preflight
 pane's dimmed rows and stale reason - a config edit while `Failed` also lands
 in `Stale`, not back in `Incomplete`/`Valid`, so the last-known failure reason
-is not silently dropped. On `tracer:done`, `running` clears but the preflight
-result is deliberately **not** reset to `none`: the run consumed the pushed
-binary and the launched package, so a repeat run does not need another adb
-round-trip.
+is not silently dropped. On `tracer:done`, `running` clears and the footer
+re-renders from whatever `preflight` value this modal instance already
+holds. For the instance whose own `Start capture` click began the run, that
+value is still `passed` - the run consumed the pushed binary and the
+launched package, so a repeat run from *that* instance does not need
+another adb round-trip. A reattached instance never ran its own preflight,
+though: its local `preflight` stays at the initial `'none'` for as long as
+it exists - `tracer:isRunning` resolves only `{ running, argv }`, nothing
+that would let it recover the real preflight status - so when `tracer:done`
+fires there, the footer lands in `Incomplete` or `Valid` (per `configValid`),
+not `Passed`, and starting another run from that instance needs a fresh
+preflight, adb round-trip included.
 
 **Capture form layout, path validation, and Browse pickers.** The modal is a
 two-pane form. The left `cap-col-form` column holds two numbered sections -
