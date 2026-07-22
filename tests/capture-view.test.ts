@@ -104,6 +104,31 @@ describe('renderCapabilityForm', () => {
     expect(host.querySelectorAll('.chip')).toHaveLength(2)
   })
 
+  it('does not commit a chip when blur moves focus to a chip delete button', () => {
+    const host = document.createElement('div')
+    let latest: Record<string, unknown> = {}
+    renderCapabilityForm(host, capById('syscalls')!, { libs: 'libsentinel.so' }, v => { latest = v })
+    const add = host.querySelector<HTMLInputElement>('.chip-add')!
+    add.value = 'e_*'
+    const del = host.querySelector<HTMLButtonElement>('.chip [data-role="chipdel"]')!
+    add.dispatchEvent(new FocusEvent('blur', { relatedTarget: del }))
+    expect(host.querySelectorAll('.chip')).toHaveLength(1)
+    expect(latest.libs).toBeUndefined()
+    expect(add.value).toBe('e_*')
+  })
+
+  it('commits a chip on blur when focus moves outside the chip list', () => {
+    const host = document.createElement('div')
+    let latest: Record<string, unknown> = {}
+    renderCapabilityForm(host, capById('syscalls')!, {}, v => { latest = v })
+    const add = host.querySelector<HTMLInputElement>('.chip-add')!
+    add.value = 'libsentinel.so'
+    add.dispatchEvent(new FocusEvent('blur', { relatedTarget: null }))
+    expect(latest.libs).toBe('libsentinel.so')
+    expect(host.querySelectorAll('.chip')).toHaveLength(1)
+    expect(add.value).toBe('')
+  })
+
   it('no longer injects the specs-dir row into the argument form', () => {
     const host = document.createElement('div')
     renderCapabilityForm(host, capById('funcs')!, {}, () => {})
@@ -124,6 +149,44 @@ describe('renderCapabilityForm', () => {
     renderCapabilityForm(host, capById('syscalls')!, {}, () => {})
     applyFieldErrors(host, { libs: 'too many' })
     expect(host.querySelector('[data-err="libs"]')!.textContent).toBe('too many')
+  })
+
+  it('renders tuning inputs inside a collapsible Advanced section', () => {
+    const host = document.createElement('div')
+    renderCapabilityForm(host, capById('syscalls')!, {}, () => {})
+    const adv = host.querySelector<HTMLDetailsElement>('details.cap-advanced')
+    expect(adv).not.toBeNull()
+    expect(adv!.open).toBe(false)
+    expect(adv!.querySelector('summary')!.textContent).toBe('Advanced')
+    // primary field stays outside the disclosure
+    expect(host.querySelector('[data-key="pkg"]')!.closest('details.cap-advanced')).toBeNull()
+    // tuning fields live inside it
+    const buf = host.querySelector<HTMLInputElement>('[data-key="bufmb"]')!
+    expect(buf.type).toBe('number')
+    expect(buf.min).toBe('1')
+    expect(buf.placeholder).toBe('4')
+    expect(buf.closest('details.cap-advanced')).not.toBeNull()
+  })
+
+  it('reports number-input changes through onChange', () => {
+    const host = document.createElement('div')
+    let latest: Record<string, unknown> = {}
+    renderCapabilityForm(host, capById('syscalls')!, {}, v => { latest = v })
+    const buf = host.querySelector<HTMLInputElement>('[data-key="bufmb"]')!
+    buf.value = '8'
+    buf.dispatchEvent(new Event('input'))
+    expect(latest).toMatchObject({ bufmb: '8' })
+  })
+
+  it('renders the --snapshot checkbox inside Advanced for syscalls/funcs', () => {
+    for (const id of ['syscalls', 'funcs']) {
+      const host = document.createElement('div')
+      renderCapabilityForm(host, capById(id)!, {}, () => {})
+      const cb = host.querySelector<HTMLInputElement>('[data-key="snapshot"]')
+      expect(cb).not.toBeNull()
+      expect(cb!.type).toBe('checkbox')
+      expect(cb!.closest('details.cap-advanced')).not.toBeNull()
+    }
   })
 })
 

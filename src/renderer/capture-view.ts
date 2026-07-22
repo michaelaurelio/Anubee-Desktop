@@ -203,7 +203,14 @@ function buildChipList(
   add.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); addCurrent() }
   })
-  add.addEventListener('blur', addCurrent)
+  add.addEventListener('blur', e => {
+    // Browsers fire blur during mousedown on the new target, before its click.
+    // Committing here would turn "delete that chip" into "delete that chip and
+    // also add whatever I was half-way through typing".
+    const to = (e as FocusEvent).relatedTarget
+    if (to instanceof Node && box.contains(to)) return
+    addCurrent()
+  })
 
   box.appendChild(add)
   paint(libList(current[inp.key]))
