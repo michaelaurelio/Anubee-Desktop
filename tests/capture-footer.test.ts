@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
-import { captureFooter, renderCaptureFooter, type FooterState } from '../src/renderer/capture-footer'
+import { captureFooter, renderCaptureFooter, setFooterCounters, type FooterState } from '../src/renderer/capture-footer'
 
 const st = (o: Partial<FooterState>): FooterState =>
   ({ configValid: true, preflight: 'none', running: false, ...o })
@@ -107,5 +107,28 @@ describe('renderCaptureFooter', () => {
     // catch them. This cannot use .click() which respects native disabled semantics.
     btn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     expect(seen).toEqual([])
+  })
+})
+
+describe('setFooterCounters', () => {
+  it('patches the counters node in place without recreating the buttons', () => {
+    const host = document.createElement('div')
+    renderCaptureFooter(host, captureFooter(st({ running: true, counters: '0 lines' })), () => {})
+    const stopOpenBefore = host.querySelector('#cap-stop-open')
+    expect(host.querySelector('.cap-foot-counters')!.textContent).toBe('0 lines')
+
+    setFooterCounters(host, '4,213 lines')
+
+    expect(host.querySelector('.cap-foot-counters')!.textContent).toBe('4,213 lines')
+    // Same button node still in the DOM - proves this did not go through
+    // renderCaptureFooter's innerHTML wipe/rebuild.
+    expect(host.querySelector('#cap-stop-open')).toBe(stopOpenBefore)
+  })
+
+  it('is a no-op when the counters node is absent (every non-running state)', () => {
+    const host = document.createElement('div')
+    renderCaptureFooter(host, captureFooter(st({ preflight: 'passed' })), () => {})
+    expect(() => setFooterCounters(host, '1 lines')).not.toThrow()
+    expect(host.querySelector('.cap-foot-counters')).toBeNull()
   })
 })

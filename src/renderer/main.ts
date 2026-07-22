@@ -31,7 +31,7 @@ import {
   applyFieldErrors, renderDot, appendConsoleLine,
 } from './capture-view'
 import { renderArgvPreview } from './argv-preview'
-import { captureFooter, renderCaptureFooter, type PreflightState } from './capture-footer'
+import { captureFooter, renderCaptureFooter, setFooterCounters, type PreflightState } from './capture-footer'
 import {
   resetPreflightPane, appendPreflightCheck, markPreflightStale, preflightSummary,
 } from './capture-preflight-view'
@@ -712,6 +712,7 @@ function wireCapture(): (() => void) | undefined {
   let running = false
   let failReason = ''
   let counters = ''
+  let lineCount = 0 // tracked independently of consoleHost's (capped) DOM node count
   const preflightEpoch = makeEpoch() // a superseded preflight must not re-enable Start
 
   const cap = (): Capability => capById(capId)!
@@ -900,7 +901,7 @@ function wireCapture(): (() => void) | undefined {
   async function startCapture(): Promise<void> {
     const errs = validateInputs(cap(), vals)
     if (errs.length) { failReason = errs.join('; '); preflight = 'failed'; paintFooter(); return }
-    running = true; counters = ''
+    running = true; counters = ''; lineCount = 0
     shell!.classList.remove('state-config'); shell!.classList.add('state-running')
     setLiveBadge(true)
     consoleHost!.innerHTML = ''
@@ -965,8 +966,13 @@ function wireCapture(): (() => void) | undefined {
   // ---- live console ------------------------------------------------------
   captureLineSink = (line: string): void => {
     appendConsoleLine(consoleHost, line)
-    counters = `${consoleHost.childElementCount} lines`
-    if (running) paintFooter()
+    lineCount += 1
+    counters = `${lineCount} lines`
+    // Fast path: only the counters text changes per line, so patch that node
+    // directly instead of paintFooter()'s full teardown/rebuild - see
+    // setFooterCounters. A syscalls capture with no filter emits thousands of
+    // lines per second; rebuilding every button that often pegs the renderer.
+    setFooterCounters(footHost, counters)
   }
 
   // ---- run completion (broadcast) -----------------------------------------
@@ -1003,6 +1009,7 @@ function wireCapture(): (() => void) | undefined {
     shell.classList.remove('state-config'); shell.classList.add('state-running')
     setLiveBadge(true)
     consoleHost.innerHTML = ''
+    lineCount = 0
     appendConsoleLine(consoleHost, '[reattached] capture is still running - earlier output is not shown')
     consoleHost.lastElementChild?.classList.add('preflight-replay')
     // This instance never called startCapture(), so capId/vals are still

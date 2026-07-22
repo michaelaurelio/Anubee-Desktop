@@ -85,3 +85,15 @@ export function renderCaptureFooter(
     host.appendChild(el)
   }
 }
+
+// Fast path for the running state's per-line counter: a capture can emit
+// thousands of lines per second, and renderCaptureFooter's full teardown/
+// rebuild (recreating every button and re-attaching every click listener) on
+// each one pegs the renderer. Only the counters text actually changes per
+// line, so update that node directly. A no-op outside the running state,
+// where '.cap-foot-counters' is not in the DOM - callers do not need to
+// guard on state before calling this.
+export function setFooterCounters(host: HTMLElement, text: string): void {
+  const el = host.querySelector<HTMLElement>('.cap-foot-counters')
+  if (el) el.textContent = text
+}

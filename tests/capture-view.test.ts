@@ -289,4 +289,13 @@ describe('appendConsoleLine', () => {
     expect(host.children.length).toBe(2)
     expect(host.textContent).toContain('[lib] bionic/libc.so')
   })
+
+  it('caps the console DOM, dropping the oldest lines first', () => {
+    const host = document.createElement('div')
+    for (let i = 0; i < 5010; i++) appendConsoleLine(host, `line ${i}`)
+    expect(host.children.length).toBe(5000)
+    // Oldest lines were dropped, newest survive.
+    expect(host.firstElementChild!.textContent).toBe('line 10')
+    expect(host.lastElementChild!.textContent).toBe('line 5009')
+  }, 20000)
 })

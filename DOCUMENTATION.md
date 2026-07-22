@@ -1070,6 +1070,25 @@ Events without a sidecar record fall back to the concatenation unchanged. See th
 graph node identity notes above; the cfi path reuses the same `java:`/`nat:`/`fn:`
 grammar so cfi- and fallback-derived nodes coalesce.
 
+**Live console + footer under high line rates.** An unfiltered `syscalls`
+capture can emit thousands of lines per second. The per-line counter
+(`captureLineSink` in `main.ts`) updates via `setFooterCounters`
+(`capture-footer.ts`), which patches the `.cap-foot-counters` text node
+directly instead of calling `renderCaptureFooter` (which tears down and
+rebuilds every button and click listener) - the counter is the only thing
+that changes per line. `appendConsoleLine` (`capture-view.ts`) caps the
+console DOM at 5,000 lines, dropping the oldest, so a long chatty run does not
+grow the DOM unbounded; the footer counter itself is tracked independently of
+the (capped) DOM node count, so it keeps showing the true running total past
+the cap. Note: this bounds memory and removes the footer-rebuild cost, but
+does not throttle or batch the underlying per-line IPC + DOM append work
+itself - a sustained very-high-rate unfiltered capture against a busy target
+can still keep the renderer's main thread busy processing the backlog for an
+extended stretch (observed on a real device). If that turns out to matter in
+practice, the next step would be batching/coalescing `tracer:line` delivery
+(e.g. flush accumulated lines once per animation frame) rather than one IPC
+round trip and DOM append per line.
+
 **Storage + privacy.** Pulled captures land in `<userData>/runs/` (outside the
 repo); the target package is user-entered at runtime, never hardcoded.
 

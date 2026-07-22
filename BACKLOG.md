@@ -3,6 +3,30 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-22) - Capture footer fast path (per-line footer rebuild)
+
+`captureLineSink` (`main.ts`) no longer calls `paintFooter()` per console
+line - it patches the counters text node directly via `setFooterCounters`
+(`capture-footer.ts`), instead of `renderCaptureFooter` tearing down and
+rebuilding every button and click listener on every line (an unfiltered
+`syscalls` capture emits thousands of lines/sec, so this was thousands of
+full footer rebuilds/sec). `appendConsoleLine` (`capture-view.ts`) now caps
+the console DOM at 5,000 lines (oldest dropped first); the footer counter is
+tracked independently of the (capped) DOM count, so it still shows the true
+running total past the cap. See DOCUMENTATION.md's "Tracer control" section.
+
+### Known drawbacks / follow-ups
+- **This fix bounds memory, not the underlying per-line cost.** Live-tested
+  against a real device: an unfiltered `syscalls` capture against a busy
+  target can still keep the renderer's main thread busy for an extended
+  stretch processing the backlog of individual `tracer:line` IPC messages +
+  DOM appends - the fix removes the footer-rebuild cost (confirmed ~5x
+  cheaper per line in an isolated benchmark) but does not batch or throttle
+  the line stream itself. If sustained high-rate unfiltered captures turn out
+  to need it, the next step is coalescing `tracer:line` delivery (e.g. flush
+  accumulated lines once per animation frame) instead of one IPC round trip +
+  DOM append per line.
+
 ## Shipped (2026-07-21) - Loading feedback wired into open-run and record-select flows
 
 Every load path now speaks one loading language instead of ad-hoc spinners:

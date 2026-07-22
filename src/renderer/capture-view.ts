@@ -286,10 +286,17 @@ export function renderPreflightRow(host: HTMLElement, c: PreflightCheck): void {
   host.appendChild(row)
 }
 
+// A chatty unfiltered capture can emit thousands of lines; without a cap the
+// console DOM grows unbounded for the life of the run. Drop the oldest lines
+// past this limit - recent output is what an analyst watching a live capture
+// actually needs.
+const CONSOLE_LINE_CAP = 5000
+
 export function appendConsoleLine(host: HTMLElement, line: string): void {
   const div = document.createElement('div')
   div.className = 'console-line'
   div.textContent = line
   host.appendChild(div)
+  while (host.childElementCount > CONSOLE_LINE_CAP) host.firstElementChild!.remove()
   host.scrollTop = host.scrollHeight
 }
