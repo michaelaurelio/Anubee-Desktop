@@ -31,6 +31,13 @@ describe('coverageChipText', () => {
     expect(coverageChipText(cov)).toBe('coverage: full - no truncation, drops, or blind spots')
   })
 
+  it('clean with returns: funcs returns mode with full capture still states the count', () => {
+    const cov: CoverageEvent = {
+      type: 'coverage', engine: 'funcs', clean: true, returns: { spans: 50, captured: 50 },
+    }
+    expect(coverageChipText(cov)).toBe('50/50 returns captured')
+  })
+
   it('a record missing both snaps and cfi (e.g. captured without --snapshot, nothing else to report): empty chip, not a misleading zero', () => {
     const cov: CoverageEvent = { type: 'coverage', engine: 'syscalls' }
     expect(coverageChipText(cov)).toBe('')

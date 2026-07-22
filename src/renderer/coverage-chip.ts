@@ -8,9 +8,14 @@ import type { CoverageEvent } from '@shared/events'
 export function coverageChipText(cov: CoverageEvent | undefined): string {
   if (!cov) return ''
   if (cov.exempt) return `coverage: not applicable (${cov.reason ?? 'no coverage surface'})`
-  if (cov.clean) return 'coverage: full - no truncation, drops, or blind spots'
 
   const parts: string[] = []
+  // A clean record can still legitimately carry `returns` (funcs, returns
+  // mode, full capture - see ../Anubee/src/common/coverage.c:56-59): compose
+  // it instead of returning early, so a clean returns-mode run states the
+  // returns count rather than the generic "coverage: full" line.
+  if (cov.clean && !cov.returns) return 'coverage: full - no truncation, drops, or blind spots'
+
   if (cov.snaps) parts.push(`${cov.snaps.total} snapshots · ${cov.snaps.truncated} truncated`)
   if (cov.cfi) parts.push(`CFI walks ${cov.cfi.walks}`)
   if (cov.drops) {
