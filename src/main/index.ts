@@ -24,7 +24,7 @@ import { createRunLifecycle } from './run-lifecycle'
 import { startLive, dumpByBase, startWatch, pullWatchArtifacts, checkByBases, type LiveEvent } from './native-lib-live'
 import { makeBatcher, type Batcher } from '@shared/batcher'
 import { loadConfig, saveConfig } from './tracer-config'
-import { capById, composeRunArg, outJsonlPath, resolveSavePath, isSafePattern } from '@shared/tracer-caps'
+import { capById, composeRunArg, outJsonlPath, resolveSavePath, isSafePattern, validateStartRequest, type CapValues } from '@shared/tracer-caps'
 import { isElf, specNames, type PathCheck, type PathStatus } from './path-check'
 import { readdir, copyFile } from 'node:fs/promises'
 import { basename } from 'node:path'
@@ -301,6 +301,13 @@ ipcMain.handle('tracer:pickSpecsDir', async () => {
 ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) => {
   const cap = capById(capId)
   if (!cap) throw new Error(`unknown capability ${capId}`)
+  // The renderer's own SAFE_TOKEN/validateInputs gate (Capture form) is the
+  // only thing standing between an arbitrary vals object and a string
+  // executed as root on the device. contextIsolation + no nodeIntegration +
+  // local file:// content make the renderer trusted today, but the barrier
+  // belongs on this, the privileged side, regardless. Re-validate here.
+  const startErr = validateStartRequest(cap, vals as CapValues, timeoutSecs)
+  if (startErr) throw new Error(startErr)
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
   const jsonlPath = cap.outputKind === 'jsonl' ? outJsonlPath(ts) : undefined
   const runArg = composeRunArg({ cap, vals: vals as never, timeoutSecs, jsonlPath })

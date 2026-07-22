@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  CAPABILITIES, capById, validateInputs, fieldErrors, capNeedsSpec,
+  CAPABILITIES, capById, validateInputs, validateStartRequest, fieldErrors, capNeedsSpec,
   libList, LIB_SELECTOR_CAP,
 } from '../src/shared/tracer-caps'
 
@@ -310,6 +310,43 @@ describe('fieldErrors', () => {
     expect(fieldErrors(sys, { ...base, bufmb: '-1' }).fields.bufmb).toBe('must be a whole number >= 1')
     expect(fieldErrors(sys, { ...base, bufmb: '3.5' }).fields.bufmb).toBe('must be a whole number >= 1')
     expect(fieldErrors(sys, { ...base, bufmb: 'abc' }).fields.bufmb).toBe('must be a whole number >= 1')
+  })
+})
+
+describe('validateStartRequest (F4: the main-process gate on tracer:start)', () => {
+  const syscalls = capById('syscalls')!
+
+  it('accepts a valid request with no timeout', () => {
+    expect(validateStartRequest(syscalls, { pkg: 'dev.anubee.detector' }, undefined)).toBeUndefined()
+  })
+
+  it('accepts a valid request with a positive integer timeout', () => {
+    expect(validateStartRequest(syscalls, { pkg: 'dev.anubee.detector' }, 30)).toBeUndefined()
+  })
+
+  it('rejects on the same input errors validateInputs would report', () => {
+    expect(validateStartRequest(syscalls, {}, undefined)).toBe('package is required')
+    expect(validateStartRequest(syscalls, { pkg: "p'; rm -rf /" }, undefined))
+      .toMatch(/unsupported characters/)
+  })
+
+  it('rejects a non-integer timeout', () => {
+    expect(validateStartRequest(syscalls, { pkg: 'p' }, 1.5)).toBe(
+      'timeout must be a positive whole number of seconds')
+  })
+
+  it('rejects a zero or negative timeout', () => {
+    expect(validateStartRequest(syscalls, { pkg: 'p' }, 0)).toBe(
+      'timeout must be a positive whole number of seconds')
+    expect(validateStartRequest(syscalls, { pkg: 'p' }, -5)).toBe(
+      'timeout must be a positive whole number of seconds')
+  })
+
+  it('rejects NaN and non-finite timeouts', () => {
+    expect(validateStartRequest(syscalls, { pkg: 'p' }, NaN)).toBe(
+      'timeout must be a positive whole number of seconds')
+    expect(validateStartRequest(syscalls, { pkg: 'p' }, Infinity)).toBe(
+      'timeout must be a positive whole number of seconds')
   })
 })
 

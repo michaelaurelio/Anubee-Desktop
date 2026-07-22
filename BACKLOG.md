@@ -3,6 +3,56 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-23) - Capture run-lifecycle fix wave
+
+Pre-merge review of the tracer-control branch found four issues, all fixed:
+
+- **`discardActive` could leak into the next capture.** `activeRun` was
+  deliberately widened (previous entry, below) to span the whole pull+ingest
+  pipeline, but `tracer:stop`'s guard (`if (!activeRun) return`) still keyed
+  off that same flag, so it kept passing during the pull window even though
+  there was nothing left to stop. A `Stop & discard` click that landed there
+  wrote `discardActive = true` after the only code that read and cleared it
+  for that run had already run - the flag then sat there until the *next*
+  capture completed, which silently skipped its own pull/ingest. Fixed by
+  extracting the run's state (`activeRun`/`activeRunArgv`/`discardActive`)
+  into a small phase-aware object (`src/main/run-lifecycle.ts`: `idle` ->
+  `device` -> `finishing` -> `idle`) whose `requestStop` only acts in the
+  `device` phase and whose `finish()` unconditionally clears everything in
+  the IPC handler's `finally`. This also closes the drawback logged below
+  ("Stop buttons stay live during the pull/ingest window"): main now
+  broadcasts a `tracer:phase` event the moment a run enters `finishing`, and
+  the Capture footer swaps to a non-interactive "Pulling & ingesting…" note
+  instead of `Stop & discard` / `Stop & open run` - there is no longer a
+  Stop that silently does nothing. The lifecycle object is unit-tested
+  directly (`tests/run-lifecycle.test.ts`), including the exact
+  stop-during-pull-then-next-capture regression; `src/main/index.ts`'s IPC
+  handlers otherwise still have no test coverage of their own.
+- **The graph-view switch after a capture never actually ran.** A successful
+  jsonl capture's own ingest closes the Capture modal (`trace:loaded` /
+  `trace:estimate`) before the `tracer:done` broadcast arrives, which tore
+  down the module-scope `captureDoneSink` the switch lived inside - so a user
+  parked on Flame or Libraries when a capture finished stayed there. Moved
+  the `showView('graph')` call out of `captureDoneSink` (which only ever
+  finalizes a still-open Capture instance - discard/error/no-runId paths) and
+  into the once-registered `onTracerDone` handler in `main.ts`, which runs
+  regardless of whether a Capture instance is still open.
+- **The flag-drift guard (`tests/anubee-flag-drift.test.ts`) missed the flags
+  it most needed to guard.** It derived the desktop's emitted-flag set from
+  `buildArgv` alone, missing `commonArgv`'s `-b`/`-Q`/`-v` and the `-o`
+  `composeRunArg` appends, and it hardcoded what `COMMON_ARGP_OPTIONS` /
+  `TARGET_ARGP_OPTIONS` contain instead of parsing the real
+  `../Anubee/src/common/engine_args.h`. Both fixed: `emittedFlags` now goes
+  through `composeRunArg`, and the allowed-flag set is parsed from the macro
+  source, so an upstream removal from either macro (the `-Q` case tested by
+  the mutation drill) fails the guard instead of passing silently.
+- **`tracer:start` trusted the renderer's own input validation.** The
+  `SAFE_TOKEN` gate (`validateInputs`) only ran in the renderer, and
+  `timeoutSecs` was never checked at runtime at all despite being
+  string-interpolated into the `su -c '...'` body executed as root on the
+  device. `src/shared/tracer-caps.ts` now exports `validateStartRequest`,
+  called at the top of the `tracer:start` handler.
+
 ## Shipped (2026-07-23) - Capture: two-engine scope, repeatable library filters, mandatory preflight
 
 `syscalls` and `funcs` are now the only two engines the Capture modal exposes -
@@ -42,14 +92,6 @@ will be dispatched. See `DOCUMENTATION.md`'s "Tracer control" section.
   the check set grows enough to make that round-trip noticeable.
 
 ### Known drawbacks / follow-ups
-- **Stop buttons stay live during the pull/ingest window.** Once a run ends
-  (timeout, or the process exits on its own) the footer still shows
-  `Stop & discard` / `Stop & open run` while `pullResult` and the JSONL
-  ingest are in flight - clicking either does nothing at that point, since
-  there is no longer a live process to signal. Cosmetic today (the window is
-  usually short), but the footer should read as busy/disabled during the
-  pull+ingest step rather than offering a Stop that can no longer stop
-  anything.
 - **The running view's argv preview shows a placeholder, not the real path.**
   `paintArgv` composes the running-state command preview with a hardcoded
   `<out>.jsonl` in place of the real path, because the actual `-o` path is

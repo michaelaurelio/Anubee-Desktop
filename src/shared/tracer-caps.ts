@@ -182,6 +182,25 @@ export function validateInputs(cap: Capability, vals: CapValues): string[] {
   return errs
 }
 
+// Runtime gate for tracer:start (main process). The renderer's Capture form
+// already calls validateInputs before dispatch, but that is renderer-side
+// only - contextIsolation + no nodeIntegration + local file:// content make
+// it trusted today, but the composed string is executed as root on the
+// device, so the only barrier belongs on the privileged side too. Mirrors
+// validateInputs and adds the one field it does not cover: timeoutSecs is
+// typed `number` at the IPC boundary but never checked at runtime otherwise,
+// and is string-interpolated straight into the command (composeRunArg).
+// Returns a human-readable error, or undefined when the request is safe to
+// dispatch.
+export function validateStartRequest(cap: Capability, vals: CapValues, timeoutSecs: number | undefined): string | undefined {
+  const errs = validateInputs(cap, vals)
+  if (errs.length) return errs.join('; ')
+  if (timeoutSecs !== undefined && !(Number.isInteger(timeoutSecs) && timeoutSecs > 0)) {
+    return 'timeout must be a positive whole number of seconds'
+  }
+  return undefined
+}
+
 // Per-field + cross-field errors for the Capture form. `fields` keys are input
 // keys (so the UI can place the message under the right control); `form` holds
 // the cap-level cross-field errors.
