@@ -39,7 +39,15 @@ const COLS =
   "'sock_args':'MAP(VARCHAR,VARCHAR)','out_args':'MAP(VARCHAR,VARCHAR)'," +
   "'ppid':'INTEGER','offset':'BIGINT'," +
   "'snaps':'STRUCT(total INTEGER, truncated INTEGER)'," +
-  "'cfi':'STRUCT(walks INTEGER, stops MAP(VARCHAR,INTEGER))'}"
+  "'cfi':'STRUCT(walks INTEGER, stops MAP(VARCHAR,INTEGER))'," +
+  // Coverage's other two variants (exempt / clean) and the degraded fields
+  // beyond snaps/cfi - see CoverageEvent in @shared/events. Without these,
+  // read_json's explicit schema silently drops them off every coverage row.
+  "'exempt':'BOOLEAN','reason':'VARCHAR','clean':'BOOLEAN'," +
+  "'drops':'STRUCT(ring INTEGER, queue INTEGER)'," +
+  "'managed_naming_off':'BOOLEAN','prearm_drops':'INTEGER'," +
+  "'depth_capped':'INTEGER','decode_partial':'BOOLEAN'," +
+  "'returns':'STRUCT(spans INTEGER, captured INTEGER)'}"
 
 function sqlStr(s: string): string {
   return "'" + s.replace(/'/g, "''") + "'"

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { SYSCALL_KEYS, BACKTRACE_KEYS, FUNCS_KEYS, CFI_STACK_KEYS, CFI_BACKTRACE_KEYS, LIB_KEYS, UNLIB_KEYS, DUMP_KEYS } from '@shared/schema-contract'
+import { SYSCALL_KEYS, BACKTRACE_KEYS, FUNCS_KEYS, CFI_STACK_KEYS, CFI_BACKTRACE_KEYS, LIB_KEYS, UNLIB_KEYS, DUMP_KEYS, COVERAGE_KEYS } from '@shared/schema-contract'
 
 // The syscall emitter in the sibling Anubee checkout. Not a build dependency -
 // only read here to guard the vendored contract. Absent → skip (CI without the
@@ -117,3 +117,23 @@ describe('schema drift: lib/unlib + dump emitters', () => {
     for (const k of DUMP_KEYS) expect(keys, `dump_emit.c missing "${k}"`).toContain(k)
   })
 })
+
+// The coverage emitter in the sibling Anubee checkout. Not a build dependency -
+// only read here to guard the vendored contract. Absent → skip (CI without the
+// sibling still passes).
+const COVERAGE_EMITTER = resolve(__dirname, '../../Anubee/src/common/coverage.c')
+const coveragePresent = existsSync(COVERAGE_EMITTER)
+
+describe('schema drift: coverage emitter', () => {
+  it('contract has no duplicate coverage keys (sanity, runs without Anubee)', () => {
+    expect(new Set(COVERAGE_KEYS).size).toBe(COVERAGE_KEYS.length)
+  })
+  it.skipIf(!coveragePresent)('emits every coverage key in the contract', () => {
+    const keys = keysIn(COVERAGE_EMITTER)
+    for (const k of COVERAGE_KEYS) expect(keys, `coverage.c missing "${k}"`).toContain(k)
+  })
+})
+
+if (!coveragePresent) {
+  console.warn(`[schema-drift] ../Anubee not found at ${COVERAGE_EMITTER} - coverage drift check skipped.`)
+}

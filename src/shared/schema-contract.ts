@@ -57,3 +57,16 @@ export const LIB_KEYS = ['type', 'pid', 'tid', 'ppid', 'library', 'start', 'end'
 export const UNLIB_KEYS = ['type', 'pid', 'tid', 'start', 'end'] as const
 // `dump` manifest record - dump_emit_module in ../Anubee/src/dump/dump_emit.c.
 export const DUMP_KEYS = ['type', 'module', 'path', 'base', 'pid', 'raw'] as const
+
+// `coverage` record keys, read from ../Anubee/src/common/coverage.c
+// (anubee_coverage_report / cov_build_json). Union of all three variants
+// (exempt / clean / degraded) since each field is conditional - see the
+// CoverageEvent comment in src/shared/events.ts.
+export const COVERAGE_KEYS = [
+  'type', 'engine', 'exempt', 'reason', 'clean',
+  'snaps', 'total', 'truncated',
+  'cfi', 'walks', 'stops',
+  'drops', 'ring', 'queue',
+  'managed_naming_off', 'prearm_drops', 'depth_capped', 'decode_partial',
+  'returns', 'spans', 'captured',
+] as const

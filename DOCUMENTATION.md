@@ -63,8 +63,14 @@ system.
   empty-state prompt. It carries whichever message currently applies: the
   slice-truncation warning when the rendered subgraph hit `GRAPH_SLICE_CAP`,
   or (once a run's coverage health resolves via `window.anubee.coverage`) a
-  quiet summary of snapshot/CFI-walk counts (`snapshots · truncated · CFI
-  walks`) - truncation text prefixes the coverage text when both apply.
+  chip built by `coverageChipText` (`src/renderer/coverage-chip.ts`) -
+  truncation text prefixes the coverage text when both apply. `CoverageEvent`
+  has three shapes (see its comment in `src/shared/events.ts`): **exempt**
+  (an engine with no coverage surface, e.g. `lib`/`dump`) shows the reason;
+  **clean** (no degradation signal fired, including any run captured without
+  `--snapshot`) shows a plain "full coverage" line; **degraded** composes
+  whichever of snaps/CFI-walks/drops/etc actually fired. A record with
+  nothing to report renders no chip at all rather than a misleading zero.
 
 
 ## Funcs engine support

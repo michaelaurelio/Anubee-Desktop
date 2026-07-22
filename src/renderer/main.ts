@@ -31,6 +31,7 @@ import {
   applyFieldErrors, renderDot, appendConsoleLine,
 } from './capture-view'
 import { renderArgvPreview } from './argv-preview'
+import { coverageChipText } from './coverage-chip'
 import { captureFooter, renderCaptureFooter, setFooterCounters, type PreflightState } from './capture-footer'
 import {
   resetPreflightPane, appendPreflightCheck, markPreflightStale, preflightSummary,
@@ -1094,10 +1095,10 @@ window.anubee.onLoaded(s => {
     ingest.end() // fill the bar to 100% and clear; the data is now on screen
   })
   // Coverage health text (not graph data) - stored, not shown, until a row
-  // is selected and renderSlice surfaces it via the chip.
-  void window.anubee.coverage(s.runId).then(cov => {
-    coverageChip = cov ? `${cov.snaps.total} snapshots · ${cov.snaps.truncated} truncated · CFI walks ${cov.cfi.walks}` : ''
-  })
+  // is selected and renderSlice surfaces it via the chip. .catch() so a future
+  // shape change degrades to an empty chip instead of an unhandled rejection.
+  void window.anubee.coverage(s.runId).then(cov => { coverageChip = coverageChipText(cov) })
+    .catch(() => { coverageChip = '' })
 })
 // Centralized ingest failure: covers all four broadcasting load paths (run-open,
 // project-open, capture-ingest, preload auto-load). restoreEmpty only when no

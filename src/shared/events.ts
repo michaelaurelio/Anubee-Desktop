@@ -52,15 +52,34 @@ export interface SyscallEvent {
   backtrace: BacktraceFrame[]
 }
 
-// The end-of-run `coverage` summary Anubee emits under `--snapshot`: how many stack
-// snapshots were taken/truncated and where the CFI unwinder stopped. Informational
-// only - retained at ingest (EPIC A) but not graph data; vendored here so it is a
-// known record type rather than an opaque UnknownEvent.
+// The end-of-run `coverage` summary Anubee emits: a per-engine health record,
+// not exclusive to `--snapshot`. Informational only - retained at ingest
+// (EPIC A) but not graph data; vendored here so it is a known record type
+// rather than an opaque UnknownEvent. Verified against
+// ../Anubee/src/common/coverage.c (anubee_coverage_report / cov_build_json),
+// which writes three distinct shapes - every field below is optional because
+// each one is behind its own `if` in the emitter, so only the signals that
+// actually fired are present on any given record:
+//  - exempt (`exempt:true`): the engine has no coverage surface at all (lib,
+//    dump). `reason` is the only informative field.
+//  - clean (`clean:true`): no degradation signal fired. `returns` still
+//    appears when the engine runs in returns mode, degraded or not.
+//  - degraded (neither exempt nor clean): any mix of snaps/cfi/drops/etc,
+//    whichever ones fired.
 export interface CoverageEvent {
   type: 'coverage'
   engine: string
-  snaps: { total: number; truncated: number }
-  cfi: { walks: number; stops: Record<string, number> }
+  exempt?: true
+  reason?: string
+  clean?: true
+  snaps?: { total: number; truncated: number }
+  cfi?: { walks: number; stops: Record<string, number> }
+  drops?: { ring: number; queue: number }
+  managed_naming_off?: true
+  prearm_drops?: number
+  depth_capped?: number
+  decode_partial?: true
+  returns?: { spans: number; captured: number }
 }
 
 // `anubee funcs` native call/return records - verified against

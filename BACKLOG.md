@@ -3,6 +3,26 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-22) - CoverageEvent schema drift fix
+
+The vendored `CoverageEvent` type required `snaps`/`cfi`, but the emitter
+(`../Anubee/src/common/coverage.c`) writes three shapes - exempt, clean,
+degraded - each with its own conditional fields; a `clean` or `exempt` record
+(or any run captured without `--snapshot`) had `snaps`/`cfi` absent, so
+`main.ts`'s `cov.snaps.total` threw an unhandled `TypeError` and silently
+killed the coverage chip. Fixed: the vendored type now makes every field
+optional and models the fields the emitter actually writes; the chip is built
+by the new pure `coverageChipText` (`src/renderer/coverage-chip.ts`), which
+composes whichever fields are present and adds a `.catch()` as a backstop.
+The DuckDB ingest schema (`COLS` in `graph-store.ts`) was also widened -
+without it, `read_json`'s explicit-columns read silently drops any JSON key
+not listed, so the new fields would ingest without complaint but never reach
+the renderer (confirmed live: a real no-`--snapshot` run produced a
+`prearm_drops`-only degraded record that the old schema would have dropped
+entirely). `tests/schema-drift.test.ts` now guards `coverage` record keys
+against the sibling `../Anubee` checkout, the same way syscall/backtrace keys
+already were. See DOCUMENTATION.md's "Coverage/truncation chip" section.
+
 ## Shipped (2026-07-22) - Capture footer fast path (per-line footer rebuild)
 
 `captureLineSink` (`main.ts`) no longer calls `paintFooter()` per console
