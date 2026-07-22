@@ -37,6 +37,7 @@ let win!: BrowserWindow
 const adb = realAdb()
 const spawner = realSpawner()
 let activeRun: RunHandle | null = null
+let discardActive = false
 let activeLive: RunHandle | null = null
 let activeWatch: RunHandle | null = null
 // Device+host dirs for the current watcher run, set at nativelib:startLive
@@ -301,9 +302,12 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
   activeRun = startRun(spawner, adb, runArg, line => win.webContents.send('tracer:line', line))
   const { code } = await activeRun.done
   activeRun = null
+  const wasDiscarded = discardActive
+  discardActive = false
 
   let runId: number | undefined
-  if (cap.outputKind === 'jsonl' && jsonlPath) {
+  // Stop & discard: the analyst threw the run away, so do not pull or ingest.
+  if (cap.outputKind === 'jsonl' && jsonlPath && !wasDiscarded) {
     const hostPath = resolveSavePath(savePath, resolve(runsDir(), `anubee-${ts}.jsonl`))
     const pulled = await pullResult(adb, 'jsonl', jsonlPath, hostPath)
     if (pulled.hostPath) {
@@ -314,7 +318,8 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
   return { code, kind: cap.outputKind, runId }
 })
 
-ipcMain.handle('tracer:stop', async () => {
+ipcMain.handle('tracer:stop', async (_e, discard?: boolean) => {
+  discardActive = discard === true
   if (activeRun) await activeRun.stop()
 })
 

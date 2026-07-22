@@ -350,10 +350,12 @@ await win.keyboard.press('Escape')
 await win.click('#file-capture')
 await win.waitForSelector('.modal-backdrop .modal', { timeout: 5000 })
 const capOk = await win.evaluate(() => {
-  const sel = document.querySelector('.modal-body #cap-select')
-  return !!sel && sel.options.length > 0
+  // Proves wireCapture ran: it renders the engine segments and the footer.
+  const segs = document.querySelectorAll('.modal-body #cap-engine [data-engine]')
+  const primary = document.querySelector('.modal-body #cap-foot .btn.pri')
+  return segs.length === 2 && !!primary
 })
-if (!capOk) throw new Error('Capture modal capability dropdown is empty (wireCapture did not run against the attached DOM)')
+if (!capOk) throw new Error('Capture modal did not render its engine segments and footer (wireCapture did not run against the attached DOM)')
 await shot('06-capture-modal.png')
 await win.keyboard.press('Escape')
 
@@ -606,6 +608,13 @@ const dismissed = await win.evaluate(() => {
   if (!btn) return false
   btn.click()
   return true
+}).catch(err => {
+  // The click above answers the confirm with 'close', so main can destroy this
+  // window before the call finishes round-tripping its return value back to
+  // Playwright - a benign race, not a failure. waitForEvent('close') below is
+  // the real assertion that the click landed; anything else still throws.
+  if (/closed/i.test(String(err))) return true
+  throw err
 })
 if (!dismissed) throw new Error("save-on-close modal had no Don't Save button")
 // "Don't Save" answers the confirm with 'close', so main quits the window itself.

@@ -63,7 +63,7 @@ declare global {
       tracerPreflight(pkg: string): Promise<{ id: string; label: string; ok: boolean; detail: string }[]>
       tracerStart(capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string):
         Promise<{ code: number; kind: string; runId?: number }>
-      tracerStop(): Promise<void>
+      tracerStop(discard?: boolean): Promise<void>
       pickSavePath(): Promise<string | undefined>
       tracerCheckPaths(binaryPath: string, specsDir: string): Promise<{
         binary: { ok: boolean; detail: string }

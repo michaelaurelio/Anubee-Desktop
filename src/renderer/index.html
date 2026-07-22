@@ -248,9 +248,12 @@
       .cap-col-run { background: var(--panel-2); border: 1px solid var(--border-soft);
                      border-radius: 8px; padding: 12px; display: flex;
                      flex-direction: column; gap: 10px; }
-      .cap-pane-hd, .cap-section-hd { font-size: 10.5px; letter-spacing: .08em;
+      .cap-pane-hd, .cap-section-hd { display: flex; align-items: center; gap: 8px;
+                     font-size: 10.5px; letter-spacing: .08em;
                      text-transform: uppercase; color: var(--muted); }
-      .cap-section-hd { display: flex; align-items: center; gap: 8px; margin: 0 0 11px; }
+      #cap-pf-count { margin-left: auto; text-transform: none; letter-spacing: 0; }
+      #cap-pf-count.all-passed { color: var(--k-java); }
+      .cap-section-hd { margin: 0 0 11px; }
       .cap-col-form > .cap-section-hd:not(:first-child) { margin-top: 18px; }
       .cap-n { display: inline-flex; align-items: center; justify-content: center;
                width: 17px; height: 17px; border-radius: 50%; background: var(--accent-soft);
@@ -820,7 +823,7 @@
           <div class="cap-col-run">
             <div class="cap-pane-hd">command</div>
             <div id="cap-argv" class="argv"></div>
-            <div class="cap-pane-hd">preflight</div>
+            <div class="cap-pane-hd">preflight <span id="cap-pf-count"></span></div>
             <div id="cap-preflight-pane"></div>
           </div>
         </div>
