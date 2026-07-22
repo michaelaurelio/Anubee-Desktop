@@ -151,31 +151,85 @@ await shot('03-inspector.png')
 // other), so fan-in/fan-out highlighting can never leave anything dimmed there;
 // load the whole run instead (two disconnected bridges in the fixture) so the
 // dim assertion is meaningful.
+//
+// Re-select row 2 on the now-unfiltered table first (the filter bar was cleared
+// after 2b above): a node tap's highlightSets() call is scoped by `graphFilter`,
+// a renderer module state var set only on row click (main.ts, `graphFilter =
+// filterForRow(row, ...)`) and never reset - it is still whatever the LAST row
+// click left it as, not the empty/whole-run scope this step's graph implies.
+// Re-clicking pins that leftover scope to a value this script controls and can
+// mirror below, instead of an arbitrary leftover from step 2b's filtered click.
+await win.click('#table table tr:nth-child(2)')
+// #graph-empty is already hidden from the step-2 selection above, so waiting on
+// it here would resolve immediately without waiting for *this* click's own
+// selectRow() round trip. #graph-overlay (the loading spinner, z-index 3 over
+// the whole graph pane) is the right signal: selectRow() shows it via
+// graph.begin() and only hides it via graph.end() once slice()+renderSlice()
+// finish, so waiting on it also means the click below won't land on the
+// spinner instead of a node.
+await win.waitForFunction(() =>
+  document.getElementById('graph-overlay')?.classList.contains('hidden'), { timeout: 10000 })
+await win.waitForTimeout(200)
 await win.evaluate(async () => {
   const cy = window.__cy
-  // Honest java -> native -> syscall topology (the app's directed slice) with two
-  // branches so a native tap's fan-in/out both lights edges and dims off-path.
-  // Node ids must be real ids from the loaded run (not placeholder strings):
-  // a native tap's inspector/offset-popup query DuckDB by exact node id, and a
+  // Node ids must be real ids from the loaded run (not placeholder strings): a
+  // native tap's inspector/offset-popup query DuckDB by exact node id, and a
   // made-up id never appears in any real event's causal chain, so the inspector
   // assertion below would see zero records.
-  const slice = await window.anubee.slice({}, 500)
-  const byKind = k => slice.nodes.filter(n => n.kind === k)
-  const j = byKind('java'), n = byKind('native'), s = byKind('syscall')
-  if (j.length < 2 || n.length < 2 || s.length < 1) {
-    throw new Error('run lacks enough distinct java/native/syscall nodes for the harness graph')
-  }
-  const [j1, j2] = j
-  const [n1, n2] = n
-  const [s1] = s
-  cy.elements().remove()
-  cy.add([j1, j2, n1, n2, s1].map(x => ({ data: { id: x.id, kind: x.kind, label: x.label }, classes: x.kind })))
-  cy.add([
-    { data: { id: 'e1', source: j1.id, target: n1.id } },
-    { data: { id: 'e2', source: n1.id, target: s1.id } },
-    { data: { id: 'e3', source: j2.id, target: n2.id } },
-    { data: { id: 'e4', source: n2.id, target: s1.id } },
+  //
+  // Coupling 1: highlightSets() (src/main/graph-store.ts) - and the coOccur()/
+  // setsFromChain() oracle it mirrors in src/shared/graph-shape.ts - lights an
+  // edge purely by exact id equality against `${source}=>${target}` built from
+  // real chain-adjacent node ids (co-occurrence by id, not cy topology). So the
+  // synthetic edges below MUST reuse that exact `${source}=>${target}` format,
+  // not a placeholder id like 'e1' - a fabricated id can never appear in the
+  // DB's chain output, and the edge-highlight assertion just below would then
+  // always fail regardless of timing (this bit the harness once already: the
+  // old placeholder ids predate highlightSets' switch to exact-id matching).
+  //
+  // Coupling 2: highlightSets() is also scoped by `graphFilter` (see the click
+  // just above), the same filter the row-2 click just set. Mirror
+  // filterForRow()'s syscall-row branch (src/renderer/graph-view.ts) here so
+  // branch1's chain is drawn from a stackRollup() scoped to that identical
+  // filter - otherwise the DB never puts these ids on a chain graphFilter can
+  // see, and the tapped node highlights nothing even with the right edge ids.
+  // branch2 does not need to satisfy graphFilter - staying out of scope is
+  // exactly what makes it dim, giving the "off-path" half of this assertion.
+  const row2 = (await window.anubee.table({}, { limit: 1, offset: 1 }))[0]
+  const rowFilter = row2.topJava ? { text: row2.topJava, hasJavaStack: true } : { syscall: row2.syscall, tid: row2.tid }
+  const [scopedRoll, wholeRunRoll, slice] = await Promise.all([
+    window.anubee.stackRollup(rowFilter, 5000),
+    window.anubee.stackRollup({}, 5000),
+    window.anubee.slice({}, 5000),
   ])
+  const kindOf = new Map(slice.nodes.map(x => [x.id, x.kind]))
+  const nodeById = new Map(slice.nodes.map(x => [x.id, x]))
+  const isJavaToSyscallChain = c =>
+    c.length >= 3 && kindOf.get(c[0]) === 'java' && kindOf.get(c.at(-1)) === 'syscall'
+  const shortestFirst = (a, b) => a.length - b.length // keeps the harness graph small
+  const branch1 = scopedRoll.rows.map(r => r.chain).filter(isJavaToSyscallChain).sort(shortestFirst)[0]
+  if (!branch1) {
+    throw new Error('row 2 has no java->native->syscall chain under its own scoped filter for the harness graph')
+  }
+  const seen1 = new Set(branch1)
+  const branch2 = wholeRunRoll.rows.map(r => r.chain).filter(isJavaToSyscallChain).sort(shortestFirst)
+    .find(c => c.every(id => !seen1.has(id)))
+  if (!branch2) {
+    throw new Error('run lacks a second java->native->syscall chain disjoint from row 2 for the harness graph')
+  }
+  const chainNodes = chain => chain.map(id => {
+    const x = nodeById.get(id)
+    return { data: { id: x.id, kind: x.kind, label: x.label }, classes: x.kind }
+  })
+  const chainEdges = chain => chain.slice(1).map((target, i) => {
+    const source = chain[i]
+    return { data: { id: `${source}=>${target}`, source, target } }
+  })
+  cy.elements().remove()
+  // branch1 first: the click below taps cy.nodes('[kind="native"]')[0], which
+  // must land on branch1 (the one scoped to graphFilter) to light any edges.
+  cy.add([...chainNodes(branch1), ...chainNodes(branch2)])
+  cy.add([...chainEdges(branch1), ...chainEdges(branch2)])
   cy.layout({ name: 'grid' }).run()
   cy.fit(undefined, 48)
 })
@@ -193,6 +247,16 @@ const npos = await win.evaluate(() => {
 })
 await win.mouse.click(npos.x, npos.y)
 await win.waitForSelector('.offset-popup', { timeout: 5000 })
+// The tap handler fires two unawaited round trips: highlightSets() (applies
+// .dimmed/.highlighted, uncapped - two full CTE chain-builds, 4 DB round trips
+// over the whole run) and nodeOffsets() (paints .offset-popup, capped at 5000
+// events, one query). The popup appearing only proves the cheaper, unrelated
+// nodeOffsets() resolved - highlightSets() can still be in flight. Poll for the
+// highlight classes themselves instead of assuming the popup implies both are done;
+// bounded so a genuine highlight regression still fails loudly instead of hanging.
+await win.waitForFunction(
+  () => window.__cy.elements('.highlighted, .dimmed').length > 0, { timeout: 5000 },
+).catch(() => {}) // let the assertion below produce the real error message
 const dimOk = await win.evaluate(() => window.__cy.elements('.dimmed').length > 0)
 if (!dimOk) throw new Error('tap did not dim the off-path elements')
 const litEdges = await win.evaluate(() => window.__cy.edges('.highlighted').length > 0)
@@ -241,9 +305,13 @@ await win.evaluate(() =>
 await win.waitForTimeout(300)
 await win.keyboard.press('Escape')
 
-// 4. Filtered: has-java_stack only, re-run (omni bar: a `java:yes` chip, no
-// standalone checkbox since the omni filter bar redesign).
-await win.fill('#f-text', 'java:yes')
+// 4. Filtered: has-java_stack only, re-run (omni bar: a `java.exist:true`
+// chip, no standalone checkbox since the omni filter bar redesign). The chip
+// grammar (src/shared/omni-parse.ts) later moved the key from `java` to
+// `java.exist` and its value from yes/no to true/false; an unrecognized token
+// falls through as free text (matches nothing here) rather than erroring, so
+// this drifted silently until the flame view below found zero events.
+await win.fill('#f-text', 'java.exist:true')
 await win.press('#f-text', 'Enter')
 await win.waitForTimeout(500)
 await shot('04-filtered.png')
