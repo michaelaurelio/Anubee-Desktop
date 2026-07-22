@@ -294,6 +294,11 @@ ipcMain.handle('tracer:pickSpecsDir', async () => {
 })
 
 ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) => {
+  // A run is already active - clobbering activeRun here would orphan it: its
+  // Stop buttons live only in whichever Capture instance started it, and if
+  // that instance was closed (mid-run, via Escape/backdrop/X) there is no
+  // other way to reach it. Reject instead of silently losing track of it.
+  if (activeRun) throw new Error('a capture is already running')
   const cap = capById(capId)
   if (!cap) throw new Error(`unknown capability ${capId}`)
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
@@ -319,9 +324,14 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
 })
 
 ipcMain.handle('tracer:stop', async (_e, discard?: boolean) => {
+  // No active run means there is nothing to discard - writing the flag here
+  // would leak it into the NEXT capture and silently drop its results.
+  if (!activeRun) return
   discardActive = discard === true
-  if (activeRun) await activeRun.stop()
+  await activeRun.stop()
 })
+
+ipcMain.handle('tracer:isRunning', () => activeRun !== null)
 
 ipcMain.handle('trace:open', () => openViaDialog(true))
 ipcMain.handle('trace:openCompare', () => openViaDialog(false))

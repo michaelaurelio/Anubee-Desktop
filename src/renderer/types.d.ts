@@ -64,6 +64,7 @@ declare global {
       tracerStart(capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string):
         Promise<{ code: number; kind: string; runId?: number }>
       tracerStop(discard?: boolean): Promise<void>
+      tracerIsRunning(): Promise<boolean>
       pickSavePath(): Promise<string | undefined>
       tracerCheckPaths(binaryPath: string, specsDir: string): Promise<{
         binary: { ok: boolean; detail: string }

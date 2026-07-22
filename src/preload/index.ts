@@ -69,6 +69,7 @@ contextBridge.exposeInMainWorld('anubee', {
   tracerStart: (capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) =>
     ipcRenderer.invoke('tracer:start', capId, vals, timeoutSecs, savePath),
   tracerStop: (discard?: boolean) => ipcRenderer.invoke('tracer:stop', discard),
+  tracerIsRunning: () => ipcRenderer.invoke('tracer:isRunning'),
   pickSavePath: () => ipcRenderer.invoke('tracer:pickSavePath'),
   tracerCheckPaths: (binaryPath: string, specsDir: string) =>
     ipcRenderer.invoke('tracer:checkPaths', binaryPath, specsDir),

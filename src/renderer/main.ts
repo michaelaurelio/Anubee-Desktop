@@ -689,7 +689,7 @@ function wireLoadRunB(host: HTMLElement): void {
   })
 }
 
-function wireCapture(): void {
+function wireCapture(): (() => void) | undefined {
   const engineHost = document.getElementById('cap-engine')
   const formHost = document.getElementById('cap-form')
   const argvHost = document.getElementById('cap-argv')
@@ -962,17 +962,54 @@ function wireCapture(): void {
     counters = `${consoleHost.childElementCount} lines`
     if (running) paintFooter()
   }
+
+  // A run may still be active from before this modal instance existed - e.g.
+  // Escape closed the modal mid-run (modal.ts closes unconditionally; the
+  // footer's deliberate lack of Cancel while running does not gate that) and
+  // the analyst reopened Capture. Restore the running chrome instead of
+  // showing a fresh config form over a live process; the console cannot show
+  // lines emitted while closed, so say so rather than looking complete.
+  // `closed` guards against this instance being torn down again before the
+  // IPC round-trip resolves - without it, setLiveBadge's un-scoped
+  // document.querySelector('.modal-head .modal-title') would paint into
+  // whatever modal happens to be open by then, not this (by-then-gone) one.
+  let closed = false
+  void window.anubee.tracerIsRunning().then(isRunning => {
+    if (!isRunning || closed) return
+    running = true
+    shell.classList.remove('state-config'); shell.classList.add('state-running')
+    setLiveBadge(true)
+    consoleHost.innerHTML = ''
+    appendConsoleLine(consoleHost, '[reattached] capture is still running - earlier output is not shown')
+    consoleHost.lastElementChild?.classList.add('preflight-replay')
+    paintArgv(); paintFooter()
+  })
+
+  // Closing the modal mid-run must not leave this instance's captureLineSink
+  // writing into detached nodes, nor let a superseded runPreflight or
+  // tracerIsRunning continuation resolve into them - the run itself is
+  // untouched and is recovered on reopen by the tracerIsRunning check above.
+  return function cleanupCapture(): void {
+    closed = true
+    captureLineSink = undefined
+    preflightEpoch.bump()
+  }
 }
 
 function openCaptureModal(): void {
+  // wireCapture returns a per-open cleanup (same pattern as the Activity log
+  // modal below): onClose fires on Escape/backdrop/X regardless of capture
+  // state, so the sink/epoch cleanup must run then, not only on Cancel.
+  let cleanup: (() => void) | undefined
   showModal({
     title: 'Capture',
     width: 860,
     render: host => {
       const tpl = document.getElementById('capture-template') as HTMLTemplateElement | null
       if (tpl) host.appendChild(tpl.content.cloneNode(true))
-      wireCapture() // binds the cap-* controls now present in the modal
+      cleanup = wireCapture() // binds the cap-* controls now present in the modal
     },
+    onClose: () => cleanup?.(),
   })
 }
 
