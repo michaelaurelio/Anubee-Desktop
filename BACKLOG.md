@@ -3,6 +3,60 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-23) - Capture: two-engine scope, repeatable library filters, mandatory preflight
+
+`syscalls` and `funcs` are now the only two engines the Capture modal exposes -
+the only two whose output the desktop's JSONL parser can actually load.
+`correlate`, `trace`, and `mod` are removed: `correlate` emits a `type: "func"`
+record the parser does not recognize, `trace`'s `-o` is a filename *prefix*
+that writes three separate files instead of one, and `mod` writes only to
+stdout, nothing to pull. Anubee also removed its `syscalls -a` capture-all
+flag upstream; the desktop still emitted it, so every capture-all run died in
+argp - fixed by making the library filter a repeatable, glob-capable chip list
+(`-l` per selector, up to 64, OR'd) where an empty list *is* capture-all, no
+flag needed. A glob-bearing selector is additionally single-quoted inside the
+`su -c` body so the device shell cannot expand it against its own cwd before
+anubee ever sees it. Preflight is now mandatory: the footer's primary action
+is `Preflight` until every check passes, then `Start capture`; any config edit
+marks a passed or failed result stale and reverts the footer to `Preflight`,
+since preflight both validates the target package and pushes the binary and
+specs dir. A live command preview shows the exact `su -c '...'` string that
+will be dispatched. See `DOCUMENTATION.md`'s "Tracer control" section.
+
+### Deliberately left unexposed
+- `-x` denylist, `-e` / `-F` probe specs on `syscalls`, `-A` activity
+  override, and `-q` have no form control.
+- `-p` PID-attach mode (`--siblings` / `--no-follow-fork`) has no form
+  control; adding it needs a `-P`/`-p` mode switch plus PID discovery, not
+  just another flag bolted onto the current package-driven form.
+- Re-adding `correlate` needs the JSONL parser to learn `type: "func"`
+  records. Re-adding `trace` needs a multi-file pull
+  (`<prefix>.syscalls.jsonl` / `.funcs.jsonl` / `.lib.jsonl`) instead of the
+  current single-file pull.
+- Mandatory preflight costs an adb round-trip after every config edit.
+  Acceptable today (preflight is fast against a reachable device); revisit if
+  the check set grows enough to make that round-trip noticeable.
+
+### Known drawbacks / follow-ups
+- **Stop buttons stay live during the pull/ingest window.** Once a run ends
+  (timeout, or the process exits on its own) the footer still shows
+  `Stop & discard` / `Stop & open run` while `pullResult` and the JSONL
+  ingest are in flight - clicking either does nothing at that point, since
+  there is no longer a live process to signal. Cosmetic today (the window is
+  usually short), but the footer should read as busy/disabled during the
+  pull+ingest step rather than offering a Stop that can no longer stop
+  anything.
+- **The running view's argv preview shows a placeholder, not the real path.**
+  `paintArgv` composes the running-state command preview with a hardcoded
+  `<out>.jsonl` in place of the real path, because the actual `-o` path is
+  timestamped at dispatch time in main and never surfaced back to the
+  renderer. The preview is otherwise byte-accurate to what was dispatched.
+  Wire the resolved path back over the existing `tracer:start` round-trip (or
+  a dedicated event) to close this.
+- Per-line `tracer:line` IPC and DOM append are still unbatched under
+  sustained high line rates - see the "Capture footer fast path" entry below;
+  that fix removed the footer-rebuild cost but not this one.
+
 ## Shipped (2026-07-22) - CoverageEvent schema drift fix
 
 The vendored `CoverageEvent` type required `snaps`/`cfi`, but the emitter

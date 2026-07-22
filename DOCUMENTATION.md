@@ -957,9 +957,13 @@ descriptor per engine with a `buildArgv`, cross-field `validate`, and the
 `composeRunArg` device-command builder. `src/main/tracer-control.ts` (main) owns
 the adb orchestration behind an injected `Adb`/`Spawner` seam: `preflight`,
 `startRun` (spawn + per-stream line buffering via `lineSplitter`), `stop`,
-`pullResult`. `src/renderer/capture-view.ts` renders an aligned-field form +
-bordered console (unified visual language with Rules and Suggestions modals);
-the rail-button wiring lives in `main.ts`'s `wireCapture()`.
+`pullResult`. Four renderer modules split the modal's concerns: `capture-view.ts`
+(engine segments, the per-input form including the library-filter chip list, and
+the console); `capture-preflight-view.ts` (the preflight pane's rows and its
+stale marking when a config edit invalidates a prior pass); `capture-footer.ts`
+(the footer's action-button state machine, below); and `argv-preview.ts` (the
+live `su -c '...'` command preview). Unified visual language with the Rules and
+Suggestions modals; the rail-button wiring lives in `main.ts`'s `wireCapture()`.
 
 **Capture form layout and save destination.** The form collects engine, target
 package, engine-specific arguments, timeout, and a `syscalls` field. The
@@ -974,12 +978,19 @@ pure `resolveSavePath(chosen, default)` uses it when non-empty, else falls back 
 the default `<userData>/runs/anubee-<ts>.jsonl`; the device capture is pulled to
 that path and loaded.
 
-**Capabilities and the three output kinds.** All seven engines are exposed.
-`syscalls`/`funcs`/`correlate`/`trace` are `jsonl` (`-o <dev>.jsonl` → pull →
-reuse the existing `loadPath` ingest → switch to the master table). `lib` is
-`stdout` (streams `[lib]` lines to the console). `dump` is `artifact`. `mod`
-runs a named analyzer (default `stdout`). `correlate`/`trace` carry a
-"writes BRK" loud badge.
+**Capabilities: two engines, by ingestibility.** `syscalls` and `funcs` are the
+only engines exposed - the only two whose output the desktop's JSONL parser can
+actually load. Both are `jsonl` (`-o <dev>.jsonl` → pull → reuse the existing
+`loadPath` ingest → switch to the master table). `correlate`, `trace`, and `mod`
+are deliberately absent, not merely unimplemented: `correlate` emits a
+`type: "func"` record the parser does not recognize; `trace`'s `-o` is a
+filename *prefix*, not a path - it writes three separate files
+(`<prefix>.syscalls.jsonl`, `.funcs.jsonl`, `.lib.jsonl`), which the current
+single-file pull cannot handle; `mod` writes only to stdout, nothing to pull.
+`lib` and `dump` are not tracer-caps capabilities at all - they are driven by
+the separate Native Libraries live-capture and dump paths documented above, not
+the Capture modal. See `BACKLOG.md` for what re-adding `correlate`/`trace`
+would require.
 
 **The `su -c` contract.** Each anubee run is one `su -c '<single string>'` -
 chaining commands in one `su -c` breaks the on-device BPF load with `-EPERM`.
@@ -991,48 +1002,124 @@ body, so `validateInputs` (and the preflight entry) reject any value carrying a
 shell metacharacter or space - only `[A-Za-z0-9._:/,+-]` is admitted - before a
 run is dispatched.
 
-**Preflight** gates Start with five ordered checks (device reachable, `su`
-root, kernel BTF, package installed, on-device binary md5 vs the configured host
-`build/anubee` - pushed if stale, after `kill_anubee` to avoid `ETXTBSY`). Host
-paths to `build/anubee` + `specs/` persist in `<userData>/tracer-config.json`.
-Each check streams to the renderer as it completes (`tracer:preflight-check`,
-one event per `PreflightCheck`) rather than arriving as a single batch after
-the whole sequence finishes, so the status list fills in row by row while the
-device is queried. The push branch is guarded against an unconfigured host
-*before* any `adb push`: an unreadable/empty host binary (md5 `''`) fails the
-`binary` check with an explanatory detail instead of shelling out - the
-binary is always required and always pushed when stale. The **host specs
-dir is optional** - only the spec engines (`funcs`/`correlate`/`trace`) use
-it. An empty `specsDir` is *skipped*, not failed: the binary push proceeds
-regardless, and the specs push (`mkdir -p` + `push .../.`) runs only when
-`cfg.specsDir` is set, closing the earlier `adb push /.` (whole host
-filesystem) hazard from an empty-string path expansion.
+**Library filters: repeatable, glob-capable, quoted for the device shell.**
+`syscalls`'s library filter is a chip list (`-l`, up to `LIB_SELECTOR_CAP` = 64
+selectors, each OR'd by anubee - see `../Anubee/src/syscalls/syscalls.c`, case
+`'l'`), not a single text field: each chip becomes its own `-l <selector>` in
+the argv, and an empty list emits no `-l` at all. **Anubee has no capture-all
+flag** - `-a` was removed upstream, and the desktop still emitted it until this
+was caught, so every capture-all run died in argp. Absence of every `-l`
+selector *is* capture-all now, so an empty chip list needs no flag and no
+cross-field `validate()`. A selector may be a plain substring or a glob (`*`,
+`?`, `[...]`); `su -c '<inner>'` runs `<inner>` through the device shell, which
+would expand a bare glob against the device's own cwd, so `composeRunArg`'s
+`deviceToken` wraps any glob-bearing token in an extra pair of single quotes
+(`'\''<tok>'\''`) before it enters the single-quoted `su -c` body - the same
+escape `native-lib-live.ts` already uses for `dump`'s on-map glob. Plain tokens
+need no such wrapping: `SAFE_TOKEN`/`SAFE_PATTERN` already forbid whitespace,
+quotes, `$`, and backticks, so they are safe to space-join bare.
+
+**Preflight is mandatory.** The footer's primary action is `Preflight` until
+every check passes; only then does it become `Start capture` - there is no
+disabled `Start` to stare at, and no path to a run that preflight has not just
+validated. Preflight gates Start with five ordered checks (device reachable,
+`su` root, kernel BTF, package installed, on-device binary md5 vs the
+configured host `build/anubee` - pushed if stale, after `kill_anubee` to avoid
+`ETXTBSY`). Host paths to `build/anubee` + `specs/` persist in
+`<userData>/tracer-config.json`. Each check streams to the renderer as it
+completes (`tracer:preflight-check`, one event per `PreflightCheck`) rather
+than arriving as a single batch after the whole sequence finishes, so the
+status list fills in row by row while the device is queried. The push branch
+is guarded against an unconfigured host *before* any `adb push`: an
+unreadable/empty host binary (md5 `''`) fails the `binary` check with an
+explanatory detail instead of shelling out - the binary is always required
+and always pushed when stale. The **host specs dir is optional** - only
+`funcs` (the one remaining spec engine) uses it. An empty `specsDir` is
+*skipped*, not failed: the binary push proceeds regardless, and the specs
+push (`mkdir -p` + `push .../.`) runs only when `cfg.specsDir` is set,
+closing the earlier `adb push /.` (whole host filesystem) hazard from an
+empty-string path expansion.
+
+Preflight both **validates and mutates** device state (it pushes the binary
+and specs dir when stale), which is why any config edit after a pass -
+package, library filters, syscalls filter, spec, engine choice, host binary
+path, or specs dir - invalidates it: `invalidatePreflight` marks a passed or
+failed result **stale** (`markPreflightStale` dims the preflight pane's rows
+and shows why) rather than clearing it outright, so the analyst can still see
+what *was* true. A stale result reverts the footer from `Start capture` back
+to `Preflight`; re-running is one click away. Editing mid-check (while a
+preflight call is in flight) instead resets to **no result** - the in-flight
+call is superseded via `preflightEpoch` and its result is discarded on
+arrival, whatever it turns out to be.
+
+**Footer state machine (`captureFooter`, `src/renderer/capture-footer.ts`).**
+A pure function of `{ configValid, preflight, running }` to one footer spec -
+one accent (primary) action at a time. `preflight`'s `'none'` value renders as
+either **Incomplete** or **Valid** depending on `configValid` (required fields
+filled); every other state is rendered directly. The `running` boolean
+overrides all of it: while a capture is live, the footer shows only
+`Stop & discard` / `Stop & open run`, and reattaching to an already-running
+capture on modal reopen (`tracerIsRunning`) enters this state directly.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Incomplete
+    [*] --> Running: capture already in progress (modal reattaches)
+    Incomplete --> Valid: required fields filled
+    Valid --> Incomplete: a required field is cleared
+    Valid --> Checking: click Preflight
+    Checking --> Incomplete: config edited mid-check, now incomplete
+    Checking --> Valid: config edited mid-check, still complete
+    Checking --> Passed: every check passes
+    Checking --> Failed: a check fails, or the call rejects
+    Failed --> Checking: click Re-run preflight
+    Failed --> Stale: config edited
+    Passed --> Checking: click Re-run preflight
+    Passed --> Stale: config edited
+    Passed --> Running: click Start capture
+    Stale --> Checking: click Preflight
+    Running --> Passed: tracer:done (Stop, or the run/timeout ends)
+```
+
+`Stale` renders with the same `Preflight` button as `Incomplete`/`Valid`
+(gated the same way on `configValid`), distinguished only by the preflight
+pane's dimmed rows and stale reason - a config edit while `Failed` also lands
+in `Stale`, not back in `Incomplete`/`Valid`, so the last-known failure reason
+is not silently dropped. On `tracer:done`, `running` clears but the preflight
+result is deliberately **not** reset to `none`: the run consumed the pushed
+binary and the launched package, so a repeat run does not need another adb
+round-trip.
 
 **Capture form layout, path validation, and Browse pickers.** The modal is a
-sectioned form - "1. host setup", "2. engine & arguments", "3. run" - each
-introduced by a numbered `.cap-section-hd` header, replacing the earlier
-single-stacked layout. Host setup carries only the anubee binary field, with a
-Browse button (`tracer:pickBinary` opens a native open-file dialog) and a
-validity dot fed by `tracer:checkPaths` → `path-check.ts`'s pure `isElf`
-(checks the file's first four bytes for the ELF magic number); the dot
-repaints on every path edit and after each Browse pick. Engine and argument
-fields, the timeout, and the host binary field all render per-field inline
-errors under an adjacent `.cap-input-err` span, populated from `fieldErrors`
-as the analyst types - no more silent rejection at Start. The engine dropdown
-lists each capability's plain `engine` name. The loud-engine warning banner
-was removed entirely from the form (no in-form loud cue remains); the `loud`
-flag survives only as unused data in `tracer-caps.ts`. The renderer's
-preflight click handler wraps the `tracer:preflight` IPC call in a try/catch:
-if the call rejects, the handler now reports a `preflight-bad` row with an
-informative "preflight failed: <message>" status (no longer frozen on
-"running preflight...") and Start remains disabled after a failure - the
-original failure mode before this guard was added.
+two-pane form. The left `cap-col-form` column holds two numbered sections -
+"1. host setup" (anubee binary, save-to path, and the specs dir when the
+chosen engine needs one) and "2. engine & arguments" (engine picker,
+capability inputs, timeout) - each introduced by a `.cap-section-hd` header.
+The right `cap-col-run` column holds two unnumbered `.cap-pane-hd` panes,
+"command" (the live argv preview) above "preflight" (the preflight pane).
+Host setup's binary field has a Browse button (`tracer:pickBinary` opens a
+native open-file dialog) and a validity dot fed by `tracer:checkPaths` →
+`path-check.ts`'s pure `isElf` (checks the file's first four bytes for the
+ELF magic number); the dot repaints on every path edit and after each Browse
+pick. Engine and argument fields, the timeout, and the host binary field all
+render per-field inline errors under an adjacent `.cap-input-err` span,
+populated from `fieldErrors` as the analyst types - no more silent rejection
+at Start. The engine picker is a segmented control (`renderEngineSegments`,
+`capture-view.ts`) over the two capabilities - a dropdown would hide half the
+choice - each labeled by its plain `engine` name with a one-line description
+and a detectability badge (`injectionless` for `syscalls`, `detectable` for
+`funcs`, wording from `../Anubee/docs/engines.md`). The renderer's preflight
+click handler wraps the `tracer:preflight` IPC call in a try/catch: if the
+call rejects, the handler reports a `preflight-bad` row with an informative
+"preflight failed: <message>" status (no longer frozen on "running
+preflight...") and the footer lands in **Failed** rather than leaving a
+disabled `Start` to stare at.
 
 **Optional specs dir + probe-spec discovery.** The specs-dir field no longer
 lives in host setup - it moved into the engine section, gated by
 `capNeedsSpec(cap)` (`tracer-caps.ts`, true iff a capability has a `spec`
-input), so `syscalls`/`lib`/`dump`/`mod` never render it and only the three
-spec engines do. For those engines, `renderCapabilityForm` (`capture-view.ts`)
+input), so `syscalls` never renders it and only `funcs` (the one remaining
+spec engine) does. For that engine, `renderCapabilityForm` (`capture-view.ts`)
 renders the specs-dir row directly above the probe-spec control, with its own
 Browse (`tracer:pickSpecsDir`) and validity dot (`hasSpecFile` - at least one
 `.spec` entry in the directory listing). The probe-spec input itself renders
@@ -1045,15 +1132,17 @@ Start for a spec engine is still gated on it being set and non-empty via the
 existing `hasSpecFile` validity check, even though preflight itself no longer
 requires it.
 
-**Engine-specific arg rules learned from the device.** `syscalls` rejects
-`-P <pkg>` alone - a library filter (`-l`) or capture-all (`-a`) is mandatory,
-enforced by `syscalls`'s `validate` before dispatch. `dump` rebuilds one `.so`
-per matching library (named `<lib>.<pid>.<addr>.so`) into a directory (`-d DIR`);
-the handler creates the device dir up front and pulls the whole directory.
+**Engine-specific arg rules learned from the device.** `syscalls` no longer
+requires a library filter: Anubee removed `-a` upstream, and absence of every
+`-l` selector already means capture-all, so `syscalls` now carries no
+cross-field `validate()` (see Library filters, above). `dump` rebuilds one
+`.so` per matching library (named `<lib>.<pid>.<addr>.so`) into a directory
+(`-d DIR`); the handler creates the device dir up front and pulls the whole
+directory.
 
 **Advanced tuning flags.** A collapsible **Advanced** section on the capture form
-exposes three anubee runtime flags for the `syscalls`, `funcs`, and `correlate`
-engines (the three that embed anubee' shared `common_args` block): `-b` (ring buffer
+exposes three anubee runtime flags for the `syscalls` and `funcs` engines (the
+two that embed anubee' shared `common_args` block): `-b` (ring buffer
 in MB, anubee default 4), `-Q` (worker queue in MB, anubee default 256), and `-v`
 (verbose debug output). A blank field means use the anubee default; a flag is
 emitted only when the value diverges from the default. Note: JSONL framing (`-J`)
@@ -1103,6 +1192,9 @@ repo); the target package is user-entered at runtime, never hardcoded.
 ingested, 0 parse errors; graceful timeout stop (exit 124) and manual `pkill -INT`
 stop (exit 130) both flushed the sink; `lib` → 91 `[lib]` lines with `libc.so`
 resolved; `dump` → 5 rebuilt `.so` files pulled from the dump directory.
+(`-a` was subsequently removed from Anubee and from the desktop - see Library
+filters, above; an empty filter list now reproduces the same capture-all
+behavior this run exercised.)
 
 ## Native-block origin mapping - instruction offsets within native frames
 
