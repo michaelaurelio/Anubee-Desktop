@@ -96,4 +96,16 @@ describe('renderCaptureFooter', () => {
     host.querySelector<HTMLButtonElement>('#cap-preflight')!.click()
     expect(seen).toEqual([])
   })
+
+  it('enforces the manual disabled guard against synthetic click events', () => {
+    const host = document.createElement('div')
+    const seen: string[] = []
+    // config-incomplete state: primary button is disabled cap-preflight
+    renderCaptureFooter(host, captureFooter(st({ configValid: false })), id => seen.push(id))
+    const btn = host.querySelector<HTMLButtonElement>('#cap-preflight')!
+    // Synthetic events bypass native disabled gating, so the manual guard must
+    // catch them. This cannot use .click() which respects native disabled semantics.
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(seen).toEqual([])
+  })
 })
