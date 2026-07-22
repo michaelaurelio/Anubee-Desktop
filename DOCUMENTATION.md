@@ -272,9 +272,9 @@ regardless of how many lines a cell's content stacks internally.
     `↳` arrow **only when both are present** (`.paired` class gates the
     `::before` arrow in CSS - an unpaired native-only row shows no arrow).
     Native-only (no Java frame) renders as a single native line. Neither
-    present renders the literal `— no backtrace` in muted italic (`cs-none`).
+    present renders the literal `- no backtrace` in muted italic (`cs-none`).
   - **funcs engine:** the function leaf stacked over `◂ from <caller leaf>`;
-    a call with no caller frame (a true root call) renders `— top frame`
+    a call with no caller frame (a true root call) renders `- top frame`
     instead of the `◂ from` prefix (`cs-top` class suppresses the `::before`).
   - Every leaf span carries the **full original string** in its `title`
     attribute, so hovering a truncated leaf reveals the untruncated

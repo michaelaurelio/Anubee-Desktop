@@ -14,13 +14,13 @@ function span(cls: string, text: string, title = text): HTMLElement {
 
 // Build the merged call-site cell for one row. Syscall: java leaf over native
 // leaf (arrow only when paired); native-only -> single native line; neither ->
-// "— no backtrace". Funcs: function over "◂ from" caller.
+// "- no backtrace". Funcs: function over "◂ from" caller.
 function renderCallSite(td: HTMLElement, r: TableRow): void {
   td.classList.add('cs')
   if (r.engine === 'func') {
     td.appendChild(span('cs-fn', nativeLeaf(r.fn ?? ''), r.fn ?? ''))
     if (r.caller) td.appendChild(span('cs-caller', nativeLeaf(r.caller), r.caller))
-    else td.appendChild(span('cs-caller cs-top', '— top frame'))
+    else td.appendChild(span('cs-caller cs-top', '- top frame'))
     return
   }
   if (r.topJava && r.topNative) {
@@ -30,7 +30,7 @@ function renderCallSite(td: HTMLElement, r: TableRow): void {
   } else if (r.topNative) {
     td.appendChild(span('cs-native', nativeLeaf(r.topNative), r.topNative))
   } else {
-    td.appendChild(span('cs-none', '— no backtrace'))
+    td.appendChild(span('cs-none', '- no backtrace'))
   }
 }
 
