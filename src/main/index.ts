@@ -37,6 +37,11 @@ let win!: BrowserWindow
 const adb = realAdb()
 const spawner = realSpawner()
 let activeRun: RunHandle | null = null
+// The composed `su -c '...'` command for activeRun, kept alongside it so a
+// reattaching Capture modal instance (tracer:isRunning) can show the real
+// running command instead of recomposing one from its own (possibly default)
+// form state.
+let activeRunArgv: string | null = null
 let discardActive = false
 let activeLive: RunHandle | null = null
 let activeWatch: RunHandle | null = null
@@ -304,23 +309,42 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
   const jsonlPath = cap.outputKind === 'jsonl' ? outJsonlPath(ts) : undefined
   const runArg = composeRunArg({ cap, vals: vals as never, timeoutSecs, jsonlPath })
-  activeRun = startRun(spawner, adb, runArg, line => win.webContents.send('tracer:line', line))
-  const { code } = await activeRun.done
-  activeRun = null
-  const wasDiscarded = discardActive
-  discardActive = false
+  activeRunArgv = runArg
+  const run = startRun(spawner, adb, runArg, line => win.webContents.send('tracer:line', line))
+  activeRun = run
 
+  let code = -1
   let runId: number | undefined
-  // Stop & discard: the analyst threw the run away, so do not pull or ingest.
-  if (cap.outputKind === 'jsonl' && jsonlPath && !wasDiscarded) {
-    const hostPath = resolveSavePath(savePath, resolve(runsDir(), `anubee-${ts}.jsonl`))
-    const pulled = await pullResult(adb, 'jsonl', jsonlPath, hostPath)
-    if (pulled.hostPath) {
-      const summary = await loadPath(pulled.hostPath)
-      runId = summary.runId
+  let error: string | undefined
+  try {
+    ;({ code } = await run.done)
+    const wasDiscarded = discardActive
+    discardActive = false
+    // Stop & discard: the analyst threw the run away, so do not pull or ingest.
+    if (cap.outputKind === 'jsonl' && jsonlPath && !wasDiscarded) {
+      const hostPath = resolveSavePath(savePath, resolve(runsDir(), `anubee-${ts}.jsonl`))
+      const pulled = await pullResult(adb, 'jsonl', jsonlPath, hostPath)
+      if (pulled.hostPath) {
+        const summary = await loadPath(pulled.hostPath)
+        runId = summary.runId
+      }
     }
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err)
+  } finally {
+    // activeRun stays set through the whole pull+ingest pipeline (not just the
+    // device-side run) so tracer:isRunning and the tracer:start clobber guard
+    // above both cover the real busy window - nulling it right after the run
+    // exits would let a fast close-and-reopen slip past the guard and launch a
+    // second capture while the first is still pulling/ingesting.
+    activeRun = null
+    activeRunArgv = null
+    // Broadcast completion so whichever Capture modal instance is live can
+    // finalize - the instance that started this run may have been closed and
+    // replaced by a reattached one by the time this resolves.
+    win.webContents.send('tracer:done', { code, kind: cap.outputKind, runId, error })
   }
-  return { code, kind: cap.outputKind, runId }
+  return { code, kind: cap.outputKind, runId, error }
 })
 
 ipcMain.handle('tracer:stop', async (_e, discard?: boolean) => {
@@ -331,7 +355,7 @@ ipcMain.handle('tracer:stop', async (_e, discard?: boolean) => {
   await activeRun.stop()
 })
 
-ipcMain.handle('tracer:isRunning', () => activeRun !== null)
+ipcMain.handle('tracer:isRunning', () => ({ running: activeRun !== null, argv: activeRunArgv }))
 
 ipcMain.handle('trace:open', () => openViaDialog(true))
 ipcMain.handle('trace:openCompare', () => openViaDialog(false))

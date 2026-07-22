@@ -198,6 +198,20 @@ describe('startRun', () => {
     sp.exit(130)
     await h.done
   })
+
+  it('stop() after the process has already exited is harmless - it still just issues a pkill that matches nothing', async () => {
+    const sp = fakeSpawner()
+    const adb = fakeAdb([]) // no route rejects the pkill; a real device would just report no match
+    const h = startRun(sp, adb, "su -c '/data/local/tmp/anubee syscalls x'", () => {})
+    sp.exit(0)
+    const res = await h.done
+    expect(res.code).toBe(0)
+    // Calling stop() on an already-exited run (e.g. Stop clicked a beat after
+    // the trace finished on its own) does not throw and does not touch `done`.
+    await expect(h.stop()).resolves.toBeUndefined()
+    expect(adb.calls).toContain(`shell ${STOP_ARG}`)
+    await expect(h.done).resolves.toEqual({ code: 0 })
+  })
 })
 
 describe('pullResult', () => {
