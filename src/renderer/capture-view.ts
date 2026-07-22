@@ -1,6 +1,7 @@
 // Feature 9 capture panel: renders a capability's input form and a live console.
 // Pure DOM (jsdom-testable); the main.ts wiring owns IPC + preflight.
 import type { Capability, CapValues, CapInput } from '@shared/tracer-caps'
+import type { PreflightCheck } from './capture-preflight-view'
 
 export interface FormOpts {
   specNames?: string[]
@@ -148,15 +149,9 @@ export function renderDot(dot: HTMLElement, status: { ok: boolean; detail: strin
   dot.title = status.detail
 }
 
-// Mirrors the preload preflight check shape (main's tracer-control.PreflightCheck);
-// the renderer cannot import the main-process type, so it is restated here. Shared
-// by the Capture wiring and the Libraries live modal.
-export interface PreflightCheck {
-  id: string
-  label: string
-  ok: boolean
-  detail: string
-}
+// The preflight pane owns this shape now; re-exported so the Libraries live
+// modal keeps its existing import path.
+export type { PreflightCheck }
 
 export function renderPreflightRow(host: HTMLElement, c: PreflightCheck): void {
   const row = document.createElement('div')
