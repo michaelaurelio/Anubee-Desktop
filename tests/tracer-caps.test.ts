@@ -127,7 +127,7 @@ describe('tracer-caps registry', () => {
   })
 })
 
-import { composeRunArg, outJsonlPath, DEVICE_BIN, STOP_ARG, commonArgv, ereEscape, stopArgLive, stopArgWatch, isSafePattern, isSafeToken, type Capability } from '../src/shared/tracer-caps'
+import { composeRunArg, needsDeviceQuote, outJsonlPath, DEVICE_BIN, STOP_ARG, commonArgv, ereEscape, stopArgLive, stopArgWatch, isSafePattern, isSafeToken, type Capability } from '../src/shared/tracer-caps'
 
 describe('composeRunArg', () => {
   const syscalls = capById('syscalls')!
@@ -319,5 +319,48 @@ describe('capNeedsSpec', () => {
   })
   it('is false for the non-spec engine', () => {
     expect(capNeedsSpec(capById('syscalls')!)).toBe(false)
+  })
+})
+
+describe('composeRunArg device-shell quoting', () => {
+  it('flags only glob-bearing tokens', () => {
+    expect(needsDeviceQuote('e_*')).toBe(true)
+    expect(needsDeviceQuote('lib?.so')).toBe(true)
+    expect(needsDeviceQuote('lib[0-9].so')).toBe(true)
+    expect(needsDeviceQuote('libsentinel.so')).toBe(false)
+    expect(needsDeviceQuote('dev.anubee.detector')).toBe(false)
+  })
+
+  // su -c '<inner>' runs inner through the device sh; an unquoted e_* would be
+  // expanded against the device cwd (and survives literally only by luck).
+  it("single-quotes a glob selector inside the su -c body", () => {
+    const arg = composeRunArg({
+      cap: capById('syscalls')!,
+      vals: { pkg: 'dev.anubee.detector', libs: 'e_*' },
+      jsonlPath: '/data/local/tmp/x.jsonl',
+    })
+    expect(arg).toBe(
+      "su -c '/data/local/tmp/anubee syscalls -P dev.anubee.detector -l '\\''e_*'\\'' -o /data/local/tmp/x.jsonl'")
+  })
+
+  it('leaves plain tokens bare', () => {
+    const arg = composeRunArg({
+      cap: capById('syscalls')!,
+      vals: { pkg: 'dev.anubee.detector', libs: 'libsentinel.so' },
+      jsonlPath: '/data/local/tmp/x.jsonl',
+    })
+    expect(arg).toBe(
+      "su -c '/data/local/tmp/anubee syscalls -P dev.anubee.detector -l libsentinel.so -o /data/local/tmp/x.jsonl'")
+  })
+
+  it('keeps quoting under a timeout wrapper', () => {
+    const arg = composeRunArg({
+      cap: capById('syscalls')!,
+      vals: { pkg: 'dev.anubee.detector', libs: 'e_*' },
+      timeoutSecs: 30,
+      jsonlPath: '/data/local/tmp/x.jsonl',
+    })
+    expect(arg).toContain("timeout -s INT -k 3 30 /data/local/tmp/anubee syscalls")
+    expect(arg).toContain("-l '\\''e_*'\\''")
   })
 })

@@ -129,8 +129,8 @@ export function capById(id: string): Capability | undefined {
   return CAPABILITIES.find(c => c.id === id)
 }
 
-// A capability needs the host specs dir iff it takes a probe spec (funcs /
-// correlate / trace). Drives whether the form shows the specs-dir + spec fields.
+// A capability needs the host specs dir iff it takes a probe spec (funcs).
+// Drives whether the form shows the specs-dir + spec fields.
 export function capNeedsSpec(cap: Capability): boolean {
   return cap.inputs.some(i => i.kind === 'spec')
 }
@@ -236,11 +236,25 @@ export function resolveSavePath(chosen: string | undefined, defaultPath: string)
   return chosen && chosen.trim() ? chosen.trim() : defaultPath
 }
 
+// A token containing a glob metacharacter must reach anubee literally: the
+// device runs `su -c '<inner>'` through sh, which would expand it against the
+// device cwd. Wrapping in '\'' closes the outer single quote, emits a literal
+// quote, and reopens - the same escape src/main/native-lib-live.ts uses for
+// dump's on-map glob. Plain tokens stay bare (SAFE_TOKEN already forbids
+// whitespace, quotes, $ and backticks, so they need no quoting at all).
+export function needsDeviceQuote(tok: string): boolean {
+  return /[*?[\]]/.test(tok)
+}
+
+function deviceToken(tok: string): string {
+  return needsDeviceQuote(tok) ? `'\\''${tok}'\\''` : tok
+}
+
 // Build the single string handed to `adb shell` as `su -c '<...>'`. One su -c
 // per run (chaining breaks BPF load with -EPERM, spec s2). Package/lib/pattern
-// tokens are simple identifiers (no quotes/spaces), so plain space-join inside
-// the single-quoted su -c body is safe; reject exotic tokens upstream if ever
-// needed.
+// tokens carry no quotes/spaces (SAFE_TOKEN/SAFE_PATTERN forbid them), so a
+// plain token is safe bare; deviceToken additionally quotes any token that
+// carries a glob metacharacter, so the device sh cannot expand it.
 export function composeRunArg(opts: {
   cap: Capability
   vals: CapValues
@@ -250,8 +264,9 @@ export function composeRunArg(opts: {
   const argv = opts.cap.buildArgv(opts.vals)
   if (opts.cap.common) argv.push(...commonArgv(opts.vals))
   if (opts.cap.outputKind === 'jsonl' && opts.jsonlPath) argv.push('-o', opts.jsonlPath)
+  const body = argv.map(deviceToken).join(' ')
   const inner = opts.timeoutSecs
-    ? `timeout -s INT -k 3 ${opts.timeoutSecs} ${DEVICE_BIN} ${argv.join(' ')}`
-    : `${DEVICE_BIN} ${argv.join(' ')}`
+    ? `timeout -s INT -k 3 ${opts.timeoutSecs} ${DEVICE_BIN} ${body}`
+    : `${DEVICE_BIN} ${body}`
   return `su -c '${inner}'`
 }
