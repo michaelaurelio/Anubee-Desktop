@@ -1,17 +1,13 @@
-import type { Rule, RuleMatch, RuleScope } from '@shared/rasp-heuristics'
+import type { Rule, RuleMatch, RuleScope, RuleStep } from '@shared/rasp-heuristics'
 import { validateRule, type RuleField, type RuleOp } from '@shared/rasp-heuristics'
 import type { RaspCategory } from '@shared/project-store'
 
 const CATEGORIES: RaspCategory[] = ['root', 'debugger', 'emulator', 'integrity', 'hook', 'custom']
 const FIELDS: RuleField[] = ['string_args', 'fd_args', 'sock_addr', 'args']
 const OPS: RuleOp[] = ['path_matches', 'equals', 'arg_hex_eq']
+const CORRELATES = ['symbol', 'symbol+tid', 'module', 'module+tid', 'java']
 
-export interface RuleFormValues {
-  id: string
-  category: string
-  confidence: number
-  rationale: string
-  enabled: boolean
+export interface StepFormValues {
   syscalls: string[]
   field: string
   op: string
@@ -19,15 +15,28 @@ export interface RuleFormValues {
   value: string
 }
 
+export interface RuleFormValues {
+  id: string
+  category: string
+  confidence: number
+  rationale: string
+  enabled: boolean
+  correlate: string
+  maxGap: number
+  steps: StepFormValues[]
+}
+
 // The raw rule object to hand to validateRule. argIndex only for arg_hex_eq.
 export function draftFromForm(v: RuleFormValues): Record<string, unknown> {
-  const step: Record<string, unknown> = {
-    syscalls: v.syscalls, field: v.field, op: v.op, value: v.value,
-  }
-  if (v.op === 'arg_hex_eq') step.argIndex = v.argIndex ?? 0
+  const steps = v.steps.map(s => {
+    const step: Record<string, unknown> = { syscalls: s.syscalls, field: s.field, op: s.op, value: s.value }
+    if (s.op === 'arg_hex_eq') step.argIndex = s.argIndex ?? 0
+    return step
+  })
   return {
     id: v.id, category: v.category, confidence: v.confidence,
-    rationale: v.rationale, enabled: v.enabled, steps: [step],
+    rationale: v.rationale, enabled: v.enabled,
+    correlate: v.correlate, maxGap: v.maxGap, steps,
   }
 }
 
@@ -37,6 +46,11 @@ export function predicateSummary(m: RuleMatch): string {
   if (m.op === 'arg_hex_eq') return `args[${m.argIndex ?? 0}] arg_hex_eq ${m.value}`
   const val = m.op === 'path_matches' ? `/${m.value}/` : m.value
   return `${m.field} ${m.op} ${val}`
+}
+
+// One line for a list row: each step's predicate, in order.
+export function sequenceSummary(r: Rule): string {
+  return r.steps.map(predicateSummary).join(' → ')
 }
 
 export function upsertRule(scope: RuleScope, rule: Rule): RuleScope {
@@ -97,7 +111,7 @@ export async function renderRules(
     const meta = document.createElement('span'); meta.className = 'rule-meta'
     meta.textContent = `${(r.confidence * 100).toFixed(0)}% · ${r.steps[0].syscalls.join(',')}`
     line1.append(cat, src, id, meta)
-    const pred = document.createElement('div'); pred.className = 'rule-pred'; pred.textContent = predicateSummary(r.steps[0])
+    const pred = document.createElement('div'); pred.className = 'rule-pred'; pred.textContent = sequenceSummary(r)
     info.append(line1, pred)
 
     const btns = document.createElement('div'); btns.className = 'rule-btns'
@@ -175,35 +189,89 @@ export async function renderRules(
     const catSel = select(CATEGORIES, existing?.category ?? 'custom')
     const confIn = document.createElement('input'); confIn.type = 'number'; confIn.step = '0.05'; confIn.min = '0'; confIn.max = '1'; confIn.value = String(existing?.confidence ?? 0.5)
     const ratIn = document.createElement('input'); ratIn.value = existing?.rationale ?? ''
-    const sysIn = document.createElement('input'); sysIn.placeholder = 'openat, access'; sysIn.value = existing?.steps[0].syscalls.join(', ') ?? ''
-    const fieldSel = select(FIELDS, existing?.steps[0].field ?? 'string_args')
-    const opSel = select(OPS, existing?.steps[0].op ?? 'path_matches')
-    const argIn = document.createElement('input'); argIn.type = 'number'; argIn.min = '0'; argIn.value = String(existing?.steps[0].argIndex ?? 0)
-    const valIn = document.createElement('input'); valIn.value = existing?.steps[0].value ?? ''
+    const correlateSel = select(CORRELATES, existing?.correlate ?? 'symbol+tid')
+    const gapIn = document.createElement('input')
+    gapIn.type = 'number'; gapIn.min = '1'; gapIn.value = String(existing?.maxGap ?? 50)
     const scopeSel = select(['project', 'global'], existing?.source === 'global' ? 'global' : 'project')
     const preview = document.createElement('div')
 
+    const stepsHost = document.createElement('div')
+    stepsHost.className = 'rf-steps'
+    interface StepControls { sysIn: HTMLInputElement; fieldSel: HTMLSelectElement; opSel: HTMLSelectElement; argIn: HTMLInputElement; valIn: HTMLInputElement }
+    const stepControls: StepControls[] = []
+
+    function addStepBlock(init?: RuleStep): void {
+      const block = document.createElement('div')
+      block.className = 'rf-step'
+      const heading = document.createElement('div')
+      heading.className = 'rf-step-head'
+      const sysIn = document.createElement('input'); sysIn.placeholder = 'openat, access'; sysIn.value = init?.syscalls.join(', ') ?? ''
+      const fieldSel = select(FIELDS, init?.field ?? 'string_args')
+      const opSel = select(OPS, init?.op ?? 'path_matches')
+      const argIn = document.createElement('input'); argIn.type = 'number'; argIn.min = '0'; argIn.value = String(init?.argIndex ?? 0)
+      const valIn = document.createElement('input'); valIn.value = init?.value ?? ''
+      const ctl: StepControls = { sysIn, fieldSel, opSel, argIn, valIn }
+
+      const del = document.createElement('button')
+      del.className = 'btn rf-step-del'
+      del.textContent = 'Remove step'
+      del.onclick = () => {
+        if (stepControls.length === 1) return   // a rule always has at least one step
+        stepControls.splice(stepControls.indexOf(ctl), 1)
+        block.remove()
+        renumber()
+        refreshPreview()
+      }
+      heading.append(document.createElement('span'), del)
+      block.append(heading)
+      for (const [label, el] of [['syscalls', sysIn], ['field', fieldSel], ['op', opSel], ['argIndex', argIn], ['value', valIn]] as const) {
+        const wrapRow = document.createElement('label')
+        wrapRow.className = 'rf-row'
+        const lab = document.createElement('span'); lab.className = 'rf-label'; lab.textContent = label
+        wrapRow.append(lab, el)
+        block.append(wrapRow)
+        if (label === 'argIndex') {
+          const sync = () => { wrapRow.style.display = opSel.value === 'arg_hex_eq' ? '' : 'none' }
+          sync()
+          opSel.addEventListener('change', () => { sync(); refreshPreview() })
+        }
+        el.addEventListener('input', refreshPreview)
+        el.addEventListener('change', refreshPreview)
+      }
+      stepControls.push(ctl)
+      stepsHost.append(block)
+      renumber()
+    }
+
+    function renumber(): void {
+      stepsHost.querySelectorAll('.rf-step-head > span:first-child').forEach((el, i) => {
+        el.textContent = `step ${i + 1}`
+      })
+    }
+
+    const addStep = document.createElement('button')
+    addStep.className = 'btn rf-step-add'
+    addStep.textContent = 'Add step'
+    addStep.onclick = () => { addStepBlock(); refreshPreview() }
+
+    for (const s of existing?.steps ?? [undefined]) addStepBlock(s)
+
     mk('id', idIn); mk('category', catSel); mk('confidence', confIn); mk('rationale', ratIn)
-    mk('syscalls', sysIn); mk('field', fieldSel); mk('op', opSel)
-    const argLabel = mk('argIndex', argIn)
-    mk('value', valIn)
+    mk('correlate', correlateSel); mk('maxGap', gapIn)
+    wrap.append(stepsHost, addStep)
     mk('scope', scopeSel)
     preview.className = 'rf-preview'; wrap.appendChild(preview)
-
-    const argWrap = () => {
-      const show = opSel.value === 'arg_hex_eq'
-      argLabel.style.display = show ? '' : 'none'
-      argIn.style.display = show ? '' : 'none'
-    }
-    argWrap()
-    opSel.onchange = () => { argWrap(); refreshPreview() }
 
     function values(): RuleFormValues {
       return {
         id: idIn.value.trim(), category: catSel.value, confidence: Number(confIn.value),
         rationale: ratIn.value, enabled: existing?.enabled ?? true,
-        syscalls: sysIn.value.split(',').map(s => s.trim()).filter(Boolean),
-        field: fieldSel.value, op: opSel.value, argIndex: Number(argIn.value), value: valIn.value,
+        correlate: correlateSel.value, maxGap: Number(gapIn.value),
+        steps: stepControls.map(c => ({
+          syscalls: c.sysIn.value.split(',').map(s => s.trim()).filter(Boolean),
+          field: c.fieldSel.value, op: c.opSel.value,
+          argIndex: Number(c.argIn.value), value: c.valIn.value,
+        })),
       }
     }
 
@@ -220,7 +288,7 @@ export async function renderRules(
         })
       }, 250)
     }
-    for (const el of [idIn, catSel, confIn, ratIn, sysIn, fieldSel, argIn, valIn, scopeSel]) {
+    for (const el of [idIn, catSel, confIn, ratIn, correlateSel, gapIn, scopeSel]) {
       el.addEventListener('input', refreshPreview)
       el.addEventListener('change', refreshPreview)
     }

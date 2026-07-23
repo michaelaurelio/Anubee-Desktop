@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { draftFromForm, predicateSummary, upsertRule, deleteRule, setEnabled } from '../src/renderer/rules-view'
+import { draftFromForm, predicateSummary, sequenceSummary, upsertRule, deleteRule, setEnabled } from '../src/renderer/rules-view'
+import { validateRule } from '@shared/rasp-heuristics'
 import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 
 const R: Rule = {
@@ -11,15 +12,45 @@ const R: Rule = {
 describe('rules-view helpers', () => {
   it('draftFromForm omits argIndex for non-hex ops', () => {
     const d = draftFromForm({ id: 'a', category: 'root', confidence: 0.8, rationale: 'r', enabled: true,
-      syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' })
+      correlate: 'symbol+tid', maxGap: 50,
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' }] })
     expect(d).toEqual({ id: 'a', category: 'root', confidence: 0.8, rationale: 'r', enabled: true,
+      correlate: 'symbol+tid', maxGap: 50,
       steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' }] })
   })
 
   it('draftFromForm includes argIndex for arg_hex_eq', () => {
     const d = draftFromForm({ id: 'p', category: 'debugger', confidence: 0.7, rationale: 'r', enabled: true,
-      syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x10' })
+      correlate: 'symbol+tid', maxGap: 50,
+      steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x10' }] })
     expect((d.steps as Record<string, unknown>[])[0].argIndex).toBe(0)
+  })
+
+  it('builds a multi-step draft the validator accepts', () => {
+    const draft = draftFromForm({
+      id: 'seq', category: 'hook', confidence: 0.9, rationale: 'r', enabled: true,
+      correlate: 'module+tid', maxGap: 10,
+      steps: [
+        { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' },
+        { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'frida' },
+      ],
+    })
+    const { rule, error } = validateRule(draft, 'project')
+    expect(error).toBeNull()
+    expect(rule!.steps).toHaveLength(2)
+    expect(rule!.correlate).toBe('module+tid')
+    expect(rule!.maxGap).toBe(10)
+  })
+
+  it('summarises a sequence as its steps joined by an arrow', () => {
+    expect(sequenceSummary({
+      id: 'x', category: 'hook', confidence: 0.9, rationale: 'r', enabled: true, source: 'project',
+      correlate: 'module+tid', maxGap: 10,
+      steps: [
+        { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'maps' },
+        { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'frida' },
+      ],
+    })).toBe('string_args path_matches /maps/ → string_args path_matches /frida/')
   })
 
   it('predicateSummary renders path and hex predicates', () => {

@@ -510,6 +510,28 @@
                    color: var(--text); border-radius: 5px; padding: 4px 7px; font: inherit; width: 100%; }
       .rule-form .rf-preview { grid-column: 1 / -1; color: var(--muted); font: 11px var(--mono); }
       .rule-form .rf-actions { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: flex-end; }
+      .rule-form .rf-steps { grid-column: 1 / -1; }
+      .rule-form .rf-step-add { grid-column: 1 / -1; justify-self: start; }
+      .rf-step {
+        margin: 8px -8px;
+        padding: 8px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 6px 10px;
+        align-items: center;
+      }
+      .rf-step-head {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .rf-row { display: contents; }
       .rules-head { font-weight: 600; color: var(--text); margin-bottom: 8px; }
       .rules-status { color: var(--k-syscall); font-size: 12px; }
       /* right-click node context menu */
