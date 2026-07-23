@@ -35,7 +35,10 @@ export interface Rule {
   enabled: boolean
   steps: RuleStep[]      // >= 1; a length-1 rule is today's single-event predicate
   correlate: CorrelateKey
-  maxGap: number         // same-correlation-key events allowed between consecutive steps
+  // Rule-relevant events (events matching some rule step, i.e. what the DuckDB
+  // prefilter admits) sharing this correlation key, allowed between consecutive
+  // steps. See the SequenceMatcher comment.
+  maxGap: number
   source: RuleSource
 }
 
@@ -287,20 +290,43 @@ function correlationKey(mode: CorrelateKey, e: SyscallEvent): string | null {
     for (let i = chain.length - 1; i >= 0; i--) if (chain[i].kind === 'java') return chain[i].id
     return null
   }
-  const f = anchorFrame(e)
-  if (f === null) return null
-  const base = mode === 'module' || mode === 'module+tid' ? `mod:${f.module}` : targetOf(e)
+  let base: string | null
+  if (mode === 'module' || mode === 'module+tid') {
+    // A module key needs a non-platform native frame; there is no module to key
+    // on for a java-attributed event.
+    const f = anchorFrame(e)
+    if (f === null) return null
+    base = `mod:${f.module}`
+  } else {
+    // symbol / symbol+tid key on the graph target, which falls back to the
+    // innermost java frame when the app has no custom native lib in the stack.
+    base = targetOf(e)
+  }
   if (base === null) return null
   return mode.endsWith('+tid') ? `${base}#${e.tid}` : base
 }
 
+// Composite map keys. NUL cannot occur in a rule id, a correlate mode or a node
+// id, so no two distinct pairs can collide (a rule id may contain a space).
+const KEY_SEP = '\u0000'
+function streamKey(mode: CorrelateKey, key: string): string { return `${mode}${KEY_SEP}${key}` }
+function partialKey(ruleId: string, key: string): string { return `${ruleId}${KEY_SEP}${key}` }
+
 interface PartialMatch {
   nextStep: number
   atCount: number       // key-local event count when the previous step matched
+  stream: string        // streamKey() of the correlation stream this rides on
+  pk: string            // partialKey() of the list holding it
+  maxGap: number        // its rule's maxGap, so a sweep needs no rule lookup
+  dead: boolean         // already retired; its slot in the age queue is stale
   target: string
   frame: Frame | null
   pid: number
 }
+
+// Sweep every this many push() calls so `partials` cannot grow without bound on
+// a long run of short-lived correlation keys.
+const SWEEP_EVERY = 4096
 
 // Ordered-sequence matcher over an id-ordered event stream. Stateful so it can be
 // driven page by page (the candidate set is never materialised whole), pure in the
@@ -309,16 +335,32 @@ interface PartialMatch {
 // Per event, per rule: advance at most one in-flight partial (the oldest), else
 // open a new one on step 0. A completed match is consumed, so one anchor reports
 // one occurrence no matter how many later events would also satisfy the last step.
+//
+// Distance is counted in RULE-RELEVANT events: a rule's maxGap is how many events
+// that match some rule step and share this correlation key may fall between two
+// consecutive steps. That is exactly what the store feeds in (the DuckDB
+// prefilter admits only candidate rows), and unrelated work cannot dilute a
+// window because it either matches no step or keys differently.
+//
+// In-flight partials are capped. At the cap the matcher first reclaims what has
+// expired, then forgets its oldest partial to make room, counting it in
+// `dropped` - never refusing new ones, which would go blind for the rest of the
+// run once churning keys (a short-lived tid opens a partial and never speaks
+// again) filled the cap.
 export class SequenceMatcher {
   private hits: RawHit[] = []
   private dropped = 0
   private live = 0
-  private counts = new Map<string, number>()            // correlate-mode + key -> events seen
-  private partials = new Map<string, PartialMatch[]>()  // ruleId + key -> in flight
+  private pushes = 0
+  private counts = new Map<string, number>()            // stream key -> events seen
+  private partials = new Map<string, PartialMatch[]>()  // partial key -> in flight
+  private ages: PartialMatch[] = []                     // open order, for eviction
+  private agesHead = 0                                  // first not-yet-considered slot
 
   constructor(private rules: Rule[], private cap = 10000) {}
 
   push(e: SyscallEvent): void {
+    if (++this.pushes % SWEEP_EVERY === 0) this.sweep()
     const keys = new Map<CorrelateKey, string | null>()
     const keyOf = (mode: CorrelateKey): string | null => {
       if (!keys.has(mode)) keys.set(mode, correlationKey(mode, e))
@@ -331,7 +373,7 @@ export class SequenceMatcher {
     for (const r of this.rules) {
       const k = keyOf(r.correlate)
       if (k === null) continue
-      const ck = `${r.correlate} ${k}`
+      const ck = streamKey(r.correlate, k)
       if (bumped.has(ck)) continue
       bumped.add(ck)
       this.counts.set(ck, (this.counts.get(ck) ?? 0) + 1)
@@ -340,22 +382,23 @@ export class SequenceMatcher {
     for (const r of this.rules) {
       const k = keyOf(r.correlate)
       if (k === null) continue
-      const n = this.counts.get(`${r.correlate} ${k}`)!
-      const pk = `${r.id} ${k}`
+      const sk = streamKey(r.correlate, k)
+      const n = this.counts.get(sk)!
+      const pk = partialKey(r.id, k)
       const list = this.partials.get(pk)
       let advanced = false
 
       if (list && list.length > 0) {
         const kept: PartialMatch[] = []
         for (const p of list) {
-          if (n - p.atCount > r.maxGap) { this.live--; continue }   // expired
+          if (n - p.atCount > r.maxGap) { this.retire(p); continue }   // expired
           if (!advanced && matchOne(r.steps[p.nextStep], e)) {
             advanced = true
             p.nextStep++
             p.atCount = n
             if (p.nextStep === r.steps.length) {
               this.emit(r, p.target, p.frame, p.pid)
-              this.live--
+              this.retire(p)
               continue
             }
           }
@@ -370,12 +413,74 @@ export class SequenceMatcher {
       const target = targetOf(e)
       if (target === null) continue
       if (r.steps.length === 1) { this.emit(r, target, anchorFrame(e), e.pid); continue }
-      if (this.live >= this.cap) { this.dropped++; continue }
+      // Expiry is otherwise lazy (it needs another event on the same rule+key), so
+      // a partial on a key that goes silent would hold its slot forever and the
+      // cap would become a permanent block. Reclaim before refusing: sweep what
+      // has genuinely expired, then evict the oldest survivor.
+      if (this.live >= this.cap) {
+        this.sweep()
+        if (this.live >= this.cap) {
+          if (!this.evictOldest()) { this.dropped++; continue }
+          this.dropped++
+        }
+      }
       this.live++
+      const p: PartialMatch = {
+        nextStep: 1, atCount: n, stream: sk, pk, maxGap: r.maxGap, dead: false,
+        target, frame: anchorFrame(e), pid: e.pid,
+      }
       const open = this.partials.get(pk) ?? []
-      open.push({ nextStep: 1, atCount: n, target, frame: anchorFrame(e), pid: e.pid })
+      open.push(p)
       this.partials.set(pk, open)
+      this.ages.push(p)
     }
+  }
+
+  // Remove a partial from the live accounting. Its caller drops it from its list;
+  // the age queue only learns about it through `dead`.
+  private retire(p: PartialMatch): void {
+    p.dead = true
+    this.live--
+  }
+
+  // Drop every partial whose stream has moved more than maxGap events past it,
+  // whether or not that stream still speaks to its rule. Keeps `live` equal to
+  // the number of partials actually held, and bounds the map on a long run.
+  private sweep(): void {
+    for (const [pk, list] of this.partials) {
+      const kept = list.filter(p => {
+        if ((this.counts.get(p.stream) ?? 0) - p.atCount <= p.maxGap) return true
+        this.retire(p)
+        return false
+      })
+      if (kept.length === 0) this.partials.delete(pk)
+      else if (kept.length !== list.length) this.partials.set(pk, kept)
+    }
+    // Compact the age queue: drop consumed and retired slots. Amortised O(1) per
+    // partial opened, since it only runs once the queue is twice the live set.
+    if (this.ages.length > SWEEP_EVERY && this.ages.length > this.live * 2) {
+      this.ages = this.ages.slice(this.agesHead).filter(p => !p.dead)
+      this.agesHead = 0
+    }
+  }
+
+  // Evict the oldest partial still in flight, so a full cap degrades to
+  // forget-the-oldest instead of going blind to every later sequence. Amortised
+  // O(1): the queue is scanned forward once, skipping already-retired entries.
+  private evictOldest(): boolean {
+    while (this.agesHead < this.ages.length) {
+      const p = this.ages[this.agesHead++]
+      if (p.dead) continue
+      const list = this.partials.get(p.pk)
+      if (list) {
+        const kept = list.filter(x => x !== p)
+        if (kept.length === 0) this.partials.delete(p.pk)
+        else this.partials.set(p.pk, kept)
+      }
+      this.retire(p)
+      return true
+    }
+    return false
   }
 
   private emit(r: Rule, target: string, frame: Frame | null, pid: number): void {
@@ -386,7 +491,9 @@ export class SequenceMatcher {
   }
 
   finish(): { hits: RawHit[]; dropped: number } {
-    return { hits: this.hits, dropped: this.dropped }
+    // Copy: a caller polling finish() per page must not see its earlier result
+    // mutate as later pushes land.
+    return { hits: [...this.hits], dropped: this.dropped }
   }
 }
 
@@ -474,7 +581,11 @@ function valuesOf(field: RuleField, e: SyscallEvent): string[] {
   }
 }
 
+// A step matches only within the syscalls it is scoped to - the JS twin of
+// clauseOf's `syscall IN (...) AND pred`. Gated here rather than at each call
+// site so every consumer (scoreWith, SequenceMatcher) inherits it.
 function matchOne(m: RuleStep, e: SyscallEvent): boolean {
+  if (!m.syscalls.includes(e.syscall)) return false
   if (m.op === 'arg_hex_eq') {
     const a = e.args[m.argIndex ?? 0]
     return a !== undefined && argNum(a) === argNum(m.value)
@@ -492,7 +603,6 @@ export function scoreWith(rules: Rule[], e: SyscallEvent): Suggestion[] {
   if (target === null) return []
   const out: Suggestion[] = []
   for (const r of rules) {
-    if (!r.steps[0].syscalls.includes(e.syscall)) continue
     if (matchOne(r.steps[0], e)) {
       out.push({ target, category: r.category, confidence: r.confidence, rationale: r.rationale, occurrences: 1 })
     }
