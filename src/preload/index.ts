@@ -86,8 +86,8 @@ contextBridge.exposeInMainWorld('anubee', {
   tracerListSpecs: (specsDir: string) => ipcRenderer.invoke('tracer:listSpecs', specsDir),
   tracerPickBinary: () => ipcRenderer.invoke('tracer:pickBinary'),
   tracerPickSpecsDir: () => ipcRenderer.invoke('tracer:pickSpecsDir'),
-  onTracerLine: (cb: (line: string) => void) =>
-    ipcRenderer.on('tracer:line', (_e, line) => cb(line as string)),
+  onTracerLines: (cb: (lines: string[]) => void) =>
+    ipcRenderer.on('tracer:lines', (_e, lines) => cb(lines as string[])),
   onPreflightCheck: (cb: (c: { id: string; label: string; ok: boolean; detail: string }) => void) =>
     ipcRenderer.on('tracer:preflight-check', (_e, c) =>
       cb(c as { id: string; label: string; ok: boolean; detail: string })),

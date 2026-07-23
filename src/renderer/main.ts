@@ -994,13 +994,19 @@ function wireCapture(): (() => void) | undefined {
     setFooterCounters(footHost, counters)
   }
 
-  captureLineSink = (line: string): void => {
-    pendingLines.push(line)
+  captureLineSink = (lines: readonly string[]): void => {
+    for (const line of lines) pendingLines.push(line)
     // requestAnimationFrame stops firing while the window is minimised or
     // occluded, so without a bound the buffer would grow for the whole run.
     // Trimming to the console cap is lossless: appendConsoleLines evicts down
     // to the same cap, so the dropped lines could never have been painted.
-    if (pendingLines.length > CONSOLE_LINE_CAP) {
+    //
+    // Only trim once the buffer has grown to twice the cap, not on every
+    // arrival. Slicing a 5000-element array per line is O(n) work per line,
+    // which made the very stall this batching exists to remove measurably
+    // worse. At 2x the slice happens once per CONSOLE_LINE_CAP lines, so the
+    // amortised cost is constant and memory stays bounded at 2x the cap.
+    if (pendingLines.length > CONSOLE_LINE_CAP * 2) {
       pendingLines = pendingLines.slice(-CONSOLE_LINE_CAP)
     }
     if (flushHandle === undefined) flushHandle = requestAnimationFrame(flushLines)
@@ -1335,9 +1341,10 @@ document.getElementById('file-log')?.addEventListener('click', () => {
   })
 })
 
-// Set by wireCapture on each modal open; the tracer:line subscription is
+// Set by wireCapture on each modal open; the tracer:lines subscription is
 // registered once, so it dispatches through this rather than re-binding.
-let captureLineSink: ((line: string) => void) | undefined
+// Takes a batch: main coalesces device stdout before it crosses IPC.
+let captureLineSink: ((lines: readonly string[]) => void) | undefined
 
 // Set by wireCapture on each modal open, mirroring captureLineSink; the
 // tracer:done subscription is registered once, so it dispatches through this
@@ -1356,9 +1363,15 @@ let captureFlush: (() => void) | undefined
 // Registered once (not per Capture-modal open) so re-opening Capture doesn't
 // stack tracer:line subscriptions; dispatches through captureLineSink to
 // whichever cap-console is live.
-window.anubee.onTracerLine(line => {
-  logAppend('info', 'tracer', line)
-  captureLineSink?.(line)
+window.anubee.onTracerLines(lines => {
+  // Deliberately NOT mirrored into the activity log. A chatty capture emits
+  // over 10k lines a second; each logAppend allocates an entry and, once at
+  // LOG_CAP, shifts a 5000-element array - O(n) per line. It also evicted
+  // every genuinely useful entry (preflight results, errors, run start/stop)
+  // within a second of any real capture. The capture console is where the
+  // stream belongs; the activity log records events, and run start and
+  // completion are already logged around it.
+  captureLineSink?.(lines)
 })
 
 // Registered once, mirroring onTracerLine above; dispatches through

@@ -75,7 +75,7 @@ declare global {
       tracerListSpecs(specsDir: string): Promise<string[]>
       tracerPickBinary(): Promise<string | undefined>
       tracerPickSpecsDir(): Promise<string | undefined>
-      onTracerLine(cb: (line: string) => void): void
+      onTracerLines(cb: (lines: string[]) => void): void
       onPreflightCheck(cb: (c: { id: string; label: string; ok: boolean; detail: string }) => void): void
       libTable(runId?: number): Promise<import('@shared/native-lib').LibRow[]>
       startLive(pkg: string, glob?: string): Promise<void>

@@ -298,6 +298,12 @@ ipcMain.handle('tracer:pickSpecsDir', async () => {
   return r.canceled ? undefined : r.filePaths[0]
 })
 
+// Device stdout is coalesced before it crosses IPC. 16ms is one frame at 60Hz,
+// so the log still reads as live while cutting message volume by ~3 orders of
+// magnitude on a chatty capture; the batch cap bounds any single message.
+const LINE_FLUSH_MS = 16
+const LINE_BATCH_MAX = 500
+
 ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) => {
   const cap = capById(capId)
   if (!cap) throw new Error(`unknown capability ${capId}`)
@@ -311,7 +317,28 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
   const jsonlPath = cap.outputKind === 'jsonl' ? outJsonlPath(ts) : undefined
   const runArg = composeRunArg({ cap, vals: vals as never, timeoutSecs, jsonlPath })
-  const run = startRun(spawner, adb, runArg, line => win.webContents.send('tracer:line', line))
+  // One IPC message per stdout line saturates the renderer's event loop on an
+  // unfiltered syscalls capture (measured 10k-15k lines/sec), which is what
+  // left the Stop buttons unclickable: every message wakes the renderer, and
+  // batching only inside the renderer cannot undo the cost of being woken that
+  // often. Coalesce here instead, so the renderer sees tens of messages per
+  // second rather than thousands. Buffer is per-run, so it cannot leak.
+  const lineBuf: string[] = []
+  let lineTimer: ReturnType<typeof setTimeout> | undefined
+  const flushDeviceLines = (): void => {
+    if (lineTimer !== undefined) { clearTimeout(lineTimer); lineTimer = undefined }
+    if (lineBuf.length === 0) return
+    win.webContents.send('tracer:lines', lineBuf.splice(0, lineBuf.length))
+  }
+  const onDeviceLine = (line: string): void => {
+    lineBuf.push(line)
+    // Send early on a big burst so one frame's batch stays bounded; otherwise
+    // let the timer coalesce. LINE_BATCH_MAX is well under the renderer's
+    // console cap, so no batch is large enough to stall a frame on its own.
+    if (lineBuf.length >= LINE_BATCH_MAX) { flushDeviceLines(); return }
+    if (lineTimer === undefined) lineTimer = setTimeout(flushDeviceLines, LINE_FLUSH_MS)
+  }
+  const run = startRun(spawner, adb, runArg, onDeviceLine)
   // runLifecycle.start throws 'a capture is already running' if one is
   // already active - clobbering it here would orphan the prior run: its Stop
   // buttons live only in whichever Capture instance started it, and if that
@@ -326,6 +353,9 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
   let error: string | undefined
   try {
     ;({ code } = await run.done)
+    // Land the tail before anything downstream reports completion, so no line
+    // is stranded in the buffer when the run ends.
+    flushDeviceLines()
     // The device-side process has exited: phase moves 'device' -> 'finishing'
     // (tracer:stop can no longer act on it - see requestStop) and hands back
     // + clears discardActive in the same step, so a Stop & discard click that
@@ -352,6 +382,8 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
     // Always resets phase/handle/argv/discardActive to idle, regardless of
     // outcome - the one place this run's state is guaranteed to end, so
     // discardActive above all cannot survive into the next tracer:start.
+    // Also flush on the error path, where run.done threw before the flush above.
+    flushDeviceLines()
     runLifecycle.finish()
     // Broadcast completion so whichever Capture modal instance is live can
     // finalize - the instance that started this run may have been closed and
