@@ -171,6 +171,38 @@ describe('heuristic suggestions', () => {
     expect(await store.suggest(undefined, [])).toEqual([])
     await store.close()
   })
+
+  it('reports one row per category on a multi-behaviour library', async () => {
+    const store = new GraphStore()
+    const bt = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
+                { frame: 1, addr: '0x2100', symbol: 'libsentinel.so!chk+0x100' }]
+    await store.ingest(fixture([
+      { ...evA, id: 1, syscall: 'openat', string_args: { '1': '/system/xbin/su' }, backtrace: bt },
+      { ...evA, id: 2, syscall: 'openat', string_args: { '1': '/proc/self/status' }, backtrace: bt },
+      { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/proc/self/maps' }, backtrace: bt },
+    ]))
+    const s = await store.suggest()
+    const forNode = s.filter(x => x.target === 'nat:libsentinel.so!chk')
+    expect(forNode.map(x => x.category).sort()).toEqual(['debugger', 'hook', 'root'])
+    expect(forNode.every(x => x.offsets.length > 0)).toBe(true)
+    await store.close()
+  })
+
+  it('yields no suggestion targeting a platform library', async () => {
+    const store = new GraphStore()
+    // evA's java_stack is cleared here: a platform-only native chain with a java
+    // fallback attributes to the java frame by design (see rasp-heuristics'
+    // "falls back to the innermost java frame for a pure-java check"); this test
+    // isolates the platform-only-stack-with-no-app-owner case, which must yield
+    // no target at all (mirrors "does not attribute a platform-only stack to a
+    // platform library" in tests/rasp-heuristics.test.ts).
+    await store.ingest(fixture([{ ...evA, id: 1, syscall: 'openat',
+      string_args: { '1': '/proc/self/maps' }, java_stack: [],
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
+                  { frame: 1, addr: '0x2000', symbol: 'libart.so!ReadMaps+0x40' }] }]))
+    expect(await store.suggest()).toEqual([])
+    await store.close()
+  })
 })
 
 describe('compiler lockstep (real DuckDB admits exactly what matchSequences scores)', () => {
