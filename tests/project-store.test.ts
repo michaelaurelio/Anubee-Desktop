@@ -187,10 +187,33 @@ describe('openSuggestions', () => {
     expect(openSuggestions([sugg()], [], [{ target: sugg().target, category: 'hook' }])).toEqual([])
   })
 
-  it('a row with every child actioned still renders as a row', () => {
-    const [s] = openSuggestions([sugg()], [tag({ offset: '0x88c' }), tag({ offset: '0xabc' })], [])
-    expect(s).toBeDefined()
-    expect(s.offsets).toEqual([])
+  it('a row whose only child is confirmed disappears', () => {
+    const one = sugg({ occurrences: 2, offsets: [{ offset: '0x88c', occurrences: 2 }] })
+    expect(openSuggestions([one], [tag({ offset: '0x88c' })], [])).toEqual([])
+  })
+
+  it('a row whose only child is dismissed disappears', () => {
+    const one = sugg({ occurrences: 2, offsets: [{ offset: '0x88c', occurrences: 2 }] })
+    expect(openSuggestions([one], [], [{ target: one.target, category: 'hook', offset: '0x88c' }])).toEqual([])
+  })
+
+  it('a row with one of two children actioned still renders, with the survivor', () => {
+    const open = openSuggestions([sugg()], [tag({ offset: '0x88c' })], [])
+    expect(open).toHaveLength(1)
+    expect(open[0].offsets.map(o => o.offset)).toEqual(['0xabc'])
+  })
+
+  it('a row with every child actioned disappears', () => {
+    expect(openSuggestions([sugg()], [tag({ offset: '0x88c' }), tag({ offset: '0xabc' })], [])).toEqual([])
+  })
+
+  it('a symbol-level tag still removes the whole row', () => {
+    expect(openSuggestions([sugg()], [tag()], [])).toEqual([])
+  })
+
+  it('a row that never had call sites is untouched by offset pruning', () => {
+    const bare = sugg({ offsets: [] })
+    expect(openSuggestions([bare], [], [])).toEqual([bare])
   })
 
   it('a child whose offset was not actioned still renders', () => {
