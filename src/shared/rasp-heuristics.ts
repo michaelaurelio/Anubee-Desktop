@@ -218,6 +218,20 @@ function sqlLit(s: string): string {
   return s.replace(/'/g, "''")
 }
 
+// The tracer renders fd args as 'fd=<n> <path>' (render_fd in
+// ../Anubee/src/common/decode.c), 'fd=<n>' when readlink failed, 'AT_FDCWD', or a
+// bare negative number. Rules match the path, so unwrap it; an unresolved fd has
+// no path and contributes no value rather than matching the literal 'fd=122'.
+const FD_WRAPPED = /^fd=\d+ <(.*)>$/
+const FD_BARE = /^fd=\d+$/
+
+export function normalizeFdValue(v: string): string | null {
+  const m = FD_WRAPPED.exec(v)
+  if (m) return m[1]
+  if (FD_BARE.test(v)) return null
+  return v
+}
+
 // Compile the enabled rules to a bounded DuckDB WHERE (OR of per-rule clauses).
 // Only genuine RASP candidates are pulled off DuckDB onto the JS heap; scoreWith
 // re-checks each and remains the scoring authority. An empty list matches
@@ -226,6 +240,15 @@ export function compileWhere(rules: Rule[]): string {
   if (rules.length === 0) return 'false'
   return rules.map(clauseOf).join(' OR ')
 }
+
+// The SQL twin of normalizeFdValue: unwrap 'fd=<n> <path>', drop a bare
+// 'fd=<n>', pass anything else through. Kept beside the JS version so the two
+// compilers cannot drift; the real-DuckDB lockstep test enforces it.
+const FD_NORM_SQL =
+  "list_filter(list_transform(map_values(fd_args), x -> " +
+  "CASE WHEN regexp_matches(x, '^fd=[0-9]+ <.*>$') " +
+  "THEN regexp_extract(x, '^fd=[0-9]+ <(.*)>$', 1) " +
+  "WHEN regexp_matches(x, '^fd=[0-9]+$') THEN NULL ELSE x END), y -> y IS NOT NULL)"
 
 function clauseOf(r: Rule): string {
   const inSys = `syscall IN (${r.match.syscalls.map(s => `'${sqlLit(s)}'`).join(', ')})`
@@ -244,7 +267,11 @@ function clauseOf(r: Rule): string {
     pred = r.match.op === 'equals'
       ? `list_contains(args, '${v}')`
       : `len(list_filter(args, x -> regexp_matches(x, '${v}', 'i'))) > 0`
-  } else { // string_args | fd_args are MAP(VARCHAR,VARCHAR)
+  } else if (f === 'fd_args') {
+    pred = r.match.op === 'equals'
+      ? `list_contains(${FD_NORM_SQL}, '${v}')`
+      : `len(list_filter(${FD_NORM_SQL}, x -> regexp_matches(x, '${v}', 'i'))) > 0`
+  } else { // string_args is MAP(VARCHAR,VARCHAR)
     pred = r.match.op === 'equals'
       ? `list_contains(map_values(${f}), '${v}')`
       : `len(list_filter(map_values(${f}), x -> regexp_matches(x, '${v}', 'i'))) > 0`
@@ -256,6 +283,8 @@ function valuesOf(field: RuleField, e: SyscallEvent): string[] {
   switch (field) {
     case 'string_args': return Object.values(e.string_args)
     case 'fd_args': return Object.values(e.fd_args)
+      .map(normalizeFdValue)
+      .filter((v): v is string => v !== null)
     case 'args': return e.args
     case 'sock_addr': return e.sock_addr != null ? [e.sock_addr] : []
   }

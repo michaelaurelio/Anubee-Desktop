@@ -178,13 +178,14 @@ describe('compiler lockstep (real DuckDB admits exactly what scoreWith scores)',
     { ...evA, id: 1, syscall: 'ptrace', args: ['0x10'], string_args: {}, backtrace: [] },
     { ...evA, id: 2, syscall: 'ptrace', args: ['0x0'], string_args: {}, backtrace: [] },
     { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/proc/self/status' } },
-    { ...evA, id: 4, syscall: 'read', string_args: {}, fd_args: { '0': '/proc/self/status' }, backtrace: [] },
+    { ...evA, id: 4, syscall: 'read', string_args: {}, fd_args: { '0': 'fd=6 </proc/self/status>' }, backtrace: [] },
     { ...evA, id: 5, syscall: 'openat', string_args: { '1': '/proc/self/maps' } },
     { ...evA, id: 6, syscall: 'connect', string_args: {}, sock_addr: 'unix:@/frida-zymbiote-abc', backtrace: [] },
     { ...evA, id: 7, syscall: 'access', string_args: { '1': '/system/xbin/busybox' } },
     { ...evA, id: 8, syscall: 'openat', string_args: { '1': '/sys/fs/selinux/enforce' } },
     { ...evA, id: 9, syscall: 'prctl', args: ['0xdeadbeef'], string_args: {}, backtrace: [] },
     { ...evA, id: 10, syscall: 'openat', string_args: { '1': '/data/app/benign.so' } }, // matches nothing
+    { ...evA, id: 11, syscall: 'read', string_args: {}, fd_args: { '0': 'fd=122' }, backtrace: [] }, // unresolved: matches nothing
   ]
 
   it('for every built-in rule, DuckDB WHERE-admission matches scoreWith over all events', async () => {

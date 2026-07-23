@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { compileWhere, scoreWith, aggregate, BUILTIN_RULES, type Rule } from '../src/shared/rasp-heuristics'
+import { compileWhere, scoreWith, aggregate, normalizeFdValue, BUILTIN_RULES, type Rule } from '../src/shared/rasp-heuristics'
 import type { SyscallEvent } from '../src/shared/events'
 
 const base: SyscallEvent = {
@@ -60,8 +60,10 @@ describe('scoreWith over the built-in set', () => {
   it('flags openat /proc/self/status as debugger', () => {
     expect(cats({ ...base, syscall: 'openat', string_args: { '1': '/proc/self/status' } })).toContain('debugger')
   })
-  it('flags read of /proc/self/status as debugger (fd fallback)', () => {
-    expect(cats({ ...base, syscall: 'read', fd_args: { '0': '/proc/self/status' }, backtrace: [] })).toContain('debugger')
+  it('flags read of /proc/self/status as debugger (real fd_args shape)', () => {
+    expect(cats({ ...base, syscall: 'read', fd_args: { '0': 'fd=6 </proc/self/status>' },
+                  backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }))
+      .toContain('debugger')
   })
   it('flags openat /proc/self/maps as hook', () => {
     expect(cats({ ...base, syscall: 'openat', string_args: { '1': '/proc/self/maps' } })).toContain('hook')
@@ -116,5 +118,23 @@ describe('aggregate (unchanged)', () => {
     expect(out).toHaveLength(1)
     expect(out[0].occurrences).toBe(2)
     expect(out[0].confidence).toBe(0.9)
+  })
+})
+
+describe('normalizeFdValue', () => {
+  it('unwraps a resolved fd', () => {
+    expect(normalizeFdValue('fd=6 </proc/self/status>')).toBe('/proc/self/status')
+  })
+  it('drops an unresolved fd (no path to match)', () => {
+    expect(normalizeFdValue('fd=122')).toBeNull()
+  })
+  it('passes AT_FDCWD through', () => {
+    expect(normalizeFdValue('AT_FDCWD')).toBe('AT_FDCWD')
+  })
+  it('passes a negative fd through', () => {
+    expect(normalizeFdValue('-1')).toBe('-1')
+  })
+  it('unwraps a non-file descriptor', () => {
+    expect(normalizeFdValue('fd=115 <pipe:[4230735]>')).toBe('pipe:[4230735]')
   })
 })
