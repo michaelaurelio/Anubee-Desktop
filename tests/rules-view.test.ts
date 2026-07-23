@@ -1,5 +1,6 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
-import { draftFromForm, predicateSummary, sequenceSummary, upsertRule, deleteRule, setEnabled } from '../src/renderer/rules-view'
+import { draftFromForm, predicateSummary, sequenceSummary, upsertRule, deleteRule, setEnabled, renderRules } from '../src/renderer/rules-view'
 import { validateRule } from '@shared/rasp-heuristics'
 import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 
@@ -77,5 +78,174 @@ describe('rules-view helpers', () => {
   it('setEnabled writes an override', () => {
     expect(setEnabled({ rules: [], enabledOverrides: {} }, 'dbg-ptrace-attach', false).enabledOverrides)
       .toEqual({ 'dbg-ptrace-attach': false })
+  })
+})
+
+// --- editor form (DOM) ---
+
+const twoStepRule: Rule = {
+  id: 'seq2', category: 'hook', confidence: 0.9, rationale: 'r', enabled: true, source: 'project',
+  correlate: 'module+tid', maxGap: 20,
+  steps: [
+    { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'maps' },
+    { syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 2, value: '0x10' },
+  ],
+}
+
+const threeStepRule: Rule = {
+  id: 'seq3', category: 'hook', confidence: 0.9, rationale: 'r', enabled: true, source: 'project',
+  correlate: 'module+tid', maxGap: 10,
+  steps: [
+    { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'alpha' },
+    { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'beta' },
+    { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'gamma' },
+  ],
+}
+
+function stubAnubee(effective: Rule[], global: RuleScope = { rules: [], enabledOverrides: {} }, project: RuleScope = { rules: [], enabledOverrides: {} }): void {
+  ;(window as unknown as { anubee: Record<string, unknown> }).anubee = {
+    rulesGet: async () => ({ builtin: [], global, project, effective }),
+    rulesPreview: async () => ({ events: 0, targets: 0 }),
+    rulesSave: async () => undefined,
+  }
+}
+
+function findButton(root: HTMLElement, text: string): HTMLButtonElement {
+  const btn = Array.from(root.querySelectorAll('button')).find(b => b.textContent === text)
+  if (!btn) throw new Error(`button "${text}" not found`)
+  return btn
+}
+
+async function openNewRuleForm(): Promise<HTMLElement> {
+  stubAnubee([])
+  const host = document.createElement('div')
+  await renderRules(host, undefined, () => {})
+  findButton(host, 'New rule').click()
+  return host.querySelector('.rule-form') as HTMLElement
+}
+
+async function openEditForm(rule: Rule): Promise<HTMLElement> {
+  stubAnubee([rule])
+  const host = document.createElement('div')
+  await renderRules(host, undefined, () => {})
+  findButton(host, 'Edit').click()
+  return host.querySelector('.rule-form') as HTMLElement
+}
+
+function stepBlocks(form: HTMLElement): HTMLElement[] {
+  return Array.from(form.querySelectorAll<HTMLElement>('.rf-step'))
+}
+
+function headingOf(block: HTMLElement): string {
+  return block.querySelector('.rf-step-head > span:first-child')?.textContent ?? ''
+}
+
+function removeBtnOf(block: HTMLElement): HTMLButtonElement {
+  return block.querySelector('.rf-step-del') as HTMLButtonElement
+}
+
+// argIndex is the 4th rf-row in a step block (syscalls, field, op, argIndex, value).
+function argRowOf(block: HTMLElement): HTMLElement {
+  return block.querySelectorAll<HTMLElement>('.rf-row')[3]
+}
+
+function stepValues(block: HTMLElement) {
+  const inputs = block.querySelectorAll<HTMLInputElement>('input')
+  const selects = block.querySelectorAll<HTMLSelectElement>('select')
+  return {
+    sysIn: inputs[0], argIn: inputs[1], valIn: inputs[2],
+    fieldSel: selects[0], opSel: selects[1],
+  }
+}
+
+describe('rules-view editor form (DOM)', () => {
+  it('Add step appends a new numbered step block and renumbers headings', async () => {
+    const form = await openNewRuleForm()
+    expect(stepBlocks(form)).toHaveLength(1)
+    expect(headingOf(stepBlocks(form)[0])).toBe('step 1')
+
+    findButton(form, 'Add step').click()
+
+    const blocks = stepBlocks(form)
+    expect(blocks).toHaveLength(2)
+    expect(headingOf(blocks[0])).toBe('step 1')
+    expect(headingOf(blocks[1])).toBe('step 2')
+  })
+
+  it('refuses to remove the last remaining step', async () => {
+    const form = await openNewRuleForm()
+    expect(stepBlocks(form)).toHaveLength(1)
+
+    removeBtnOf(stepBlocks(form)[0]).click()
+
+    expect(stepBlocks(form)).toHaveLength(1)
+  })
+
+  it('removes the targeted step from a multi-step rule and renumbers survivors with no gap', async () => {
+    const form = await openEditForm(threeStepRule)
+    expect(stepBlocks(form)).toHaveLength(3)
+
+    removeBtnOf(stepBlocks(form)[1]).click() // remove the middle step ('beta')
+
+    const blocks = stepBlocks(form)
+    expect(blocks).toHaveLength(2)
+    expect(headingOf(blocks[0])).toBe('step 1')
+    expect(headingOf(blocks[1])).toBe('step 2')
+    expect(stepValues(blocks[0]).valIn.value).toBe('alpha')
+    expect(stepValues(blocks[1]).valIn.value).toBe('gamma')
+  })
+
+  it('shows argIndex only for the step whose op is arg_hex_eq, leaving sibling steps hidden', async () => {
+    // Three steps, with step 2 the *middle* one (not the last block created) -
+    // a closure that got captured by loop reference instead of per-call value
+    // would route step 2's change event to whichever block was built last.
+    const form = await openNewRuleForm()
+    findButton(form, 'Add step').click()
+    findButton(form, 'Add step').click()
+    const [block1, block2, block3] = stepBlocks(form)
+
+    // all default to path_matches, so all argIndex rows start hidden
+    expect(argRowOf(block1).style.display).toBe('none')
+    expect(argRowOf(block2).style.display).toBe('none')
+    expect(argRowOf(block3).style.display).toBe('none')
+
+    const op2 = stepValues(block2).opSel
+    op2.value = 'arg_hex_eq'
+    op2.dispatchEvent(new Event('change', { bubbles: true }))
+
+    expect(argRowOf(block2).style.display).toBe('')
+    expect(argRowOf(block1).style.display).toBe('none') // earlier sibling untouched
+    expect(argRowOf(block3).style.display).toBe('none') // later sibling untouched
+  })
+
+  it('prefills both steps of a two-step rule on edit', async () => {
+    const form = await openEditForm(twoStepRule)
+    const blocks = stepBlocks(form)
+    expect(blocks).toHaveLength(2)
+
+    const s1 = stepValues(blocks[0])
+    expect(s1.sysIn.value).toBe('openat')
+    expect(s1.fieldSel.value).toBe('string_args')
+    expect(s1.opSel.value).toBe('path_matches')
+    expect(s1.valIn.value).toBe('maps')
+
+    const s2 = stepValues(blocks[1])
+    expect(s2.sysIn.value).toBe('ptrace')
+    expect(s2.fieldSel.value).toBe('args')
+    expect(s2.opSel.value).toBe('arg_hex_eq')
+    expect(s2.argIn.value).toBe('2')
+    expect(s2.valIn.value).toBe('0x10')
+  })
+
+  it('still prefills a single-step rule on edit', async () => {
+    const form = await openEditForm(R)
+    const blocks = stepBlocks(form)
+    expect(blocks).toHaveLength(1)
+
+    const s = stepValues(blocks[0])
+    expect(s.sysIn.value).toBe('openat')
+    expect(s.fieldSel.value).toBe('string_args')
+    expect(s.opSel.value).toBe('path_matches')
+    expect(s.valIn.value).toBe('su')
   })
 })
