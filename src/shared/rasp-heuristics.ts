@@ -1,6 +1,7 @@
 import type { SyscallEvent } from './events'
 import type { RaspCategory } from './project-store'
 import { chainOf } from './graph-shape'
+import { parseFrameSymbol } from './frame-symbol'
 
 // Rules over syscall events -> suggested RASP tags. Never auto-applied; the
 // analyst confirms each. Grounded in real Anubee output (see the Phase-2 spec):
@@ -252,6 +253,150 @@ function targetOf(e: SyscallEvent): string | null {
     if (chain[i].kind === 'java') return chain[i].id
   }
   return null
+}
+
+export interface Frame { module: string; addr: string }
+
+export interface RawHit {
+  ruleId: string
+  target: string
+  frame: Frame | null   // the anchor (step 0) call site; null when it has no module
+  pid: number
+  category: RaspCategory
+  confidence: number
+  rationale: string
+}
+
+// The anchor frame for a hit: the innermost non-platform native frame's raw
+// address and module. Null when the event is attributed to a java frame, which
+// has no load address to make module-relative.
+function anchorFrame(e: SyscallEvent): Frame | null {
+  for (const f of e.backtrace) {
+    const p = parseFrameSymbol(f.symbol)
+    if (p.module === null || isSystemNative(p.module)) continue
+    return { module: p.module, addr: f.addr }
+  }
+  return null
+}
+
+// The correlation key for one event under one mode, or null when the event has
+// no origin of that kind (it then participates in no sequence for that rule).
+function correlationKey(mode: CorrelateKey, e: SyscallEvent): string | null {
+  if (mode === 'java') {
+    const chain = chainOf(e)
+    for (let i = chain.length - 1; i >= 0; i--) if (chain[i].kind === 'java') return chain[i].id
+    return null
+  }
+  const f = anchorFrame(e)
+  if (f === null) return null
+  const base = mode === 'module' || mode === 'module+tid' ? `mod:${f.module}` : targetOf(e)
+  if (base === null) return null
+  return mode.endsWith('+tid') ? `${base}#${e.tid}` : base
+}
+
+interface PartialMatch {
+  nextStep: number
+  atCount: number       // key-local event count when the previous step matched
+  target: string
+  frame: Frame | null
+  pid: number
+}
+
+// Ordered-sequence matcher over an id-ordered event stream. Stateful so it can be
+// driven page by page (the candidate set is never materialised whole), pure in the
+// sense that the same ordered input always yields the same output.
+//
+// Per event, per rule: advance at most one in-flight partial (the oldest), else
+// open a new one on step 0. A completed match is consumed, so one anchor reports
+// one occurrence no matter how many later events would also satisfy the last step.
+export class SequenceMatcher {
+  private hits: RawHit[] = []
+  private dropped = 0
+  private live = 0
+  private counts = new Map<string, number>()            // correlate-mode + key -> events seen
+  private partials = new Map<string, PartialMatch[]>()  // ruleId + key -> in flight
+
+  constructor(private rules: Rule[], private cap = 10000) {}
+
+  push(e: SyscallEvent): void {
+    const keys = new Map<CorrelateKey, string | null>()
+    const keyOf = (mode: CorrelateKey): string | null => {
+      if (!keys.has(mode)) keys.set(mode, correlationKey(mode, e))
+      return keys.get(mode)!
+    }
+
+    // Bump each distinct correlation stream once for this event, before matching,
+    // so gap distance is measured in key-local events.
+    const bumped = new Set<string>()
+    for (const r of this.rules) {
+      const k = keyOf(r.correlate)
+      if (k === null) continue
+      const ck = `${r.correlate} ${k}`
+      if (bumped.has(ck)) continue
+      bumped.add(ck)
+      this.counts.set(ck, (this.counts.get(ck) ?? 0) + 1)
+    }
+
+    for (const r of this.rules) {
+      const k = keyOf(r.correlate)
+      if (k === null) continue
+      const n = this.counts.get(`${r.correlate} ${k}`)!
+      const pk = `${r.id} ${k}`
+      const list = this.partials.get(pk)
+      let advanced = false
+
+      if (list && list.length > 0) {
+        const kept: PartialMatch[] = []
+        for (const p of list) {
+          if (n - p.atCount > r.maxGap) { this.live--; continue }   // expired
+          if (!advanced && matchOne(r.steps[p.nextStep], e)) {
+            advanced = true
+            p.nextStep++
+            p.atCount = n
+            if (p.nextStep === r.steps.length) {
+              this.emit(r, p.target, p.frame, p.pid)
+              this.live--
+              continue
+            }
+          }
+          kept.push(p)
+        }
+        if (kept.length === 0) this.partials.delete(pk)
+        else this.partials.set(pk, kept)
+      }
+
+      if (advanced) continue
+      if (!matchOne(r.steps[0], e)) continue
+      const target = targetOf(e)
+      if (target === null) continue
+      if (r.steps.length === 1) { this.emit(r, target, anchorFrame(e), e.pid); continue }
+      if (this.live >= this.cap) { this.dropped++; continue }
+      this.live++
+      const open = this.partials.get(pk) ?? []
+      open.push({ nextStep: 1, atCount: n, target, frame: anchorFrame(e), pid: e.pid })
+      this.partials.set(pk, open)
+    }
+  }
+
+  private emit(r: Rule, target: string, frame: Frame | null, pid: number): void {
+    this.hits.push({
+      ruleId: r.id, target, frame, pid,
+      category: r.category, confidence: r.confidence, rationale: r.rationale,
+    })
+  }
+
+  finish(): { hits: RawHit[]; dropped: number } {
+    return { hits: this.hits, dropped: this.dropped }
+  }
+}
+
+// One-shot wrapper. The store drives SequenceMatcher page by page instead.
+export function matchSequences(
+  rules: Rule[], events: Iterable<SyscallEvent>, cap?: number,
+): { hits: RawHit[]; dropped: number } {
+  const m = new SequenceMatcher(rules, cap)
+  for (const e of events) m.push(e)
+  return m.finish()
 }
 
 function sqlLit(s: string): string {
