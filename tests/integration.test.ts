@@ -8,6 +8,7 @@ import { foldEvents, foldFuncEvents, mergeGraphs } from '@shared/graph-shape'
 import { presenceOf } from '../src/shared/diff'
 import type { StackRollup } from '../src/shared/flame-shape'
 import { compileWhere, matchSequences, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
+import type { Rule } from '../src/shared/rasp-heuristics'
 import type { SyscallEvent, FuncEvent } from '@shared/events'
 
 // oracle.jsonl is the tiny deterministic fixture these exact-value assertions pin
@@ -201,6 +202,29 @@ describe('heuristic suggestions', () => {
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
                   { frame: 1, addr: '0x2000', symbol: 'libart.so!ReadMaps+0x40' }] }]))
     expect(await store.suggest()).toEqual([])
+    await store.close()
+  })
+
+  it('a match whose steps straddle a page boundary still completes', async () => {
+    // suggestPage: 1 forces every event onto its own page, so this only passes
+    // if the SequenceMatcher survives across suggest()'s paging loop instead of
+    // being recreated per page.
+    const store = new GraphStore({ suggestPage: 1 })
+    const bt = [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!scan+0x100' }]
+    const straddleRule: Rule = {
+      id: 'test-straddle', category: 'hook', confidence: 0.9, rationale: 'straddle test',
+      enabled: true, source: 'project', correlate: 'symbol+tid', maxGap: 50,
+      steps: [
+        { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' },
+        { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'frida-agent-64\\.so$' },
+      ],
+    }
+    await store.ingest(fixture([
+      { ...evA, id: 1, syscall: 'openat', string_args: { '1': '/proc/self/maps' }, backtrace: bt },
+      { ...evA, id: 2, syscall: 'openat', string_args: { '1': '/data/local/tmp/frida-agent-64.so' }, backtrace: bt },
+    ]))
+    const s = await store.suggest(undefined, [straddleRule])
+    expect(s).toHaveLength(1)
     await store.close()
   })
 })

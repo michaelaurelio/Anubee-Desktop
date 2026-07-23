@@ -164,6 +164,8 @@ export interface RunInfo {
 }
 
 export class GraphStore {
+  constructor(private opts: { suggestPage?: number } = {}) {}
+
   private instance?: DuckDBInstance
   private con?: DuckDBConnection
   private runsMap = new Map<number, RunInfo>()
@@ -758,7 +760,7 @@ export class GraphStore {
 
   // Page size for the candidate scan. The prefilter already bounds the set; paging
   // keeps even a pathologically broad rule library off the JS heap in one lump.
-  private static SUGGEST_PAGE = 20000
+  private get suggestPage(): number { return this.opts.suggestPage ?? 20000 }
 
   // Score the run against a resolved rule set. Main resolves built-in + global +
   // project rules and passes them in; when omitted we default to the enabled
@@ -777,7 +779,7 @@ export class GraphStore {
       try {
         rows = await this.rows(
           `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})
-           ORDER BY id LIMIT ${GraphStore.SUGGEST_PAGE} OFFSET ${offset}`,
+           ORDER BY id LIMIT ${this.suggestPage} OFFSET ${offset}`,
         )
       } catch (e) {
         // Defense in depth: a compiled rule DuckDB rejects (e.g. an RE2-incompatible
@@ -789,7 +791,7 @@ export class GraphStore {
         const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
         matcher.push(ev as SyscallEvent)
       }
-      if (rows.length < GraphStore.SUGGEST_PAGE) break
+      if (rows.length < this.suggestPage) break
       offset += rows.length
     }
     const { hits, dropped } = matcher.finish()
