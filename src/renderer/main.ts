@@ -28,7 +28,7 @@ import type { GraphSlice } from '@shared/graph-shape'
 import type { Filter } from '@shared/filter'
 import {
   renderCapabilityForm, renderEngineSegments, specsDirRow, applySpecChoices,
-  applyFieldErrors, renderDot, appendConsoleLine,
+  applyFieldErrors, renderDot, appendConsoleLine, appendConsoleLines, CONSOLE_LINE_CAP,
 } from './capture-view'
 import { renderArgvPreview } from './argv-preview'
 import { coverageChipText } from './coverage-chip'
@@ -911,6 +911,7 @@ function wireCapture(): (() => void) | undefined {
     shell!.classList.remove('state-config'); shell!.classList.add('state-running')
     setLiveBadge(true)
     consoleHost!.innerHTML = ''
+    pendingLines = [] // a previous run's unflushed tail must not bleed into this one
     // Replay the preflight result dimmed so the log reads as one story.
     const rows = [...pfHost!.querySelectorAll('.pf-label')].map(e => e.textContent)
     if (rows.length) {
@@ -970,15 +971,46 @@ function wireCapture(): (() => void) | undefined {
   }
 
   // ---- live console ------------------------------------------------------
-  captureLineSink = (line: string): void => {
-    appendConsoleLine(consoleHost, line)
-    lineCount += 1
+  // An unfiltered syscalls capture emits well over ten thousand lines a second.
+  // Touching the DOM once per line - especially reading scrollHeight to follow
+  // the tail, which forces a synchronous layout - saturates the main thread, so
+  // queued click events never run and the Stop buttons look dead. Buffer here
+  // and flush once per animation frame instead: the DOM work per second drops
+  // to at most one batch per frame, and the browser gets to service input in
+  // between.
+  let pendingLines: string[] = []
+  let flushHandle: number | undefined
+
+  const flushLines = (): void => {
+    flushHandle = undefined
+    if (pendingLines.length === 0) return
+    const batch = pendingLines
+    pendingLines = []
+    appendConsoleLines(consoleHost, batch)
+    lineCount += batch.length
     counters = `${lineCount} lines`
-    // Fast path: only the counters text changes per line, so patch that node
-    // directly instead of paintFooter()'s full teardown/rebuild - see
-    // setFooterCounters. A syscalls capture with no filter emits thousands of
-    // lines per second; rebuilding every button that often pegs the renderer.
+    // Only the counters text changes, so patch that node directly rather than
+    // running paintFooter()'s full teardown and rebuild - see setFooterCounters.
     setFooterCounters(footHost, counters)
+  }
+
+  captureLineSink = (line: string): void => {
+    pendingLines.push(line)
+    // requestAnimationFrame stops firing while the window is minimised or
+    // occluded, so without a bound the buffer would grow for the whole run.
+    // Trimming to the console cap is lossless: appendConsoleLines evicts down
+    // to the same cap, so the dropped lines could never have been painted.
+    if (pendingLines.length > CONSOLE_LINE_CAP) {
+      pendingLines = pendingLines.slice(-CONSOLE_LINE_CAP)
+    }
+    if (flushHandle === undefined) flushHandle = requestAnimationFrame(flushLines)
+  }
+
+  // Flush synchronously when a run ends so the tail is on screen before the
+  // completion line, and drop any frame still queued against a torn-down modal.
+  captureFlush = (): void => {
+    if (flushHandle !== undefined) { cancelAnimationFrame(flushHandle); flushHandle = undefined }
+    flushLines()
   }
 
   // ---- run completion (broadcast) -----------------------------------------
@@ -997,6 +1029,9 @@ function wireCapture(): (() => void) | undefined {
   // module-scope onTracerDone handler below, so it runs the same regardless
   // of whether a Capture instance happens to still be open.
   captureDoneSink = (result: { code: number; kind: string; runId?: number; error?: string }): void => {
+    // Land any buffered tail before the completion line, so the log reads in
+    // order rather than showing "done" above the last few hundred lines.
+    captureFlush?.()
     appendConsoleLine(consoleHost,
       result.error ? `--- error: ${result.error} ---` : `--- done (exit ${result.code}, kind ${result.kind}) ---`)
     running = false
@@ -1037,6 +1072,7 @@ function wireCapture(): (() => void) | undefined {
     setLiveBadge(true)
     consoleHost.innerHTML = ''
     lineCount = 0
+    pendingLines = []
     appendConsoleLine(consoleHost, '[reattached] capture is still running - earlier output is not shown')
     consoleHost.lastElementChild?.classList.add('preflight-replay')
     // This instance never called startCapture(), so capId/vals are still
@@ -1055,9 +1091,13 @@ function wireCapture(): (() => void) | undefined {
   // tracerIsRunning check above.
   return function cleanupCapture(): void {
     closed = true
+    // Drop a frame still queued against this instance's now-detached console.
+    if (flushHandle !== undefined) { cancelAnimationFrame(flushHandle); flushHandle = undefined }
+    pendingLines = []
     captureLineSink = undefined
     captureDoneSink = undefined
     captureFinishingSink = undefined
+    captureFlush = undefined
     preflightEpoch.bump()
   }
 }
@@ -1308,6 +1348,10 @@ let captureDoneSink: ((result: { code: number; kind: string; runId?: number; err
 // Set by wireCapture on each modal open, mirroring captureDoneSink; the
 // tracer:phase subscription is registered once, so it dispatches through this.
 let captureFinishingSink: (() => void) | undefined
+// Forces the live Capture instance to land its buffered console tail now,
+// rather than waiting for the next animation frame. Set alongside the sinks
+// above and cleared by the same cleanup.
+let captureFlush: (() => void) | undefined
 
 // Registered once (not per Capture-modal open) so re-opening Capture doesn't
 // stack tracer:line subscriptions; dispatches through captureLineSink to
