@@ -363,12 +363,13 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
     // the bug this used to have when discardActive was cleared here directly
     // but the run stayed "active" (for tracer:isRunning) through the pull.
     const { wasDiscarded } = runLifecycle.markExited()
+    // Tell whichever Capture instance is open that Stop no longer applies -
+    // there is no live process left to signal. Sent on the discard path too:
+    // that path skips the pull below, but the UI still needs to stop offering
+    // Stop buttons that can no longer act, and previously got no phase at all.
+    win.webContents.send('tracer:phase', { phase: 'finishing' })
     // Stop & discard: the analyst threw the run away, so do not pull or ingest.
     if (cap.outputKind === 'jsonl' && jsonlPath && !wasDiscarded) {
-      // Tell whichever Capture instance is open that Stop no longer applies -
-      // there is no live process left to signal, only a pull + ingest in
-      // flight. The footer swaps to a non-interactive busy state on this.
-      win.webContents.send('tracer:phase', { phase: 'finishing' })
       const hostPath = resolveSavePath(savePath, resolve(runsDir(), `anubee-${ts}.jsonl`))
       const pulled = await pullResult(adb, 'jsonl', jsonlPath, hostPath)
       if (pulled.hostPath) {

@@ -14,13 +14,20 @@ export interface FooterState {
   // point, so the footer drops to a non-interactive busy note instead of
   // offering Stop buttons that can no longer act.
   finishing?: boolean
+  // True from the moment Stop is clicked until main reports the run has moved
+  // on. Stopping a device process takes seconds (SIGINT, then anubee drains its
+  // queue), and without this the footer sat unchanged the whole time, so the
+  // click looked ignored - the complaint that prompted this state.
+  stopping?: boolean
   failReason?: string
   counters?: string
 }
 
 export interface FooterButton { id: string; label: string; disabled: boolean; primary: boolean }
 export interface FooterSpec {
-  left: { kind: 'none' | 'note' | 'rerun' | 'counters'; text: string }
+  // 'busy' is 'note' plus a spinner: the work is ongoing rather than a result
+  // to read, and a static line alone did not read as "something is happening".
+  left: { kind: 'none' | 'note' | 'rerun' | 'counters' | 'busy'; text: string }
   buttons: FooterButton[]   // rendered left to right; the primary is last
 }
 
@@ -30,7 +37,13 @@ const btn = (id: string, label: string, primary = false, disabled = false): Foot
 export function captureFooter(st: FooterState): FooterSpec {
   if (st.running) {
     if (st.finishing) {
-      return { left: { kind: 'note', text: 'Pulling & ingesting…' }, buttons: [] }
+      return { left: { kind: 'busy', text: 'Pulling & ingesting…' }, buttons: [] }
+    }
+    // Acknowledge the click immediately. The device still has to take the
+    // signal and drain, which is seconds; leaving the Stop buttons up through
+    // that reads as "nothing happened" and invites a second click.
+    if (st.stopping) {
+      return { left: { kind: 'busy', text: 'Stopping the capture…' }, buttons: [] }
     }
     return {
       left: { kind: 'counters', text: st.counters ?? '' },
@@ -75,6 +88,15 @@ export function renderCaptureFooter(
     b.textContent = `↻ ${spec.left.text}`
     b.addEventListener('click', () => onClick('cap-rerun'))
     host.appendChild(b)
+  } else if (spec.left.kind === 'busy') {
+    const wrap = document.createElement('span')
+    wrap.className = 'cap-foot-busy'
+    const spin = document.createElement('span')
+    spin.className = 'cap-spinner'
+    const s = document.createElement('span')
+    s.textContent = spec.left.text
+    wrap.append(spin, s)
+    host.appendChild(wrap)
   } else if (spec.left.kind !== 'none') {
     const s = document.createElement('span')
     s.className = spec.left.kind === 'note' ? 'cap-foot-note' : 'cap-foot-counters'

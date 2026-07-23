@@ -70,6 +70,7 @@ export function commonArgv(vals: CapValues): string[] {
   if (b !== undefined && b !== 4) a.push('-b', String(b))
   if (q !== undefined && q !== 256) a.push('-Q', String(q))
   if (vals.verbose) a.push('-v')
+  if (vals.quiet) a.push('-q')
   return a
 }
 
@@ -79,6 +80,12 @@ export const COMMON_TUNING_INPUTS: CapInput[] = [
   { key: 'bufmb', label: 'ring buffer (MB)', kind: 'int', default: 4, min: 1, advanced: true },
   { key: 'queuemb', label: 'worker queue (MB)', kind: 'int', default: 256, min: 1, advanced: true },
   { key: 'verbose', label: 'verbose debug', kind: 'bool', advanced: true },
+  // -q silences anubee's per-event console output. The JSONL that -o writes is
+  // unaffected, so a quiet run still captures everything - it only stops the
+  // live console echoing it. Worth having: an unfiltered capture prints tens of
+  // thousands of lines a second, and rendering that is pure overhead when the
+  // analyst only wants the resulting run.
+  { key: 'quiet', label: 'quiet console', kind: 'bool', advanced: true },
 ]
 
 // --snapshot: opt-in per-engine flag (syscalls/funcs only). Populates stack_id

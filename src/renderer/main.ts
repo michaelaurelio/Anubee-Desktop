@@ -716,6 +716,7 @@ function wireCapture(): (() => void) | undefined {
   // There is nothing left for Stop to signal at that point; captureFooter
   // drops to a non-interactive busy note instead of offering it.
   let finishing = false
+  let stopping = false // Stop clicked, device not yet reported as exited
   let failReason = ''
   let counters = ''
   let lineCount = 0 // tracked independently of consoleHost's (capped) DOM node count
@@ -727,7 +728,7 @@ function wireCapture(): (() => void) | undefined {
   // ---- footer ------------------------------------------------------------
   const paintFooter = (): void => {
     renderCaptureFooter(footHost,
-      captureFooter({ configValid: configValid(), preflight, running, finishing, failReason, counters }),
+      captureFooter({ configValid: configValid(), preflight, running, finishing, stopping, failReason, counters }),
       onFooterClick)
   }
 
@@ -907,7 +908,7 @@ function wireCapture(): (() => void) | undefined {
   async function startCapture(): Promise<void> {
     const errs = validateInputs(cap(), vals)
     if (errs.length) { failReason = errs.join('; '); preflight = 'failed'; paintFooter(); return }
-    running = true; finishing = false; counters = ''; lineCount = 0
+    running = true; finishing = false; stopping = false; counters = ''; lineCount = 0
     shell!.classList.remove('state-config'); shell!.classList.add('state-running')
     setLiveBadge(true)
     consoleHost!.innerHTML = ''
@@ -960,12 +961,17 @@ function wireCapture(): (() => void) | undefined {
     if (id === 'cap-cancel') { closeModal(); return }
     if (id === 'cap-preflight' || id === 'cap-rerun') { void runPreflight(); return }
     if (id === 'cap-start') { void startCapture(); return }
+    // Repaint before awaiting the IPC: signalling the device and waiting for
+    // anubee to drain takes seconds, and without an immediate acknowledgement
+    // the footer looked frozen and invited a second click.
     if (id === 'cap-stop-open') {
       logAppend('info', 'capture', 'Stop requested')
+      stopping = true; paintFooter()
       void window.anubee.tracerStop(false); return
     }
     if (id === 'cap-stop-discard') {
       logAppend('info', 'capture', 'Stop requested (discard)')
+      stopping = true; paintFooter()
       void window.anubee.tracerStop(true)
     }
   }
@@ -1042,6 +1048,7 @@ function wireCapture(): (() => void) | undefined {
       result.error ? `--- error: ${result.error} ---` : `--- done (exit ${result.code}, kind ${result.kind}) ---`)
     running = false
     finishing = false
+    stopping = false
     setLiveBadge(false)
     shell.classList.remove('state-running'); shell.classList.add('state-config')
     // The run consumed the pushed binary and the launched package; keep the
