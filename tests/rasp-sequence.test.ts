@@ -102,11 +102,14 @@ describe('SequenceMatcher', () => {
     expect(idsOf(hits).filter(id => id === 'hook-frida-scan')).toEqual([])
   })
 
-  it('the sweep keeps a partial with exactly maxGap events still to come', () => {
-    // Sweeping on every push, with the stream six events past the anchor: five
-    // of them sit between the anchor and whatever arrives next, which is exactly
-    // maxGap, so the sweep must not retire it. The final event carries no module
-    // key, so it sweeps without touching the stream.
+  it('the sweep keeps a partial the advance path would expire on its next event', () => {
+    // Sweeping on every push, with the stream six events past the anchor: six
+    // would sit between the anchor and whatever arrives next, one more than
+    // maxGap, so the advance path retires it the moment another key-local event
+    // shows up. The sweep's own predicate counts one event behind, so it keeps
+    // the partial here - harmless, because push() re-checks expiry before it
+    // attempts a match. The final event carries no module key, so it sweeps
+    // without touching the stream.
     const m = new SequenceMatcher([seq, benign], 10, { sweepEvery: 1 })
     m.push(ev(1, 'openat', '/proc/self/maps'))
     for (let i = 0; i < 6; i++) m.push(ev(10 + i, 'openat', '/data/benign.so'))

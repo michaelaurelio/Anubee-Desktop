@@ -650,6 +650,13 @@ resolve to - rendered as `matches N events → M targets`. An invalid rule or no
 it exists purely so an analyst can gauge a draft rule's blast radius against
 the current run before saving it into global or project scope.
 
+*Caveat: the preview matches the draft rule **alone**, while `suggest()` runs
+every enabled rule through one matcher. Gap distance is counted in events that
+match some step of some enabled rule on the same correlation key, so another
+enabled rule's candidates can consume a sequence rule's `maxGap` window. A
+multi-step rule can therefore preview as matching and then produce no
+suggestion. The preview is an upper bound, not a promise.*
+
 ### Findings export
 
 `src/shared/findings.ts` is a pure module: `buildFindings(tags, reps)` joins

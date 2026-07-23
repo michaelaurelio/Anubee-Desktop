@@ -370,8 +370,11 @@ export interface SequenceMatcherOptions {
 // Distance is counted in RULE-RELEVANT events: a rule's maxGap is how many events
 // that match some rule step and share this correlation key may fall between two
 // consecutive steps. That is exactly what the store feeds in (the DuckDB
-// prefilter admits only candidate rows), and unrelated work cannot dilute a
-// window because it either matches no step or keys differently.
+// prefilter admits only candidate rows). Note "some rule step", not "some step
+// of this rule": a correlation stream is bumped once per event for every rule
+// sharing that key, so an event matching a DIFFERENT enabled rule's step on the
+// same key does consume this rule's window. Which enabled rules the matcher was
+// built with therefore affects what a given rule matches.
 //
 // In-flight partials are capped. At the cap the matcher forgets its oldest
 // partial to make room, counting it in `dropped` - never refusing new ones,

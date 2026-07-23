@@ -11,7 +11,7 @@ const rules = BUILTIN_RULES
 const cats = (e: SyscallEvent) =>
   matchSequences(rules, [e]).hits.map(h => h.category).sort()
 
-describe('scoreWith over the built-in set', () => {
+describe('matchSequences over the built-in set', () => {
   it('flags ptrace ATTACH (0x10) as debugger', () => {
     expect(cats({ ...base, syscall: 'ptrace', args: ['0x10'],
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] })).toContain('debugger')
