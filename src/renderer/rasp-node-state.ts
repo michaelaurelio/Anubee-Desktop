@@ -9,7 +9,12 @@ export interface NodeRasp { category: RaspCategory; state: RaspState }
 
 export function raspNodeStates(suggestions: Suggestion[], tags: Tag[]): Map<string, NodeRasp> {
   const m = new Map<string, NodeRasp>()
-  for (const s of suggestions) m.set(s.target, { category: s.category, state: 'suggested' })
+  const best = new Map<string, number>()
+  for (const s of suggestions) {
+    if ((best.get(s.target) ?? -1) >= s.confidence) continue
+    best.set(s.target, s.confidence)
+    m.set(s.target, { category: s.category, state: 'suggested' })
+  }
   for (const t of tags) m.set(t.target, { category: t.category, state: 'confirmed' })
   return m
 }

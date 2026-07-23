@@ -330,7 +330,7 @@ async function renderSuggestionsInto(host: HTMLElement): Promise<void> {
   const all = await window.anubee.suggest(activeRunId)
   const open = all.filter(s =>
     !isDismissed(dismissed, s.target, s.category) &&
-    !tags.some(t => t.target === s.target && t.category === s.category))
+    !tags.some(t => t.target === s.target && t.category === s.category && t.offset === undefined))
   renderSuggestions(host, open,
     async tag => {
       tags = upsertTag(tags, tag)
@@ -339,8 +339,8 @@ async function renderSuggestionsInto(host: HTMLElement): Promise<void> {
       redrawBadges()
       void recolorRasp()
     },
-    async s => {
-      dismissed = addDismissed(dismissed, s.target, s.category)
+    async (s, offset) => {
+      dismissed = addDismissed(dismissed, s.target, s.category, offset)
       await window.anubee.dismissedSave(activeRunId!, dismissed)
       dirty = true
       void recolorRasp()

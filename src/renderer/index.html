@@ -471,7 +471,7 @@
       /* suggestions (opened from the rail button, into a modal body) */
       .sug-head { font-weight: 600; color: var(--text); margin-bottom: 8px; }
       .sug-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }
-      .sug-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 4px;
+      .sug-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; padding: 8px 4px;
         border-bottom: 1px solid var(--border-soft); }
       .sug-info { flex: 1 1 auto; min-width: 0; }
       .sug-line1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -486,6 +486,9 @@
       .sug-btns { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
       .sug-confirm { border-color: #2ea043; color: #7ee2a0; }
       .sug-reject { border-color: #c94f4f; color: #f2a3a3; }
+      .sug-offset { display: flex; flex-basis: 100%; align-items: center; justify-content: space-between; gap: 8px;
+        margin-left: 16px; padding: 2px 0 2px 8px; border-left: 2px solid var(--border-soft); }
+      .sug-offset-label { font: 11px var(--mono); color: var(--muted); }
       /* Rules modal - same card language as the suggestions list */
       .rule-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 4px; border-bottom: 1px solid var(--border-soft); }
       .rule-info { flex: 1 1 auto; min-width: 0; }
