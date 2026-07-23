@@ -4,7 +4,8 @@ import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 
 const R: Rule = {
   id: 'a', category: 'root', confidence: 0.8, rationale: 'r', enabled: true, source: 'global',
-  match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' },
+  steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' }],
+  correlate: 'symbol+tid', maxGap: 50,
 }
 
 describe('rules-view helpers', () => {
@@ -12,17 +13,17 @@ describe('rules-view helpers', () => {
     const d = draftFromForm({ id: 'a', category: 'root', confidence: 0.8, rationale: 'r', enabled: true,
       syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' })
     expect(d).toEqual({ id: 'a', category: 'root', confidence: 0.8, rationale: 'r', enabled: true,
-      match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' } })
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' }] })
   })
 
   it('draftFromForm includes argIndex for arg_hex_eq', () => {
     const d = draftFromForm({ id: 'p', category: 'debugger', confidence: 0.7, rationale: 'r', enabled: true,
       syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x10' })
-    expect((d.match as Record<string, unknown>).argIndex).toBe(0)
+    expect((d.steps as Record<string, unknown>[])[0].argIndex).toBe(0)
   })
 
   it('predicateSummary renders path and hex predicates', () => {
-    expect(predicateSummary(R.match)).toBe('string_args path_matches /su/')
+    expect(predicateSummary(R.steps[0])).toBe('string_args path_matches /su/')
     expect(predicateSummary({ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x10' }))
       .toBe('args[0] arg_hex_eq 0x10')
   })

@@ -12,7 +12,9 @@ export type RuleField = 'string_args' | 'fd_args' | 'sock_addr' | 'args'
 export type RuleOp = 'path_matches' | 'equals' | 'arg_hex_eq'
 export type RuleSource = 'builtin' | 'global' | 'project'
 
-export interface RuleMatch {
+export type CorrelateKey = 'symbol' | 'symbol+tid' | 'module' | 'module+tid' | 'java'
+
+export interface RuleStep {
   syscalls: string[]
   field: RuleField
   op: RuleOp
@@ -20,15 +22,25 @@ export interface RuleMatch {
   value: string
 }
 
+// Retained name so existing renderer imports keep compiling; a step and a
+// legacy match are the same shape.
+export type RuleMatch = RuleStep
+
 export interface Rule {
   id: string
   category: RaspCategory
   confidence: number
   rationale: string
   enabled: boolean
-  match: RuleMatch
+  steps: RuleStep[]      // >= 1; a length-1 rule is today's single-event predicate
+  correlate: CorrelateKey
+  maxGap: number         // same-correlation-key events allowed between consecutive steps
   source: RuleSource
 }
+
+export const DEFAULT_CORRELATE: CorrelateKey = 'symbol+tid'
+export const DEFAULT_MAX_GAP = 50
+const CORRELATES: CorrelateKey[] = ['symbol', 'symbol+tid', 'module', 'module+tid', 'java']
 
 export interface RuleScope {
   rules: Rule[]
@@ -52,42 +64,66 @@ const RE2_INCOMPATIBLE = /\(\?<?[=!]|\\[1-9]/
 export const BUILTIN_RULES: Rule[] = [
   { id: 'dbg-ptrace-attach', category: 'debugger', confidence: 0.7,
     rationale: 'ptrace(PTRACE_ATTACH) attach-probe - anti-debug self/other attach',
-    enabled: true, source: 'builtin',
-    match: { syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x10' } },
+    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
+    steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x10' }] },
   { id: 'dbg-ptrace-traceme', category: 'debugger', confidence: 0.9,
     rationale: 'ptrace(PTRACE_TRACEME) - classic anti-debug self-attach',
-    enabled: true, source: 'builtin',
-    match: { syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x0' } },
+    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
+    steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x0' }] },
   { id: 'dbg-status-open', category: 'debugger', confidence: 0.6,
     rationale: 'open of /proc/self/status - likely TracerPid debugger check',
-    enabled: true, source: 'builtin',
-    match: { syscalls: ['openat', 'newfstatat'], field: 'string_args', op: 'path_matches', value: '/proc/self/status$' } },
+    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
+    steps: [{ syscalls: ['openat', 'newfstatat'], field: 'string_args', op: 'path_matches', value: '/proc/self/status$' }] },
   { id: 'dbg-status-read', category: 'debugger', confidence: 0.6,
     rationale: 'read of /proc/self/status - likely TracerPid debugger check',
-    enabled: true, source: 'builtin',
-    match: { syscalls: ['read'], field: 'fd_args', op: 'equals', value: '/proc/self/status' } },
+    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
+    steps: [{ syscalls: ['read'], field: 'fd_args', op: 'equals', value: '/proc/self/status' }] },
   { id: 'hook-maps', category: 'hook', confidence: 0.5,
     rationale: 'read of /proc/self/maps - hook/injection scan (also frida/xposed/integrity); low confidence',
-    enabled: true, source: 'builtin',
-    match: { syscalls: ['openat', 'newfstatat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' } },
+    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
+    steps: [{ syscalls: ['openat', 'newfstatat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' }] },
   { id: 'hook-frida-sock', category: 'hook', confidence: 0.9,
     rationale: 'connect to a frida control socket - dynamic-instrumentation probe',
-    enabled: true, source: 'builtin',
-    match: { syscalls: ['connect'], field: 'sock_addr', op: 'path_matches', value: 'frida' } },
+    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
+    steps: [{ syscalls: ['connect'], field: 'sock_addr', op: 'path_matches', value: 'frida' }] },
   { id: 'root-paths', category: 'root', confidence: 0.85,
     rationale: 'access of a root-indicator path (su/magisk/busybox/xbin/sbin/adb)',
-    enabled: true, source: 'builtin',
-    match: { syscalls: ['openat', 'access', 'newfstatat', 'faccessat'], field: 'string_args', op: 'path_matches',
-      value: '(^|/)su$|magisk|busybox|/system/xbin|/sbin(/|$)|/data/adb' } },
+    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
+    steps: [{ syscalls: ['openat', 'access', 'newfstatat', 'faccessat'], field: 'string_args', op: 'path_matches',
+      value: '(^|/)su$|magisk|busybox|/system/xbin|/sbin(/|$)|/data/adb' }] },
   { id: 'root-selinux', category: 'root', confidence: 0.8,
     rationale: 'read of /sys/fs/selinux/enforce - SELinux-posture / root tell',
-    enabled: true, source: 'builtin',
-    match: { syscalls: ['openat', 'newfstatat', 'faccessat'], field: 'string_args', op: 'path_matches', value: '/sys/fs/selinux/enforce$' } },
+    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
+    steps: [{ syscalls: ['openat', 'newfstatat', 'faccessat'], field: 'string_args', op: 'path_matches', value: '/sys/fs/selinux/enforce$' }] },
   { id: 'root-ksu-prctl', category: 'root', confidence: 0.9,
     rationale: 'prctl(0xdeadbeef) - KernelSU magic prctl probe',
-    enabled: true, source: 'builtin',
-    match: { syscalls: ['prctl'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0xdeadbeef' } },
+    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
+    steps: [{ syscalls: ['prctl'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0xdeadbeef' }] },
 ]
+
+function validateStep(v: unknown, id: string): { step: RuleStep | null; error: string | null } {
+  if (typeof v !== 'object' || v === null) return { step: null, error: `bad step on ${id}` }
+  const m = v as Record<string, unknown>
+  if (!Array.isArray(m.syscalls) || m.syscalls.length === 0 || !m.syscalls.every(s => typeof s === 'string'))
+    return { step: null, error: `bad syscalls on ${id}` }
+  if (typeof m.field !== 'string' || !FIELDS.includes(m.field as RuleField)) return { step: null, error: `bad field on ${id}` }
+  if (typeof m.op !== 'string' || !OPS.includes(m.op as RuleOp)) return { step: null, error: `bad op on ${id}` }
+  if (typeof m.value !== 'string') return { step: null, error: `missing value on ${id}` }
+  if (m.op === 'arg_hex_eq') {
+    if (typeof m.argIndex !== 'number' || m.argIndex < 0 || !Number.isInteger(m.argIndex))
+      return { step: null, error: `arg_hex_eq needs argIndex on ${id}` }
+    if (!HEX.test(m.value)) return { step: null, error: `arg_hex_eq value must be hex on ${id}` }
+  }
+  if (m.op === 'path_matches') {
+    try { new RegExp(m.value) } catch { return { step: null, error: `bad regex on ${id}` } }
+    if (RE2_INCOMPATIBLE.test(m.value))
+      return { step: null, error: `regex uses an RE2-incompatible construct (lookaround/backreference) on ${id}` }
+  }
+  const value = m.op === 'arg_hex_eq' ? '0x' + argNum(m.value as string).toString(16) : (m.value as string)
+  const step: RuleStep = { syscalls: m.syscalls as string[], field: m.field as RuleField, op: m.op as RuleOp, value }
+  if (typeof m.argIndex === 'number') step.argIndex = m.argIndex
+  return { step, error: null }
+}
 
 export function validateRule(v: unknown, source: RuleSource): { rule: Rule | null; error: string | null } {
   if (typeof v !== 'object' || v === null) return { rule: null, error: 'not an object' }
@@ -96,26 +132,29 @@ export function validateRule(v: unknown, source: RuleSource): { rule: Rule | nul
   if (typeof o.category !== 'string' || !CATEGORIES.includes(o.category as RaspCategory)) return { rule: null, error: `bad category on ${o.id}` }
   if (typeof o.confidence !== 'number' || o.confidence < 0 || o.confidence > 1) return { rule: null, error: `confidence out of [0,1] on ${o.id}` }
   if (typeof o.rationale !== 'string') return { rule: null, error: `missing rationale on ${o.id}` }
-  const m = o.match as Record<string, unknown> | undefined
-  if (typeof m !== 'object' || m === null) return { rule: null, error: `missing match on ${o.id}` }
-  if (!Array.isArray(m.syscalls) || m.syscalls.length === 0 || !m.syscalls.every(s => typeof s === 'string')) return { rule: null, error: `bad syscalls on ${o.id}` }
-  if (typeof m.field !== 'string' || !FIELDS.includes(m.field as RuleField)) return { rule: null, error: `bad field on ${o.id}` }
-  if (typeof m.op !== 'string' || !OPS.includes(m.op as RuleOp)) return { rule: null, error: `bad op on ${o.id}` }
-  if (typeof m.value !== 'string') return { rule: null, error: `missing value on ${o.id}` }
-  if (m.op === 'arg_hex_eq') {
-    if (typeof m.argIndex !== 'number' || m.argIndex < 0 || !Number.isInteger(m.argIndex)) return { rule: null, error: `arg_hex_eq needs argIndex on ${o.id}` }
-    if (!HEX.test(m.value)) return { rule: null, error: `arg_hex_eq value must be hex on ${o.id}` }
+
+  // Schema v1 stored a single `match`; read it as a one-step sequence.
+  const raw = Array.isArray(o.steps) ? o.steps : (o.match !== undefined ? [o.match] : null)
+  if (raw === null) return { rule: null, error: `missing steps on ${o.id}` }
+  if (raw.length === 0) return { rule: null, error: `steps must not be empty on ${o.id}` }
+  const steps: RuleStep[] = []
+  for (const entry of raw) {
+    const { step, error } = validateStep(entry, o.id)
+    if (!step) return { rule: null, error }
+    steps.push(step)
   }
-  if (m.op === 'path_matches') {
-    try { new RegExp(m.value) } catch { return { rule: null, error: `bad regex on ${o.id}` } }
-    if (RE2_INCOMPATIBLE.test(m.value)) return { rule: null, error: `regex uses an RE2-incompatible construct (lookaround/backreference) on ${o.id}` }
-  }
-  const value = m.op === 'arg_hex_eq' ? '0x' + argNum(m.value as string).toString(16) : (m.value as string)
-  const match: RuleMatch = { syscalls: m.syscalls as string[], field: m.field as RuleField, op: m.op as RuleOp, value }
-  if (typeof m.argIndex === 'number') match.argIndex = m.argIndex
+
+  const correlate = o.correlate === undefined ? DEFAULT_CORRELATE : o.correlate
+  if (typeof correlate !== 'string' || !CORRELATES.includes(correlate as CorrelateKey))
+    return { rule: null, error: `bad correlate on ${o.id}` }
+  const maxGap = o.maxGap === undefined ? DEFAULT_MAX_GAP : o.maxGap
+  if (typeof maxGap !== 'number' || !Number.isInteger(maxGap) || maxGap < 1)
+    return { rule: null, error: `maxGap must be a positive integer on ${o.id}` }
+
   const rule: Rule = {
     id: o.id, category: o.category as RaspCategory, confidence: o.confidence, rationale: o.rationale,
-    enabled: typeof o.enabled === 'boolean' ? o.enabled : true, match, source,
+    enabled: typeof o.enabled === 'boolean' ? o.enabled : true,
+    steps, correlate: correlate as CorrelateKey, maxGap, source,
   }
   return { rule, error: null }
 }
@@ -141,7 +180,7 @@ export function resolveRules(builtin: Rule[], global: RuleScope, project: RuleSc
   const order: string[] = []
   const put = (r: Rule) => {
     if (!map.has(r.id)) order.push(r.id)
-    map.set(r.id, { ...r, match: { ...r.match } })
+    map.set(r.id, { ...r, steps: r.steps.map(s => ({ ...s })) })
   }
   const applyOverrides = (ov: Record<string, boolean>) => {
     for (const [id, en] of Object.entries(ov)) {
@@ -238,8 +277,9 @@ export function normalizeFdValue(v: string): string | null {
 // re-checks each and remains the scoring authority. An empty list matches
 // nothing. Values are single-quote escaped - the safety boundary (no raw SQL).
 export function compileWhere(rules: Rule[]): string {
-  if (rules.length === 0) return 'false'
-  return rules.map(clauseOf).join(' OR ')
+  const clauses = rules.flatMap(r => r.steps).map(clauseOf)
+  if (clauses.length === 0) return 'false'
+  return clauses.join(' OR ')
 }
 
 // The SQL twin of normalizeFdValue: unwrap 'fd=<n> <path>', drop a bare
@@ -251,29 +291,27 @@ const FD_NORM_SQL =
   "THEN regexp_extract(x, '^fd=[0-9]+ <(.*)>$', 1) " +
   "WHEN regexp_matches(x, '^fd=[0-9]+$') THEN NULL ELSE x END), y -> y IS NOT NULL)"
 
-function clauseOf(r: Rule): string {
-  const inSys = `syscall IN (${r.match.syscalls.map(s => `'${sqlLit(s)}'`).join(', ')})`
-  const v = sqlLit(r.match.value)
-  const f = r.match.field
+function clauseOf(m: RuleStep): string {
+  const inSys = `syscall IN (${m.syscalls.map(s => `'${sqlLit(s)}'`).join(', ')})`
+  const v = sqlLit(m.value)
+  const f = m.field
   let pred: string
-  if (r.match.op === 'arg_hex_eq') {
-    const idx = (r.match.argIndex ?? 0) + 1 // DuckDB list is 1-indexed
-    const dec = String(argNum(r.match.value))
+  if (m.op === 'arg_hex_eq') {
+    const idx = (m.argIndex ?? 0) + 1 // DuckDB list is 1-indexed
+    const dec = String(argNum(m.value))
     pred = `args[${idx}] IN ('${v}', '${sqlLit(dec)}')`
   } else if (f === 'sock_addr') {
-    pred = r.match.op === 'equals'
-      ? `sock_addr = '${v}'`
-      : `regexp_matches(sock_addr, '${v}', 'i')`
+    pred = m.op === 'equals' ? `sock_addr = '${v}'` : `regexp_matches(sock_addr, '${v}', 'i')`
   } else if (f === 'args') {
-    pred = r.match.op === 'equals'
+    pred = m.op === 'equals'
       ? `list_contains(args, '${v}')`
       : `len(list_filter(args, x -> regexp_matches(x, '${v}', 'i'))) > 0`
   } else if (f === 'fd_args') {
-    pred = r.match.op === 'equals'
+    pred = m.op === 'equals'
       ? `list_contains(${FD_NORM_SQL}, '${v}')`
       : `len(list_filter(${FD_NORM_SQL}, x -> regexp_matches(x, '${v}', 'i'))) > 0`
   } else { // string_args is MAP(VARCHAR,VARCHAR)
-    pred = r.match.op === 'equals'
+    pred = m.op === 'equals'
       ? `list_contains(map_values(${f}), '${v}')`
       : `len(list_filter(map_values(${f}), x -> regexp_matches(x, '${v}', 'i'))) > 0`
   }
@@ -291,7 +329,7 @@ function valuesOf(field: RuleField, e: SyscallEvent): string[] {
   }
 }
 
-function matchOne(m: RuleMatch, e: SyscallEvent): boolean {
+function matchOne(m: RuleStep, e: SyscallEvent): boolean {
   if (m.op === 'arg_hex_eq') {
     const a = e.args[m.argIndex ?? 0]
     return a !== undefined && argNum(a) === argNum(m.value)
@@ -309,8 +347,8 @@ export function scoreWith(rules: Rule[], e: SyscallEvent): Suggestion[] {
   if (target === null) return []
   const out: Suggestion[] = []
   for (const r of rules) {
-    if (!r.match.syscalls.includes(e.syscall)) continue
-    if (matchOne(r.match, e)) {
+    if (!r.steps[0].syscalls.includes(e.syscall)) continue
+    if (matchOne(r.steps[0], e)) {
       out.push({ target, category: r.category, confidence: r.confidence, rationale: r.rationale, occurrences: 1 })
     }
   }

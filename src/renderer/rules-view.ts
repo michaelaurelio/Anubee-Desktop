@@ -21,13 +21,13 @@ export interface RuleFormValues {
 
 // The raw rule object to hand to validateRule. argIndex only for arg_hex_eq.
 export function draftFromForm(v: RuleFormValues): Record<string, unknown> {
-  const match: Record<string, unknown> = {
+  const step: Record<string, unknown> = {
     syscalls: v.syscalls, field: v.field, op: v.op, value: v.value,
   }
-  if (v.op === 'arg_hex_eq') match.argIndex = v.argIndex ?? 0
+  if (v.op === 'arg_hex_eq') step.argIndex = v.argIndex ?? 0
   return {
     id: v.id, category: v.category, confidence: v.confidence,
-    rationale: v.rationale, enabled: v.enabled, match,
+    rationale: v.rationale, enabled: v.enabled, steps: [step],
   }
 }
 
@@ -95,9 +95,9 @@ export async function renderRules(
     const src = document.createElement('span'); src.className = 'rule-src'; src.textContent = r.source
     const id = document.createElement('span'); id.className = 'rule-id'; id.textContent = r.id
     const meta = document.createElement('span'); meta.className = 'rule-meta'
-    meta.textContent = `${(r.confidence * 100).toFixed(0)}% · ${r.match.syscalls.join(',')}`
+    meta.textContent = `${(r.confidence * 100).toFixed(0)}% · ${r.steps[0].syscalls.join(',')}`
     line1.append(cat, src, id, meta)
-    const pred = document.createElement('div'); pred.className = 'rule-pred'; pred.textContent = predicateSummary(r.match)
+    const pred = document.createElement('div'); pred.className = 'rule-pred'; pred.textContent = predicateSummary(r.steps[0])
     info.append(line1, pred)
 
     const btns = document.createElement('div'); btns.className = 'rule-btns'
@@ -175,11 +175,11 @@ export async function renderRules(
     const catSel = select(CATEGORIES, existing?.category ?? 'custom')
     const confIn = document.createElement('input'); confIn.type = 'number'; confIn.step = '0.05'; confIn.min = '0'; confIn.max = '1'; confIn.value = String(existing?.confidence ?? 0.5)
     const ratIn = document.createElement('input'); ratIn.value = existing?.rationale ?? ''
-    const sysIn = document.createElement('input'); sysIn.placeholder = 'openat, access'; sysIn.value = existing?.match.syscalls.join(', ') ?? ''
-    const fieldSel = select(FIELDS, existing?.match.field ?? 'string_args')
-    const opSel = select(OPS, existing?.match.op ?? 'path_matches')
-    const argIn = document.createElement('input'); argIn.type = 'number'; argIn.min = '0'; argIn.value = String(existing?.match.argIndex ?? 0)
-    const valIn = document.createElement('input'); valIn.value = existing?.match.value ?? ''
+    const sysIn = document.createElement('input'); sysIn.placeholder = 'openat, access'; sysIn.value = existing?.steps[0].syscalls.join(', ') ?? ''
+    const fieldSel = select(FIELDS, existing?.steps[0].field ?? 'string_args')
+    const opSel = select(OPS, existing?.steps[0].op ?? 'path_matches')
+    const argIn = document.createElement('input'); argIn.type = 'number'; argIn.min = '0'; argIn.value = String(existing?.steps[0].argIndex ?? 0)
+    const valIn = document.createElement('input'); valIn.value = existing?.steps[0].value ?? ''
     const scopeSel = select(['project', 'global'], existing?.source === 'global' ? 'global' : 'project')
     const preview = document.createElement('div')
 

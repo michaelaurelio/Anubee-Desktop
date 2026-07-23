@@ -218,7 +218,7 @@ describe('suggest fail-safe', () => {
     await store.ingest(fixture([evA]))
     // A rule that bypassed validation with an RE2-incompatible regex -> DuckDB rejects the WHERE.
     const badRule = { id: 'bad', category: 'custom', confidence: 0.5, rationale: 'x', enabled: true, source: 'global',
-      match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo(?=bar)' } } as any
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo(?=bar)' }] } as any
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const out = await store.suggest(undefined, [badRule])
     expect(out).toEqual([])

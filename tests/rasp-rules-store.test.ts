@@ -7,7 +7,7 @@ import type { Rule } from '../src/shared/rasp-heuristics'
 
 const dir = () => mkdtempSync(join(tmpdir(), 'anubee-rules-'))
 const rule: Rule = { id: 'u-1', category: 'custom', confidence: 0.5, rationale: 'r', enabled: true, source: 'global',
-  match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo' } }
+  steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo' }], correlate: 'symbol+tid', maxGap: 50 }
 
 describe('rasp-rules-store', () => {
   it('returns an empty scope when the file is absent', () => {

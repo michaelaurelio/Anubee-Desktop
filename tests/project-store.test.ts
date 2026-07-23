@@ -70,7 +70,7 @@ import type { Rule as _Rule } from '../src/shared/rasp-heuristics'
 
 describe('sidecar rules', () => {
   const projRule: _Rule = { id: 'p-1', category: 'custom', confidence: 0.4, rationale: 'proj', enabled: true, source: 'project',
-    match: { syscalls: ['openat'], field: 'string_args', op: 'equals', value: '/x' } }
+    steps: [{ syscalls: ['openat'], field: 'string_args', op: 'equals', value: '/x' }], correlate: 'symbol+tid', maxGap: 50 }
 
   it('round-trips rules and enabledOverrides through serialize/parse', () => {
     const text = _serializeSidecar({ file: 'run.jsonl', ingestedAt: 'now' }, [], [projRule], { 'root-paths': false })

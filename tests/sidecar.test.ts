@@ -14,7 +14,8 @@ const tag: Tag = {
 const RULE: Rule = {
   id: 'proj-1', category: 'root', confidence: 0.8, rationale: 'test',
   enabled: true, source: 'project',
-  match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'magisk' },
+  steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'magisk' }],
+  correlate: 'symbol+tid', maxGap: 50,
 }
 
 describe('sidecar fs', () => {
