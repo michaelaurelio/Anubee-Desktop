@@ -67,6 +67,74 @@ pre-tagging" and "RASP rule-authoring UI" sections.
   and no reclaim path. Revisit if a run with an extreme number of distinct
   correlation keys (e.g. `symbol+tid` on a very high-thread-churn capture)
   makes it measurably large.
+  Record alongside it that **`SequenceMatcher.hits` is unbounded too**: it grows
+  O(matched candidates) for the life of a `suggest()` run, and at peak three
+  same-length arrays are live at once (`finish()`'s defensive copy, the
+  `ResolvedHit[]` `resolveHits` maps out of it, and `aggregate`'s input). Judged
+  acceptable because it is bounded by how much a run *matches*, not by run size -
+  a capture with millions of events but few RASP behaviours costs nothing here.
+  Revisit together with `counts` if a broad user rule library ever matches a
+  large fraction of a big capture; the fix is to aggregate incrementally instead
+  of retaining every hit.
+- **`SequenceMatcher.sweep`'s keep-predicate runs one stream-event behind the
+  advance path's expiry check**, so a partial can linger one event past its
+  rule's `maxGap` before the sweep reclaims it. Harmless today: `push` re-checks
+  expiry on the advance path before it ever attempts a match, so a lingering
+  partial cannot produce a hit it should not have - the lag costs at most one
+  extra live slot for one sweep interval. Worth aligning the two predicates if
+  the sweep is ever made the sole expiry authority.
+- **`dropped` is incremented on the refusal path for a partial that was never
+  opened.** `push` bumps it both when eviction frees a slot and when eviction
+  reports failure. The second branch is unreachable while `cap > 0`, because
+  `evictOldest` always finds a victim once the cap is reached, so the counter is
+  accurate in practice - but the two branches mean different things and a
+  `cap: 0` matcher would report drops for partials it never held.
+- **No test asserts a RESOLVED call-site offset end to end.** The integration
+  test asserts `offsets.length > 0`, which also passes when resolution falls back
+  to `[unmapped]`, so the byte-identity between a heuristic offset and the node
+  inspector's offset popup - the thing tag identity `(target, offset, category)`
+  depends on - is unguarded. Closing it needs a `lib`-bearing fixture and an
+  assertion that `suggest().offsets[0].offset === nodeOffsets()[0].offset` for
+  the same target.
+- **`previewRule` is an unpaged full scan of its rule's candidate set, and it
+  compiles only that one rule.** Both differ from `suggest`: the scan is
+  unbounded in rows (acceptable while a draft rule's prefilter is narrow, not if
+  someone previews a rule matching most of a capture), and matching the draft in
+  isolation means its counts can disagree with what `suggest` produces once
+  other rules are enabled, since a sequence rule's `maxGap` window is consumed
+  by any enabled rule's candidates on the same correlation key. See the
+  live-preview caveat in `DOCUMENTATION.md`.
+- **`.rf-step { margin: 8px -8px }` bleeds its border into the modal gutter.**
+  The negative inline margin only looks right because `.modal-body`'s padding is
+  wider than it - the rule form is coupled to the one container it is ever
+  rendered into. It cannot clip today (the form has no other mount point), but
+  the coupling is undocumented and untested; a second host, or a narrower
+  `.modal-body` padding, would cut the step border off.
+- **The fixture-wide "no platform library target" test's regex covers only five
+  of roughly 28 modules in `SYSTEM_NATIVE`,** so it would not catch a suggestion
+  attributed to `libbinder.so` or `libnativehelper.so`. Deriving the assertion
+  from `SYSTEM_NATIVE` directly (rather than restating a hand-picked subset)
+  would be a strictly stronger guard and would not drift when the list grows.
+- **`suggest()` runs a full rescan two to three times per user action.** The
+  suggestions list and the graph recolour each call it, and every Confirm or
+  Reject triggers another round. Pre-existing, but sequence matching made each
+  scan materially more expensive (per-event, per-rule partial bookkeeping on top
+  of the DuckDB paging), so on a large capture this is seconds of latency per
+  click. Fix approach: cache the suggestion set per run and invalidate it on a
+  rule or sidecar change, rather than rescanning on every read.
+- **The findings export sets a finding's occurrence count to the *target's*
+  total event count,** not the count of events the confirmed behaviour actually
+  explains. With per-`(target, category)` suggestion rows this is now the normal
+  case, not an edge case: confirming root, debugger and hook on one symbol
+  exports three lines each claiming the same total. Fix needs the export to
+  carry the suggestion's own `occurrences` (or the offset child's) through to
+  the `Finding` instead of counting representative events.
+- **On a capture with no `lib` records every suggestion's only call-site child
+  is `[unmapped]`,** which duplicates its parent row exactly and whose Confirm
+  writes a literal `offset: "[unmapped]"` into the sidecar - a tag identity that
+  refines nothing but is not equal to the symbol-level one. Consider suppressing
+  the children when `[unmapped]` is the only offset, so such a run shows the
+  plain row it used to.
 - **Pre-existing UI glitch, unrelated to this work but worth recording:** the
   `root-paths` built-in's rule-list meta line (confidence + syscalls, e.g.
   `85% · openat,access,newfstatat,faccessat`) wraps awkwardly onto its own
