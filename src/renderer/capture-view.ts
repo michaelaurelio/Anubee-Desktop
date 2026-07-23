@@ -137,7 +137,7 @@ function buildRow(
   } else {
     const tx = document.createElement('input')
     tx.type = 'text'; tx.dataset.key = inp.key
-    tx.value = String(current[inp.key] ?? ''); tx.placeholder = inp.label
+    tx.value = String(current[inp.key] ?? ''); tx.placeholder = inp.placeholder ?? inp.label
     tx.addEventListener('input', () => { current[inp.key] = tx.value; onChange({ ...current }) })
     ctrl = tx
   }

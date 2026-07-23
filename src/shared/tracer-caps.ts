@@ -14,6 +14,9 @@ export interface CapInput {
   default?: number   // int inputs: anubee default, shown as placeholder ("use default")
   min?: number       // int inputs: minimum accepted whole number (defaults to 1)
   advanced?: boolean // render inside the collapsible Advanced disclosure
+  // Text inputs default their placeholder to `label`. Set this when the label
+  // has to stay short for the caption column but the field needs a format hint.
+  placeholder?: string
 }
 
 export type CapValues = Record<string, string | boolean | undefined>
@@ -95,7 +98,9 @@ export const CAPABILITIES: Capability[] = [
     inputs: [
       { key: 'pkg', label: 'package', kind: 'package', required: true },
       { key: 'libs', label: 'library filters', kind: 'globlist' },
-      { key: 'syscalls', label: 'syscalls (comma-separated)', kind: 'csv' },
+      // Label kept short: at 96px the caption column wrapped it to three lines
+      // and left the row ragged. The input's placeholder carries the format.
+      { key: 'syscalls', label: 'syscalls', kind: 'csv', placeholder: 'openat,connect (blank = all)' },
       SNAPSHOT_INPUT,
       ...COMMON_TUNING_INPUTS,
     ],

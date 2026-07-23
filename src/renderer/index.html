@@ -266,6 +266,10 @@
                    gap: 6px 10px; align-items: center; font-size: 12px;
                    color: var(--muted); margin-bottom: 9px; }
       .cap-input > span:first-child { text-align: right; }
+      /* A checkbox has no intrinsic width to fill the 1fr control column, so
+         grid stretches its box and the glyph renders centred, floating away
+         from the left edge every text input lines up on. Pin it to the start. */
+      .cap-input input[type=checkbox] { justify-self: start; }
       .cap-input-err { grid-column: 2 / -1; display: block; font-size: 11px;
                        color: var(--k-syscall); min-height: 14px; }
       #cap-form-err { margin-left: 106px; }
@@ -273,7 +277,8 @@
       /* .hint: the chip-list's OR'd/glob explanation (capture-view.ts
          globlistHint()), a sibling below the row rather than trailing inside
          it - matches the mockup's own `.hint` class, not `.cap-hint`. */
-      .hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
+      .hint { font-size: 11px; color: var(--muted); margin-top: 5px;
+              margin-left: 106px; }
       #capture input[type=text], #capture input[type=number], #capture select {
         background: var(--input-bg); border: 1px solid var(--border-soft); color: var(--text);
         border-radius: 5px; padding: 5px 9px; font-size: 12.5px; min-width: 0; }
