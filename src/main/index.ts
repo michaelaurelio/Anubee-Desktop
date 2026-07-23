@@ -20,10 +20,11 @@ import { mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { readFile, open } from 'node:fs/promises'
 import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
+import { createRunLifecycle } from './run-lifecycle'
 import { startLive, dumpByBase, startWatch, pullWatchArtifacts, checkByBases, type LiveEvent } from './native-lib-live'
 import { makeBatcher, type Batcher } from '@shared/batcher'
 import { loadConfig, saveConfig } from './tracer-config'
-import { capById, composeRunArg, outJsonlPath, resolveSavePath, isSafePattern } from '@shared/tracer-caps'
+import { capById, composeRunArg, outJsonlPath, resolveSavePath, isSafePattern, validateStartRequest, type CapValues } from '@shared/tracer-caps'
 import { isElf, specNames, type PathCheck, type PathStatus } from './path-check'
 import { readdir, copyFile } from 'node:fs/promises'
 import { basename } from 'node:path'
@@ -36,7 +37,12 @@ let win!: BrowserWindow
 
 const adb = realAdb()
 const spawner = realSpawner()
-let activeRun: RunHandle | null = null
+// Tracks the single in-flight capture (activeRun/activeRunArgv/discardActive,
+// now a phase-aware object - see run-lifecycle.ts). argv is kept alongside the
+// run so a reattaching Capture modal instance (tracer:isRunning) can show the
+// real running command instead of recomposing one from its own (possibly
+// default) form state.
+const runLifecycle = createRunLifecycle()
 let activeLive: RunHandle | null = null
 let activeWatch: RunHandle | null = null
 // Device+host dirs for the current watcher run, set at nativelib:startLive
@@ -295,28 +301,79 @@ ipcMain.handle('tracer:pickSpecsDir', async () => {
 ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) => {
   const cap = capById(capId)
   if (!cap) throw new Error(`unknown capability ${capId}`)
+  // The renderer's own SAFE_TOKEN/validateInputs gate (Capture form) is the
+  // only thing standing between an arbitrary vals object and a string
+  // executed as root on the device. contextIsolation + no nodeIntegration +
+  // local file:// content make the renderer trusted today, but the barrier
+  // belongs on this, the privileged side, regardless. Re-validate here.
+  const startErr = validateStartRequest(cap, vals as CapValues, timeoutSecs)
+  if (startErr) throw new Error(startErr)
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
   const jsonlPath = cap.outputKind === 'jsonl' ? outJsonlPath(ts) : undefined
   const runArg = composeRunArg({ cap, vals: vals as never, timeoutSecs, jsonlPath })
-  activeRun = startRun(spawner, adb, runArg, line => win.webContents.send('tracer:line', line))
-  const { code } = await activeRun.done
-  activeRun = null
+  const run = startRun(spawner, adb, runArg, line => win.webContents.send('tracer:line', line))
+  // runLifecycle.start throws 'a capture is already running' if one is
+  // already active - clobbering it here would orphan the prior run: its Stop
+  // buttons live only in whichever Capture instance started it, and if that
+  // instance was closed (mid-run, via Escape/backdrop/X) there is no other
+  // way to reach it. This only runs once startRun() has returned successfully,
+  // so a synchronous throw from startRun() itself can never register a stale
+  // argv (the earlier shape assigned activeRunArgv before calling startRun()).
+  runLifecycle.start(runArg, run)
 
+  let code = -1
   let runId: number | undefined
-  if (cap.outputKind === 'jsonl' && jsonlPath) {
-    const hostPath = resolveSavePath(savePath, resolve(runsDir(), `anubee-${ts}.jsonl`))
-    const pulled = await pullResult(adb, 'jsonl', jsonlPath, hostPath)
-    if (pulled.hostPath) {
-      const summary = await loadPath(pulled.hostPath)
-      runId = summary.runId
+  let error: string | undefined
+  try {
+    ;({ code } = await run.done)
+    // The device-side process has exited: phase moves 'device' -> 'finishing'
+    // (tracer:stop can no longer act on it - see requestStop) and hands back
+    // + clears discardActive in the same step, so a Stop & discard click that
+    // lands during the pull/ingest below cannot leak into the NEXT capture -
+    // the bug this used to have when discardActive was cleared here directly
+    // but the run stayed "active" (for tracer:isRunning) through the pull.
+    const { wasDiscarded } = runLifecycle.markExited()
+    // Stop & discard: the analyst threw the run away, so do not pull or ingest.
+    if (cap.outputKind === 'jsonl' && jsonlPath && !wasDiscarded) {
+      // Tell whichever Capture instance is open that Stop no longer applies -
+      // there is no live process left to signal, only a pull + ingest in
+      // flight. The footer swaps to a non-interactive busy state on this.
+      win.webContents.send('tracer:phase', { phase: 'finishing' })
+      const hostPath = resolveSavePath(savePath, resolve(runsDir(), `anubee-${ts}.jsonl`))
+      const pulled = await pullResult(adb, 'jsonl', jsonlPath, hostPath)
+      if (pulled.hostPath) {
+        const summary = await loadPath(pulled.hostPath)
+        runId = summary.runId
+      }
     }
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err)
+  } finally {
+    // Always resets phase/handle/argv/discardActive to idle, regardless of
+    // outcome - the one place this run's state is guaranteed to end, so
+    // discardActive above all cannot survive into the next tracer:start.
+    runLifecycle.finish()
+    // Broadcast completion so whichever Capture modal instance is live can
+    // finalize - the instance that started this run may have been closed and
+    // replaced by a reattached one by the time this resolves.
+    win.webContents.send('tracer:done', { code, kind: cap.outputKind, runId, error })
   }
-  return { code, kind: cap.outputKind, runId }
+  return { code, kind: cap.outputKind, runId, error }
 })
 
-ipcMain.handle('tracer:stop', async () => {
-  if (activeRun) await activeRun.stop()
+ipcMain.handle('tracer:stop', async (_e, discard?: boolean) => {
+  // Only acts in the 'device' phase: once the process has exited and
+  // pull/ingest has taken over ('finishing'), there is nothing left to stop -
+  // writing discardActive here would leak it into the NEXT capture and
+  // silently drop its results (see run-lifecycle.ts's requestStop).
+  const handle = runLifecycle.requestStop(discard === true)
+  if (!handle) return
+  await handle.stop()
 })
+
+ipcMain.handle('tracer:isRunning', () => ({
+  running: runLifecycle.phase() !== 'idle', argv: runLifecycle.argv(), phase: runLifecycle.phase(),
+}))
 
 ipcMain.handle('trace:open', () => openViaDialog(true))
 ipcMain.handle('trace:openCompare', () => openViaDialog(false))

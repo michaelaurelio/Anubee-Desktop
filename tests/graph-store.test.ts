@@ -163,6 +163,60 @@ describe('GraphStore.coverage', () => {
     expect(cov!.snaps).toEqual({ total: 10, truncated: 1 })
     expect(cov!.cfi).toEqual({ walks: 5, stops: { unwind_error: 1 } })
   })
+
+  // Drift regression: read_json's explicit schema silently drops any JSON key
+  // not listed in it, so a variant whose fields were missing from the schema
+  // would ingest fine but come back with them silently gone (not a crash -
+  // exactly the kind of drift that goes unnoticed). This proves the exempt/
+  // clean/degraded fields actually survive the real DuckDB round-trip, not
+  // just the TS type.
+  it('round-trips an exempt coverage record (engine with no coverage surface)', async () => {
+    const coverageLine = JSON.stringify({ type: 'coverage', engine: 'lib', exempt: true, reason: 'no coverage surface' })
+    dir = mkdtempSync(join(tmpdir(), 'anubee-store-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, [...LINES, coverageLine].join('\n') + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const cov = await store.coverage()
+    expect(cov!.exempt).toBe(true)
+    expect(cov!.reason).toBe('no coverage surface')
+    expect(cov!.snaps).toBeFalsy()
+  })
+
+  it('round-trips a clean coverage record', async () => {
+    const coverageLine = JSON.stringify({ type: 'coverage', engine: 'syscalls', clean: true })
+    dir = mkdtempSync(join(tmpdir(), 'anubee-store-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, [...LINES, coverageLine].join('\n') + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const cov = await store.coverage()
+    expect(cov!.clean).toBe(true)
+  })
+
+  it('round-trips a degraded coverage record\'s fields beyond snaps/cfi', async () => {
+    const coverageLine = JSON.stringify({
+      type: 'coverage', engine: 'syscalls',
+      drops: { ring: 5, queue: 2 }, managed_naming_off: true,
+      prearm_drops: 7, depth_capped: 1, decode_partial: true,
+      returns: { spans: 100, captured: 80 },
+    })
+    dir = mkdtempSync(join(tmpdir(), 'anubee-store-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, [...LINES, coverageLine].join('\n') + '\n')
+
+    store = new GraphStore()
+    await store.ingest(p)
+    const cov = await store.coverage()
+    expect(cov!.drops).toEqual({ ring: 5, queue: 2 })
+    expect(cov!.managed_naming_off).toBe(true)
+    expect(cov!.prearm_drops).toBe(7)
+    expect(cov!.depth_capped).toBe(1)
+    expect(cov!.decode_partial).toBe(true)
+    expect(cov!.returns).toEqual({ spans: 100, captured: 80 })
+  })
 })
 
 // The DuckDB slice SQL must reconstruct the same graph as the pure-TS oracle.

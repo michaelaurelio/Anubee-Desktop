@@ -26,8 +26,20 @@ import { buildFlame } from '@shared/flame-shape'
 import { GRAPH_SLICE_CAP, FLAME_CHAIN_CAP, FLAME_NODE_CAP } from '@shared/caps'
 import type { GraphSlice } from '@shared/graph-shape'
 import type { Filter } from '@shared/filter'
-import { renderCapabilityForm, appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices, renderPreflightRow } from './capture-view'
-import { CAPABILITIES, capById, validateInputs, isSafeToken, fieldErrors, capNeedsSpec, type CapValues, type Capability } from '@shared/tracer-caps'
+import {
+  renderCapabilityForm, renderEngineSegments, specsDirRow, applySpecChoices,
+  applyFieldErrors, renderDot, appendConsoleLine,
+} from './capture-view'
+import { renderArgvPreview } from './argv-preview'
+import { coverageChipText } from './coverage-chip'
+import { captureFooter, renderCaptureFooter, setFooterCounters, type PreflightState } from './capture-footer'
+import {
+  resetPreflightPane, appendPreflightCheck, markPreflightStale, preflightSummary,
+} from './capture-preflight-view'
+import {
+  CAPABILITIES, capById, validateInputs, fieldErrors, capNeedsSpec, composeRunArg,
+  type CapValues, type Capability,
+} from '@shared/tracer-caps'
 import { showModal, closeModal, isModalOpen } from './modal'
 import { initLoadingUi, ingest, graph, errorToast } from './loading-ui'
 import { renderLogModal } from './log-view'
@@ -678,103 +690,135 @@ function wireLoadRunB(host: HTMLElement): void {
   })
 }
 
-function wireCapture(): void {
-  const sel = document.getElementById('cap-select') as HTMLSelectElement | null
+function wireCapture(): (() => void) | undefined {
+  const engineHost = document.getElementById('cap-engine')
   const formHost = document.getElementById('cap-form')
-  const statusHost = document.getElementById('cap-preflight-status')
+  const argvHost = document.getElementById('cap-argv')
+  const pfHost = document.getElementById('cap-preflight-pane')
   const consoleHost = document.getElementById('cap-console')
-  const startBtn = document.getElementById('cap-start') as HTMLButtonElement | null
-  const stopBtn = document.getElementById('cap-stop') as HTMLButtonElement | null
+  const footHost = document.getElementById('cap-foot')
+  const specsHost = document.getElementById('cap-specs-host')
+  const shell = document.getElementById('capture')
   const binIn = document.getElementById('cfg-binary') as HTMLInputElement | null
   const saveIn = document.getElementById('cap-savepath') as HTMLInputElement | null
-  if (!sel || !formHost || !statusHost || !consoleHost || !startBtn || !stopBtn || !binIn) return
+  const runArgvHost = document.querySelector<HTMLElement>('#capture-run [data-role="argvRunning"]')
+  if (!engineHost || !formHost || !argvHost || !pfHost || !consoleHost || !footHost
+      || !specsHost || !shell || !binIn || !runArgvHost) return
 
-  document.getElementById('cap-browse')?.addEventListener('click', async () => {
-    const p = await window.anubee.pickSavePath()
-    if (p && saveIn) saveIn.value = p
-  })
+  let capId = CAPABILITIES[0].id
+  let vals: CapValues = {}
+  let specsDir = ''
+  let specNames: string[] = []
+  let preflight: PreflightState = 'none'
+  let running = false
+  // True once main reports the run has moved from 'device' to 'finishing'
+  // (device process exited, pull+ingest in flight - see run-lifecycle.ts).
+  // There is nothing left for Stop to signal at that point; captureFooter
+  // drops to a non-interactive busy note instead of offering it.
+  let finishing = false
+  let failReason = ''
+  let counters = ''
+  let lineCount = 0 // tracked independently of consoleHost's (capped) DOM node count
+  const preflightEpoch = makeEpoch() // a superseded preflight must not re-enable Start
 
+  const cap = (): Capability => capById(capId)!
+  const configValid = (): boolean => validateInputs(cap(), vals).length === 0
+
+  // ---- footer ------------------------------------------------------------
+  const paintFooter = (): void => {
+    renderCaptureFooter(footHost,
+      captureFooter({ configValid: configValid(), preflight, running, finishing, failReason, counters }),
+      onFooterClick)
+  }
+
+  // ---- argv preview ------------------------------------------------------
+  // The real -o path is timestamped at dispatch, so preview a placeholder
+  // rather than inventing a timestamp that will not match the run.
+  const paintArgv = (): void => {
+    const argv = composeRunArg({ cap: cap(), vals, jsonlPath: '<out>.jsonl' })
+    renderArgvPreview(argvHost, argv)
+    if (running) renderArgvPreview(runArgvHost, argv)
+  }
+
+  // ---- preflight invalidation -------------------------------------------
+  // preflight validates the package AND pushes the binary/specs, so any config
+  // edit genuinely invalidates it.
+  const invalidatePreflight = (reason: string): void => {
+    preflightEpoch.bump()
+    if (preflight === 'passed' || preflight === 'failed') {
+      preflight = 'stale'
+      markPreflightStale(pfHost, reason)
+    } else if (preflight === 'running') {
+      preflight = 'none'
+      resetPreflightPane(pfHost)
+    }
+    failReason = ''
+    paintFooter()
+  }
+
+  const onFormChange = (v: CapValues): void => {
+    vals = v
+    invalidatePreflight('arguments changed since the last preflight')
+    const { fields, form } = fieldErrors(cap(), vals)
+    applyFieldErrors(formHost, fields)
+    const formErr = document.getElementById('cap-form-err')
+    if (formErr) formErr.textContent = form.join('; ')
+    paintArgv()
+    paintFooter()
+  }
+
+  // ---- host paths --------------------------------------------------------
   const binDot = document.getElementById('cfg-binary-dot')
   const binErr = document.getElementById('cfg-binary-err')
-
-  let specsDir = ''            // persisted host specs dir; rendered in-form for spec engines
-  let specNames: string[] = [] // discovered .spec basenames for the current specsDir
-
   const refreshBinary = async (): Promise<void> => {
     const r = await window.anubee.tracerCheckPaths(binIn.value, specsDir)
     if (binDot) renderDot(binDot, r.binary)
     if (binErr) binErr.textContent = r.binary.ok ? '' : `Required - ${r.binary.detail}`
   }
-
   document.getElementById('cfg-binary-browse')?.addEventListener('click', async () => {
     const p = await window.anubee.tracerPickBinary()
-    if (p) { binIn.value = p; saveCfg(); void refreshBinary() }
+    if (p) { binIn.value = p; saveCfg(); void refreshBinary(); invalidatePreflight('binary changed since the last preflight') }
   })
-  binIn.addEventListener('input', () => void refreshBinary())
+  binIn.addEventListener('input', () => { void refreshBinary(); invalidatePreflight('binary changed since the last preflight') })
+  document.getElementById('cap-browse')?.addEventListener('click', async () => {
+    const p = await window.anubee.pickSavePath()
+    if (p && saveIn) saveIn.value = p
+  })
 
-  let vals: CapValues = {}
-  let preflightOk = false
-  const preflightEpoch = makeEpoch() // guards a stale preflight run from re-enabling Start for edited/invalidated inputs
-
-  for (const c of CAPABILITIES) {
-    const opt = document.createElement('option')
-    opt.value = c.id; opt.textContent = c.engine
-    sel.appendChild(opt)
-  }
-
-  // A prior preflight validated a specific package; any capability switch or
-  // input edit invalidates it, so re-gate Start until preflight is re-run.
-  const invalidatePreflight = (): void => {
-    preflightEpoch.bump()
-    preflightOk = false
-    startBtn.disabled = true
-    statusHost.innerHTML = ''
-  }
-  const onFormChange = (cap: Capability, v: CapValues): void => {
-    vals = v
-    invalidatePreflight()
-    const { fields, form } = fieldErrors(cap, vals)
-    applyFieldErrors(formHost, fields)
-    const formErr = document.getElementById('cap-form-err')
-    if (formErr) formErr.textContent = form.join('; ')
-  }
-
-  // Repaint the in-form specs-dir dot + error from a host-path check.
   const refreshSpecsDot = async (): Promise<void> => {
-    const dot = formHost.querySelector<HTMLElement>('[data-role="specsDot"]')
-    const err = formHost.querySelector<HTMLElement>('[data-err="specsDir"]')
+    const dot = specsHost.querySelector<HTMLElement>('[data-role="specsDot"]')
+    const err = specsHost.querySelector<HTMLElement>('[data-err="specsDir"]')
     if (!dot && !err) return
     const r = await window.anubee.tracerCheckPaths(binIn.value, specsDir)
     if (dot) renderDot(dot, r.specs)
     if (err) err.textContent = r.specs.ok ? '' : `Required - ${r.specs.detail}`
   }
 
-  // Reload the .spec list for the current specsDir and repopulate the select in
-  // place; drop a now-invalid selection and re-run the field-error pass.
-  const refreshSpecList = async (cap: Capability): Promise<void> => {
+  const refreshSpecList = async (): Promise<void> => {
     specNames = await window.anubee.tracerListSpecs(specsDir)
     if (typeof vals.spec === 'string' && vals.spec && !specNames.includes(vals.spec)) {
       vals = { ...vals, spec: '' }
     }
     applySpecChoices(formHost, specNames, String(vals.spec ?? ''))
-    const { fields, form } = fieldErrors(cap, vals)
-    applyFieldErrors(formHost, fields)
-    const formErr = document.getElementById('cap-form-err')
-    if (formErr) formErr.textContent = form.join('; ')
+    onFormChange(vals)
   }
 
-  // Bind the specs-dir config row that renderCapabilityForm emits for spec engines.
-  const bindSpecsRow = (cap: Capability): void => {
-    const dir = formHost.querySelector<HTMLInputElement>('[data-config="specsDir"]')
-    if (!dir) return
+  // The specs dir is a host path, so it lives in host setup - rendered only
+  // for the engine that takes a probe spec.
+  const drawSpecsRow = (): void => {
+    specsHost.innerHTML = ''
+    if (!capNeedsSpec(cap())) return
+    const row = specsDirRow(specsDir)
+    specsHost.appendChild(row)
+    const dir = row.querySelector<HTMLInputElement>('[data-config="specsDir"]')!
     const onDirChange = async (): Promise<void> => {
       specsDir = dir.value
       saveCfg()
       await refreshSpecsDot()
-      await refreshSpecList(cap)
-      invalidatePreflight()
+      await refreshSpecList()
+      invalidatePreflight('specs dir changed since the last preflight')
     }
-    formHost.querySelector('[data-role="specsBrowse"]')?.addEventListener('click', async () => {
+    row.querySelector('[data-role="specsBrowse"]')?.addEventListener('click', async () => {
       const p = await window.anubee.tracerPickSpecsDir()
       if (p) { dir.value = p; await onDirChange() }
     })
@@ -782,102 +826,256 @@ function wireCapture(): void {
     void refreshSpecsDot()
   }
 
-  const drawForm = (): void => {
-    vals = {}
-    const cap = capById(sel.value)!
-    const opts = capNeedsSpec(cap) ? { specNames, specsDir } : {}
-    renderCapabilityForm(formHost, cap, vals, v => onFormChange(cap, v), opts)
-    bindSpecsRow(cap)
+  // ---- form --------------------------------------------------------------
+  const drawAll = (): void => {
+    renderEngineSegments(engineHost, CAPABILITIES, capId, id => {
+      capId = id
+      vals = {}
+      drawAll()
+      invalidatePreflight('engine changed since the last preflight')
+      if (capNeedsSpec(cap())) void refreshSpecList()
+    })
+    renderCapabilityForm(formHost, cap(), vals, onFormChange, { specNames, specsDir })
+    drawSpecsRow()
+    paintArgv()
+    paintFooter()
   }
-  sel.addEventListener('change', () => {
-    drawForm()
-    invalidatePreflight()
-    const cap = capById(sel.value)!
-    if (capNeedsSpec(cap)) void refreshSpecList(cap)
-  })
-  drawForm()
 
   let configLoaded = false
-  void window.anubee.getTracerConfig().then(async cfg => {
-    binIn.value = cfg.anubeeBinary
-    specsDir = cfg.specsDir
-    configLoaded = true
-    void refreshBinary()
-    const cap = capById(sel.value)!
-    if (capNeedsSpec(cap)) { await refreshSpecList(cap); void refreshSpecsDot() }
-  })
   const saveCfg = (): void => {
     if (!configLoaded) return
     void window.anubee.setTracerConfig({ anubeeBinary: binIn.value, specsDir })
   }
   binIn.addEventListener('change', saveCfg)
 
-  const preflightBtn = document.getElementById('cap-preflight') as HTMLButtonElement | null
-  preflightBtn?.addEventListener('click', async () => {
+  resetPreflightPane(pfHost)
+  drawAll()
+
+  void window.anubee.getTracerConfig().then(async cfg => {
+    binIn.value = cfg.anubeeBinary
+    specsDir = cfg.specsDir
+    configLoaded = true
+    void refreshBinary()
+    drawSpecsRow()
+    if (capNeedsSpec(cap())) { await refreshSpecList(); void refreshSpecsDot() }
+  })
+
+  // The pane heading is outside capture-preflight-view's DOM, so the count
+  // lives here rather than in that module.
+  const setPreflightCount = (text: string, allPassed = false): void => {
+    const el = document.getElementById('cap-pf-count')
+    if (!el) return
+    el.textContent = text
+    el.classList.toggle('all-passed', allPassed)
+  }
+
+  // ---- actions -----------------------------------------------------------
+  async function runPreflight(): Promise<void> {
     const token = preflightEpoch.bump()
     saveCfg()
     const pkg = String(vals.pkg ?? '')
-    if (!pkg) { statusHost.textContent = 'enter a package first'; return }
-    if (!isSafeToken(pkg)) { statusHost.textContent = 'package has unsupported characters'; return }
-    statusHost.innerHTML = ''
-    startBtn.disabled = true
-    preflightBtn.disabled = true
+    preflight = 'running'; failReason = ''
+    // pfHost/etc are non-null past the top-of-function guard; TS does not carry
+    // that narrowing into a hoisted `function` declaration like this one.
+    resetPreflightPane(pfHost!)
+    setPreflightCount('')
+    paintFooter()
     try {
       const checks = await window.anubee.tracerPreflight(pkg)
-      logAppend(checks.some(c => !c.ok) ? 'warn' : 'success', 'preflight',
-        `Preflight: ${checks.length} checks, ${checks.filter(c => !c.ok).length} failing`)
-      if (!preflightEpoch.isCurrent(token)) return // superseded by an edit or another run; don't enable Start for stale inputs
-      preflightOk = checks.every(c => c.ok)
-      startBtn.disabled = !preflightOk
+      if (!preflightEpoch.isCurrent(token)) return // superseded by an edit
+      for (const c of checks) appendPreflightCheck(pfHost!, c)
+      const sum = preflightSummary(checks)
+      setPreflightCount(`${sum.passed} / ${sum.total} passed`, !sum.firstFail)
+      logAppend(sum.firstFail ? 'warn' : 'success', 'preflight',
+        `Preflight: ${sum.total} checks, ${sum.total - sum.passed} failing`)
+      preflight = sum.firstFail ? 'failed' : 'passed'
+      failReason = sum.firstFail ?? ''
     } catch (err) {
-      if (!preflightEpoch.isCurrent(token)) return // superseded; don't write rows for a run nobody is waiting on
-      const row = document.createElement('div')
-      row.className = 'preflight-bad'
-      row.textContent = `preflight failed: ${err instanceof Error ? err.message : String(err)}`
-      statusHost.appendChild(row)
-      preflightOk = false
-      startBtn.disabled = true
+      if (!preflightEpoch.isCurrent(token)) return
+      preflight = 'failed'
+      failReason = err instanceof Error ? err.message : String(err)
     } finally {
-      preflightBtn.disabled = false
+      paintFooter()
     }
-  })
+  }
 
-  startBtn.addEventListener('click', async () => {
-    const cap = capById(sel.value)!
-    const errs = validateInputs(cap, vals)
-    if (errs.length) { statusHost.textContent = errs.join('; '); return }
-    consoleHost.innerHTML = ''
-    startBtn.disabled = true; stopBtn.disabled = false
-    const timeout = binTimeout()
-    try {
-      const r = await runLogged('capture', () => window.anubee.tracerStart(cap.id, vals, timeout, saveIn?.value || undefined),
-        res => ({ level: res.code === 0 ? 'success' : 'error', message: `Capture ${cap.id} finished (${res.kind}, code ${res.code})` }))
-      appendConsoleLine(consoleHost, `--- done (exit ${r.code}, kind ${r.kind}) ---`)
-      if (r.kind === 'jsonl' && r.runId !== undefined) showView('graph')
-    } catch (err) {
-      appendConsoleLine(consoleHost, `--- error: ${err instanceof Error ? err.message : String(err)} ---`)
-    } finally {
-      stopBtn.disabled = true; startBtn.disabled = !preflightOk
-    }
-  })
-
-  stopBtn.addEventListener('click', () => { logAppend('info', 'capture', 'Stop requested'); void window.anubee.tracerStop() })
-
-  function binTimeout(): number | undefined {
+  function timeoutSecs(): number | undefined {
     const t = parseInt((document.getElementById('cap-timeout') as HTMLInputElement).value, 10)
     return Number.isFinite(t) && t > 0 ? t : undefined
+  }
+
+  async function startCapture(): Promise<void> {
+    const errs = validateInputs(cap(), vals)
+    if (errs.length) { failReason = errs.join('; '); preflight = 'failed'; paintFooter(); return }
+    running = true; finishing = false; counters = ''; lineCount = 0
+    shell!.classList.remove('state-config'); shell!.classList.add('state-running')
+    setLiveBadge(true)
+    consoleHost!.innerHTML = ''
+    // Replay the preflight result dimmed so the log reads as one story.
+    const rows = [...pfHost!.querySelectorAll('.pf-label')].map(e => e.textContent)
+    if (rows.length) {
+      appendConsoleLine(consoleHost!, `[preflight] ${rows.join(' · ')} - ${rows.length}/${rows.length} passed`)
+      consoleHost!.lastElementChild?.classList.add('preflight-replay')
+    }
+    paintArgv(); paintFooter()
+    try {
+      // Completion (success or failure) is reported via the tracer:done
+      // broadcast, handled by captureDoneSink below - not by this call
+      // resolving. This is deliberate: by the time a real trace finishes, the
+      // modal instance that started it may have been closed and replaced by a
+      // reattached one, and only the broadcast reaches whichever is live.
+      await runLogged('capture',
+        () => window.anubee.tracerStart(capId, vals, timeoutSecs(), saveIn?.value || undefined),
+        res => ({ level: res.error || res.code !== 0 ? 'error' : 'success',
+                  message: res.error ? `Capture ${capId} failed: ${res.error}`
+                                      : `Capture ${capId} finished (${res.kind}, code ${res.code})` }))
+    } catch (err) {
+      // Once a run actually starts, tracer:start always resolves (the result,
+      // success or failure, travels via tracer:done instead). The only
+      // rejection reachable here is the clobber guard, thrown synchronously
+      // before any run starts - so there is no tracer:done coming for it, and
+      // this instance must revert its own running state itself.
+      appendConsoleLine(consoleHost!, `--- error: ${err instanceof Error ? err.message : String(err)} ---`)
+      running = false
+      setLiveBadge(false)
+      shell!.classList.remove('state-running'); shell!.classList.add('state-config')
+      paintFooter()
+    }
+  }
+
+  // The running badge lives beside the shared modal's title, matching the
+  // approved mockup. modal.ts is not modified for this.
+  function setLiveBadge(on: boolean): void {
+    const title = document.querySelector('.modal-head .modal-title')
+    if (!title) return
+    title.querySelector('.cap-live-badge')?.remove()
+    if (!on) return
+    const b = document.createElement('span')
+    b.className = 'cap-live-badge'; b.textContent = '● running'
+    title.appendChild(b)
+  }
+
+  function onFooterClick(id: string): void {
+    if (id === 'cap-cancel') { closeModal(); return }
+    if (id === 'cap-preflight' || id === 'cap-rerun') { void runPreflight(); return }
+    if (id === 'cap-start') { void startCapture(); return }
+    if (id === 'cap-stop-open') {
+      logAppend('info', 'capture', 'Stop requested')
+      void window.anubee.tracerStop(false); return
+    }
+    if (id === 'cap-stop-discard') {
+      logAppend('info', 'capture', 'Stop requested (discard)')
+      void window.anubee.tracerStop(true)
+    }
+  }
+
+  // ---- live console ------------------------------------------------------
+  captureLineSink = (line: string): void => {
+    appendConsoleLine(consoleHost, line)
+    lineCount += 1
+    counters = `${lineCount} lines`
+    // Fast path: only the counters text changes per line, so patch that node
+    // directly instead of paintFooter()'s full teardown/rebuild - see
+    // setFooterCounters. A syscalls capture with no filter emits thousands of
+    // lines per second; rebuilding every button that often pegs the renderer.
+    setFooterCounters(footHost, counters)
+  }
+
+  // ---- run completion (broadcast) -----------------------------------------
+  // Fires via tracer:done, dispatched through captureDoneSink to whichever
+  // Capture instance is live at that moment - not necessarily the instance
+  // whose startCapture() called tracer:start (that instance may have been
+  // closed and replaced by a reattached one while the run/pull/ingest were
+  // still in flight). On a successful jsonl capture, though, no instance is
+  // live by the time this fires: ingestPath's own trace:loaded/trace:estimate
+  // broadcasts close the Capture modal (see window.anubee.onLoaded /
+  // onEstimate below) before tracer:done arrives, tearing this sink down with
+  // it (cleanupCapture). So this finalizes the console line/badge/footer only
+  // for the paths where a Capture instance is still open to show them
+  // (discard, error, or a pull/ingest that produced no runId) - the graph
+  // switch on success is handled unconditionally, outside this sink, by the
+  // module-scope onTracerDone handler below, so it runs the same regardless
+  // of whether a Capture instance happens to still be open.
+  captureDoneSink = (result: { code: number; kind: string; runId?: number; error?: string }): void => {
+    appendConsoleLine(consoleHost,
+      result.error ? `--- error: ${result.error} ---` : `--- done (exit ${result.code}, kind ${result.kind}) ---`)
+    running = false
+    finishing = false
+    setLiveBadge(false)
+    shell.classList.remove('state-running'); shell.classList.add('state-config')
+    // The run consumed the pushed binary and the launched package; keep the
+    // preflight pass so a repeat run does not need another adb round-trip.
+    paintFooter()
+  }
+
+  // ---- run phase (broadcast) -----------------------------------------------
+  // Fired once, when main moves the run from 'device' to 'finishing' (process
+  // exited, pull+ingest in flight - see run-lifecycle.ts). Dispatched through
+  // captureFinishingSink, mirroring captureDoneSink/captureLineSink, so it
+  // reaches whichever Capture instance is live.
+  captureFinishingSink = (): void => {
+    finishing = true
+    paintFooter()
+  }
+
+  // A run may still be active from before this modal instance existed - e.g.
+  // Escape closed the modal mid-run (modal.ts closes unconditionally; the
+  // footer's deliberate lack of Cancel while running does not gate that) and
+  // the analyst reopened Capture. Restore the running chrome instead of
+  // showing a fresh config form over a live process; the console cannot show
+  // lines emitted while closed, so say so rather than looking complete.
+  // `closed` guards against this instance being torn down again before the
+  // IPC round-trip resolves - without it, setLiveBadge's un-scoped
+  // document.querySelector('.modal-head .modal-title') would paint into
+  // whatever modal happens to be open by then, not this (by-then-gone) one.
+  let closed = false
+  void window.anubee.tracerIsRunning().then(({ running: isRunning, argv, phase }) => {
+    if (!isRunning || closed) return
+    running = true
+    finishing = phase === 'finishing'
+    shell.classList.remove('state-config'); shell.classList.add('state-running')
+    setLiveBadge(true)
+    consoleHost.innerHTML = ''
+    lineCount = 0
+    appendConsoleLine(consoleHost, '[reattached] capture is still running - earlier output is not shown')
+    consoleHost.lastElementChild?.classList.add('preflight-replay')
+    // This instance never called startCapture(), so capId/vals are still
+    // whatever the form defaulted to - paintArgv() would compose a fabricated
+    // command from them. Show the real running command from main, or nothing
+    // if main did not have one to give.
+    if (argv) renderArgvPreview(runArgvHost, argv)
+    else runArgvHost.innerHTML = ''
+    paintFooter()
+  })
+
+  // Closing the modal mid-run must not leave this instance's captureLineSink/
+  // captureDoneSink/captureFinishingSink writing into detached nodes, nor let
+  // a superseded runPreflight or tracerIsRunning continuation resolve into
+  // them - the run itself is untouched and is recovered on reopen by the
+  // tracerIsRunning check above.
+  return function cleanupCapture(): void {
+    closed = true
+    captureLineSink = undefined
+    captureDoneSink = undefined
+    captureFinishingSink = undefined
+    preflightEpoch.bump()
   }
 }
 
 function openCaptureModal(): void {
+  // wireCapture returns a per-open cleanup (same pattern as the Activity log
+  // modal below): onClose fires on Escape/backdrop/X regardless of capture
+  // state, so the sink/epoch cleanup must run then, not only on Cancel.
+  let cleanup: (() => void) | undefined
   showModal({
     title: 'Capture',
-    width: 620,
+    width: 860,
     render: host => {
       const tpl = document.getElementById('capture-template') as HTMLTemplateElement | null
       if (tpl) host.appendChild(tpl.content.cloneNode(true))
-      wireCapture() // binds the cap-* controls now present in the modal
+      cleanup = wireCapture() // binds the cap-* controls now present in the modal
     },
+    onClose: () => cleanup?.(),
   })
 }
 
@@ -924,10 +1122,10 @@ window.anubee.onLoaded(s => {
     ingest.end() // fill the bar to 100% and clear; the data is now on screen
   })
   // Coverage health text (not graph data) - stored, not shown, until a row
-  // is selected and renderSlice surfaces it via the chip.
-  void window.anubee.coverage(s.runId).then(cov => {
-    coverageChip = cov ? `${cov.snaps.total} snapshots · ${cov.snaps.truncated} truncated · CFI walks ${cov.cfi.walks}` : ''
-  })
+  // is selected and renderSlice surfaces it via the chip. .catch() so a future
+  // shape change degrades to an empty chip instead of an unhandled rejection.
+  void window.anubee.coverage(s.runId).then(cov => { coverageChip = coverageChipText(cov) })
+    .catch(() => { coverageChip = '' })
 })
 // Centralized ingest failure: covers all four broadcasting load paths (run-open,
 // project-open, capture-ingest, preload auto-load). restoreEmpty only when no
@@ -1097,19 +1295,49 @@ document.getElementById('file-log')?.addEventListener('click', () => {
   })
 })
 
+// Set by wireCapture on each modal open; the tracer:line subscription is
+// registered once, so it dispatches through this rather than re-binding.
+let captureLineSink: ((line: string) => void) | undefined
+
+// Set by wireCapture on each modal open, mirroring captureLineSink; the
+// tracer:done subscription is registered once, so it dispatches through this
+// rather than re-binding, and reaches whichever Capture instance is live even
+// when that is a reattach that never called tracer:start itself.
+let captureDoneSink: ((result: { code: number; kind: string; runId?: number; error?: string }) => void) | undefined
+
+// Set by wireCapture on each modal open, mirroring captureDoneSink; the
+// tracer:phase subscription is registered once, so it dispatches through this.
+let captureFinishingSink: (() => void) | undefined
+
 // Registered once (not per Capture-modal open) so re-opening Capture doesn't
-// stack tracer:line subscriptions; appends to whichever cap-console is live.
+// stack tracer:line subscriptions; dispatches through captureLineSink to
+// whichever cap-console is live.
 window.anubee.onTracerLine(line => {
   logAppend('info', 'tracer', line)
-  const c = document.getElementById('cap-console')
-  if (c) appendConsoleLine(c, line)
+  captureLineSink?.(line)
 })
 
-// Streamed preflight rows; registered once for the same reason as onTracerLine.
-window.anubee.onPreflightCheck(c => {
-  const host = document.getElementById('cap-preflight-status')
-  if (!host) return
-  renderPreflightRow(host, c)
+// Registered once, mirroring onTracerLine above; dispatches through
+// captureDoneSink to whichever Capture instance is live.
+//
+// The graph-view switch on a successful jsonl capture lives here, not inside
+// captureDoneSink: ingest's own trace:loaded/trace:estimate broadcasts close
+// the Capture modal (see onLoaded/onEstimate below) before tracer:done
+// arrives, tearing captureDoneSink down with it (cleanupCapture) - so on
+// exactly the success path this exists for, no Capture instance is left to
+// react from inside the sink. This handler is registered once and never torn
+// down, so every outcome (discard, error, success) runs through the same
+// place and the switch happens regardless of whether a Capture instance
+// happens to still be open.
+window.anubee.onTracerDone(result => {
+  captureDoneSink?.(result)
+  if (!result.error && result.kind === 'jsonl' && result.runId !== undefined) showView('graph')
+})
+
+// Registered once, mirroring onTracerDone above; dispatches through
+// captureFinishingSink to whichever Capture instance is live.
+window.anubee.onTracerPhase(() => {
+  captureFinishingSink?.()
 })
 
 // Ctrl/Cmd+O opens a run (replaces the removed native-menu accelerator).

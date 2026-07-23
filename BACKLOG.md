@@ -3,6 +3,150 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-23) - Capture run-lifecycle fix wave
+
+Pre-merge review of the tracer-control branch found four issues, all fixed:
+
+- **`discardActive` could leak into the next capture.** `activeRun` was
+  deliberately widened (previous entry, below) to span the whole pull+ingest
+  pipeline, but `tracer:stop`'s guard (`if (!activeRun) return`) still keyed
+  off that same flag, so it kept passing during the pull window even though
+  there was nothing left to stop. A `Stop & discard` click that landed there
+  wrote `discardActive = true` after the only code that read and cleared it
+  for that run had already run - the flag then sat there until the *next*
+  capture completed, which silently skipped its own pull/ingest. Fixed by
+  extracting the run's state (`activeRun`/`activeRunArgv`/`discardActive`)
+  into a small phase-aware object (`src/main/run-lifecycle.ts`: `idle` ->
+  `device` -> `finishing` -> `idle`) whose `requestStop` only acts in the
+  `device` phase and whose `finish()` unconditionally clears everything in
+  the IPC handler's `finally`. This also closes the drawback logged below
+  ("Stop buttons stay live during the pull/ingest window"): main now
+  broadcasts a `tracer:phase` event the moment a run enters `finishing`, and
+  the Capture footer swaps to a non-interactive "Pulling & ingesting…" note
+  instead of `Stop & discard` / `Stop & open run` - there is no longer a
+  Stop that silently does nothing. The lifecycle object is unit-tested
+  directly (`tests/run-lifecycle.test.ts`), including the exact
+  stop-during-pull-then-next-capture regression; `src/main/index.ts`'s IPC
+  handlers otherwise still have no test coverage of their own.
+- **The graph-view switch after a capture never actually ran.** A successful
+  jsonl capture's own ingest closes the Capture modal (`trace:loaded` /
+  `trace:estimate`) before the `tracer:done` broadcast arrives, which tore
+  down the module-scope `captureDoneSink` the switch lived inside - so a user
+  parked on Flame or Libraries when a capture finished stayed there. Moved
+  the `showView('graph')` call out of `captureDoneSink` (which only ever
+  finalizes a still-open Capture instance - discard/error/no-runId paths) and
+  into the once-registered `onTracerDone` handler in `main.ts`, which runs
+  regardless of whether a Capture instance is still open.
+- **The flag-drift guard (`tests/anubee-flag-drift.test.ts`) missed the flags
+  it most needed to guard.** It derived the desktop's emitted-flag set from
+  `buildArgv` alone, missing `commonArgv`'s `-b`/`-Q`/`-v` and the `-o`
+  `composeRunArg` appends, and it hardcoded what `COMMON_ARGP_OPTIONS` /
+  `TARGET_ARGP_OPTIONS` contain instead of parsing the real
+  `../Anubee/src/common/engine_args.h`. Both fixed: `emittedFlags` now goes
+  through `composeRunArg`, and the allowed-flag set is parsed from the macro
+  source, so an upstream removal from either macro (the `-Q` case tested by
+  the mutation drill) fails the guard instead of passing silently.
+- **`tracer:start` trusted the renderer's own input validation.** The
+  `SAFE_TOKEN` gate (`validateInputs`) only ran in the renderer, and
+  `timeoutSecs` was never checked at runtime at all despite being
+  string-interpolated into the `su -c '...'` body executed as root on the
+  device. `src/shared/tracer-caps.ts` now exports `validateStartRequest`,
+  called at the top of the `tracer:start` handler.
+
+## Shipped (2026-07-23) - Capture: two-engine scope, repeatable library filters, mandatory preflight
+
+`syscalls` and `funcs` are now the only two engines the Capture modal exposes -
+the only two whose output the desktop's JSONL parser can actually load.
+`correlate`, `trace`, and `mod` are removed: `correlate` emits a `type: "func"`
+record the parser does not recognize, `trace`'s `-o` is a filename *prefix*
+that writes three separate files instead of one, and `mod` does write
+structured JSONL via its own `-o FILE` flag, but its record types (`spawn`,
+`proc_exit`, `execve`, `prop`, `file_access`, `massdelete_detect`,
+`exfil_detect`, `accessibility_detect`, `fileless_detect`,
+`screencapture_detect`) are none the parser recognizes - there is a file,
+just nothing in it the parser can turn into a graph. Anubee also removed its `syscalls -a` capture-all
+flag upstream; the desktop still emitted it, so every capture-all run died in
+argp - fixed by making the library filter a repeatable, glob-capable chip list
+(`-l` per selector, up to 64, OR'd) where an empty list *is* capture-all, no
+flag needed. A glob-bearing selector is additionally single-quoted inside the
+`su -c` body so the device shell cannot expand it against its own cwd before
+anubee ever sees it. Preflight is now mandatory: the footer's primary action
+is `Preflight` until every check passes, then `Start capture`; any config edit
+marks a passed or failed result stale and reverts the footer to `Preflight`,
+since preflight both validates the target package and pushes the binary and
+specs dir. A live command preview shows the exact `su -c '...'` string that
+will be dispatched. See `DOCUMENTATION.md`'s "Tracer control" section.
+
+### Deliberately left unexposed
+- `-x` denylist, `-e` / `-F` probe specs on `syscalls`, `-A` activity
+  override, and `-q` have no form control.
+- `-p` PID-attach mode (`--siblings` / `--no-follow-fork`) has no form
+  control; adding it needs a `-P`/`-p` mode switch plus PID discovery, not
+  just another flag bolted onto the current package-driven form.
+- Re-adding `correlate` needs the JSONL parser to learn `type: "func"`
+  records. Re-adding `trace` needs a multi-file pull
+  (`<prefix>.syscalls.jsonl` / `.funcs.jsonl` / `.lib.jsonl`) instead of the
+  current single-file pull.
+- Mandatory preflight costs an adb round-trip after every config edit.
+  Acceptable today (preflight is fast against a reachable device); revisit if
+  the check set grows enough to make that round-trip noticeable.
+
+### Known drawbacks / follow-ups
+- **The running view's argv preview shows a placeholder, not the real path.**
+  `paintArgv` composes the running-state command preview with a hardcoded
+  `<out>.jsonl` in place of the real path, because the actual `-o` path is
+  timestamped at dispatch time in main and never surfaced back to the
+  renderer. The preview is otherwise byte-accurate to what was dispatched.
+  Wire the resolved path back over the existing `tracer:start` round-trip (or
+  a dedicated event) to close this.
+- Per-line `tracer:line` IPC and DOM append are still unbatched under
+  sustained high line rates - see the "Capture footer fast path" entry below;
+  that fix removed the footer-rebuild cost but not this one.
+
+## Shipped (2026-07-22) - CoverageEvent schema drift fix
+
+The vendored `CoverageEvent` type required `snaps`/`cfi`, but the emitter
+(`../Anubee/src/common/coverage.c`) writes three shapes - exempt, clean,
+degraded - each with its own conditional fields; a `clean` or `exempt` record
+(or any run captured without `--snapshot`) had `snaps`/`cfi` absent, so
+`main.ts`'s `cov.snaps.total` threw an unhandled `TypeError` and silently
+killed the coverage chip. Fixed: the vendored type now makes every field
+optional and models the fields the emitter actually writes; the chip is built
+by the new pure `coverageChipText` (`src/renderer/coverage-chip.ts`), which
+composes whichever fields are present and adds a `.catch()` as a backstop.
+The DuckDB ingest schema (`COLS` in `graph-store.ts`) was also widened -
+without it, `read_json`'s explicit-columns read silently drops any JSON key
+not listed, so the new fields would ingest without complaint but never reach
+the renderer (confirmed live: a real no-`--snapshot` run produced a
+`prearm_drops`-only degraded record that the old schema would have dropped
+entirely). `tests/schema-drift.test.ts` now guards `coverage` record keys
+against the sibling `../Anubee` checkout, the same way syscall/backtrace keys
+already were. See DOCUMENTATION.md's "Coverage/truncation chip" section.
+
+## Shipped (2026-07-22) - Capture footer fast path (per-line footer rebuild)
+
+`captureLineSink` (`main.ts`) no longer calls `paintFooter()` per console
+line - it patches the counters text node directly via `setFooterCounters`
+(`capture-footer.ts`), instead of `renderCaptureFooter` tearing down and
+rebuilding every button and click listener on every line (an unfiltered
+`syscalls` capture emits thousands of lines/sec, so this was thousands of
+full footer rebuilds/sec). `appendConsoleLine` (`capture-view.ts`) now caps
+the console DOM at 5,000 lines (oldest dropped first); the footer counter is
+tracked independently of the (capped) DOM count, so it still shows the true
+running total past the cap. See DOCUMENTATION.md's "Tracer control" section.
+
+### Known drawbacks / follow-ups
+- **This fix bounds memory, not the underlying per-line cost.** Live-tested
+  against a real device: an unfiltered `syscalls` capture against a busy
+  target can still keep the renderer's main thread busy for an extended
+  stretch processing the backlog of individual `tracer:line` IPC messages +
+  DOM appends - the fix removes the footer-rebuild cost (confirmed ~5x
+  cheaper per line in an isolated benchmark) but does not batch or throttle
+  the line stream itself. If sustained high-rate unfiltered captures turn out
+  to need it, the next step is coalescing `tracer:line` delivery (e.g. flush
+  accumulated lines once per animation frame) instead of one IPC round trip +
+  DOM append per line.
+
 ## Shipped (2026-07-21) - Loading feedback wired into open-run and record-select flows
 
 Every load path now speaks one loading language instead of ad-hoc spinners:

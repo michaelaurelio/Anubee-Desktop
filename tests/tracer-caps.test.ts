@@ -1,43 +1,68 @@
 import { describe, it, expect } from 'vitest'
-import { CAPABILITIES, capById, validateInputs, fieldErrors, capNeedsSpec } from '../src/shared/tracer-caps'
+import {
+  CAPABILITIES, capById, validateInputs, validateStartRequest, fieldErrors, capNeedsSpec,
+  libList, LIB_SELECTOR_CAP,
+} from '../src/shared/tracer-caps'
 
 describe('tracer-caps registry', () => {
-  it('exposes the five engines with correct output kinds', () => {
-    expect(CAPABILITIES.map(c => c.id).sort()).toEqual(
-      ['correlate', 'funcs', 'mod', 'syscalls', 'trace'])
+  it('exposes only the two engines the app can ingest', () => {
+    expect(CAPABILITIES.map(c => c.id).sort()).toEqual(['funcs', 'syscalls'])
     expect(capById('syscalls')!.outputKind).toBe('jsonl')
     expect(capById('funcs')!.outputKind).toBe('jsonl')
-    expect(capById('correlate')!.outputKind).toBe('jsonl')
-    expect(capById('trace')!.outputKind).toBe('jsonl')
-    expect(capById('mod')!.outputKind).toBe('stdout')
-    expect(capById('correlate')!.loud).toBe(true)
-    expect(capById('trace')!.loud).toBe(true)
   })
 
-  it('no longer exposes lib or dump as capture engines', () => {
-    expect(capById('lib')).toBeUndefined()
-    expect(capById('dump')).toBeUndefined()
-    expect(CAPABILITIES.some(c => (c.outputKind as string) === 'artifact')).toBe(false)
+  it('no longer exposes correlate, trace, mod, lib or dump', () => {
+    for (const id of ['correlate', 'trace', 'mod', 'lib', 'dump']) {
+      expect(capById(id), `${id} must be gone`).toBeUndefined()
+    }
   })
 
-  it('builds syscalls argv with library filter', () => {
-    expect(capById('syscalls')!.buildArgv({ pkg: 'com.android.deskclock', lib: 'libc.so' }))
-      .toEqual(['syscalls', '-P', 'com.android.deskclock', '-l', 'libc.so'])
+  // Anubee removed -a (commit ad14f98): absence of -l IS capture-all.
+  it('builds bare capture-all syscalls argv with no -a and no -l', () => {
+    expect(capById('syscalls')!.buildArgv({ pkg: 'dev.anubee.detector' }))
+      .toEqual(['syscalls', '-P', 'dev.anubee.detector'])
   })
 
-  it('builds syscalls argv with capture-all + syscall csv', () => {
-    expect(capById('syscalls')!.buildArgv({ pkg: 'com.android.deskclock', all: true, syscalls: 'openat,read' }))
-      .toEqual(['syscalls', '-P', 'com.android.deskclock', '-a', '-s', 'openat,read'])
+  it('emits one -l pair per selector, in order', () => {
+    expect(capById('syscalls')!.buildArgv({
+      pkg: 'dev.anubee.detector', libs: 'libsentinel.so\ne_*',
+    })).toEqual([
+      'syscalls', '-P', 'dev.anubee.detector',
+      '-l', 'libsentinel.so', '-l', 'e_*',
+    ])
+  })
+
+  it('accepts an empty filter list as capture-all', () => {
+    expect(validateInputs(capById('syscalls')!, { pkg: 'dev.anubee.detector' })).toEqual([])
+  })
+
+  it('accepts glob metacharacters in a selector but not shell metacharacters', () => {
+    const cap = capById('syscalls')!
+    expect(fieldErrors(cap, { pkg: 'p', libs: 'e_*\nlib?.so\nlib[0-9].so' }).fields.libs).toBeUndefined()
+    expect(fieldErrors(cap, { pkg: 'p', libs: 'e_$(id)' }).fields.libs).toBeTruthy()
+    expect(fieldErrors(cap, { pkg: 'p', libs: 'has space' }).fields.libs).toBeTruthy()
+  })
+
+  it('rejects more selectors than the device accepts', () => {
+    const many = Array.from({ length: LIB_SELECTOR_CAP + 1 }, (_, i) => `lib${i}.so`).join('\n')
+    expect(fieldErrors(capById('syscalls')!, { pkg: 'p', libs: many }).fields.libs)
+      .toContain(String(LIB_SELECTOR_CAP))
+  })
+
+  it('libList trims, drops empties, and preserves order', () => {
+    expect(libList(' a \n\n b \n')).toEqual(['a', 'b'])
+    expect(libList(undefined)).toEqual([])
+    expect(libList(true)).toEqual([])
   })
 
   it('builds funcs argv with a spec path', () => {
-    expect(capById('funcs')!.buildArgv({ pkg: 'com.android.deskclock', spec: 'common-file.spec' }))
-      .toEqual(['funcs', '-P', 'com.android.deskclock', '-F', '/data/local/tmp/specs/common-file.spec'])
+    expect(capById('funcs')!.buildArgv({ pkg: 'dev.anubee.detector', spec: 'common-file.spec' }))
+      .toEqual(['funcs', '-P', 'dev.anubee.detector', '-F', '/data/local/tmp/specs/common-file.spec'])
   })
 
-  it('builds mod argv with an analyzer name', () => {
-    expect(capById('mod')!.buildArgv({ analyzer: 'getprop', pkg: 'com.android.deskclock' }))
-      .toEqual(['mod', 'getprop', '-P', 'com.android.deskclock'])
+  it('only funcs needs a spec', () => {
+    expect(capNeedsSpec(capById('funcs')!)).toBe(true)
+    expect(capNeedsSpec(capById('syscalls')!)).toBe(false)
   })
 
   it('rejects missing required inputs', () => {
@@ -45,44 +70,31 @@ describe('tracer-caps registry', () => {
   })
 
   it('accepts a valid input set', () => {
-    expect(validateInputs(capById('syscalls')!, { pkg: 'com.android.deskclock', lib: 'libc.so' })).toEqual([])
-  })
-
-  it('rejects syscalls with neither a library filter nor capture-all', () => {
-    // anubee errors "-l <lib-selector> is required (or use -a)" if given just -P.
-    expect(validateInputs(capById('syscalls')!, { pkg: 'com.android.deskclock' }))
-      .toContain('provide a library filter or check "capture all libraries"')
-  })
-
-  it('accepts syscalls with capture-all', () => {
-    expect(validateInputs(capById('syscalls')!, { pkg: 'com.android.deskclock', all: true })).toEqual([])
+    expect(validateInputs(capById('syscalls')!, { pkg: 'com.android.deskclock', libs: 'libc.so' })).toEqual([])
   })
 
   it('rejects a token carrying a shell metacharacter or space', () => {
     // A single quote would close the su -c '...' body; a space would split the arg.
-    expect(validateInputs(capById('syscalls')!, { pkg: 'com.app', lib: "libc.so'; rm -rf /" }))
-      .toEqual(['library filter has unsupported characters (allowed: letters, digits, and . _ - / : , +)'])
-    expect(validateInputs(capById('syscalls')!, { pkg: 'com.app', lib: 'lib c.so' }))
-      .toContain('library filter has unsupported characters (allowed: letters, digits, and . _ - / : , +)')
+    expect(validateInputs(capById('syscalls')!, { pkg: 'com.app', libs: "libc.so'; rm -rf /" }))
+      .toEqual(['library filters selector "libc.so\'; rm -rf /" has unsupported characters ' +
+        '(allowed: letters, digits, . _ - / : , + and the globs * ? [ ])'])
+    expect(validateInputs(capById('syscalls')!, { pkg: 'com.app', libs: 'lib c.so' }))
+      .toContain('library filters selector "lib c.so" has unsupported characters ' +
+        '(allowed: letters, digits, . _ - / : , + and the globs * ? [ ])')
   })
 
   it('accepts the real token punctuation (dots, comma-csv, slash, hyphen)', () => {
-    expect(validateInputs(capById('syscalls')!, { pkg: 'com.android.deskclock', all: true, syscalls: 'openat,read' }))
+    expect(validateInputs(capById('syscalls')!, { pkg: 'com.android.deskclock', syscalls: 'openat,read' }))
       .toEqual([])
     expect(validateInputs(capById('funcs')!, { pkg: 'com.app', spec: 'common-file.spec' })).toEqual([])
   })
 
-  it('adds the common tuning inputs only to syscalls/funcs/correlate', () => {
+  it('adds the common tuning inputs to both surviving engines', () => {
     const tuningKeys = ['bufmb', 'queuemb', 'verbose']
-    for (const id of ['syscalls', 'funcs', 'correlate']) {
+    for (const id of ['syscalls', 'funcs']) {
       const keys = capById(id)!.inputs.map(i => i.key)
       expect(keys).toEqual(expect.arrayContaining(tuningKeys))
       expect(capById(id)!.common).toBe(true)
-    }
-    for (const id of ['trace', 'mod']) {
-      const keys = capById(id)!.inputs.map(i => i.key)
-      expect(keys).not.toEqual(expect.arrayContaining(tuningKeys))
-      expect(capById(id)!.common).toBeFalsy()
     }
   })
 
@@ -95,22 +107,19 @@ describe('tracer-caps registry', () => {
     expect(v).toMatchObject({ kind: 'bool', advanced: true })
   })
 
-  it('adds the --snapshot input to syscalls and funcs only', () => {
+  it('adds the --snapshot input to syscalls and funcs', () => {
     for (const id of ['syscalls', 'funcs']) {
       expect(capById(id)!.inputs.map(i => i.key)).toContain('snapshot')
-    }
-    for (const id of ['correlate', 'trace', 'mod']) {
-      expect(capById(id)!.inputs.map(i => i.key)).not.toContain('snapshot')
     }
     const snap = capById('syscalls')!.inputs.find(i => i.key === 'snapshot')!
     expect(snap).toMatchObject({ kind: 'bool', advanced: true })
   })
 
   it('emits --snapshot in syscalls/funcs argv only when checked', () => {
-    expect(capById('syscalls')!.buildArgv({ pkg: 'com.android.deskclock', all: true, snapshot: true }))
-      .toEqual(['syscalls', '-P', 'com.android.deskclock', '-a', '--snapshot'])
-    expect(capById('syscalls')!.buildArgv({ pkg: 'com.android.deskclock', all: true }))
-      .toEqual(['syscalls', '-P', 'com.android.deskclock', '-a'])
+    expect(capById('syscalls')!.buildArgv({ pkg: 'com.android.deskclock', snapshot: true }))
+      .toEqual(['syscalls', '-P', 'com.android.deskclock', '--snapshot'])
+    expect(capById('syscalls')!.buildArgv({ pkg: 'com.android.deskclock' }))
+      .toEqual(['syscalls', '-P', 'com.android.deskclock'])
     expect(capById('funcs')!.buildArgv({ pkg: 'com.android.deskclock', spec: 'x.spec', snapshot: true }))
       .toEqual(['funcs', '-P', 'com.android.deskclock', '-F', '/data/local/tmp/specs/x.spec', '--snapshot'])
     expect(capById('funcs')!.buildArgv({ pkg: 'com.android.deskclock', spec: 'x.spec' }))
@@ -118,15 +127,22 @@ describe('tracer-caps registry', () => {
   })
 })
 
-import { composeRunArg, outJsonlPath, DEVICE_BIN, STOP_ARG, commonArgv, ereEscape, stopArgLive, stopArgWatch, isSafePattern, isSafeToken } from '../src/shared/tracer-caps'
+import { composeRunArg, needsDeviceQuote, outJsonlPath, DEVICE_BIN, STOP_ARG, commonArgv, ereEscape, stopArgLive, stopArgWatch, isSafePattern, isSafeToken, type Capability } from '../src/shared/tracer-caps'
 
 describe('composeRunArg', () => {
   const syscalls = capById('syscalls')!
-  const mod = capById('mod')!
+  // mod (outputKind 'stdout') was removed as an ingestible engine, so no
+  // CAPABILITIES entry has outputKind 'stdout' anymore. composeRunArg's -o
+  // omission is still real, general behaviour - exercise it with a stub cap.
+  const stdoutCap: Capability = {
+    id: 'stdout-stub', label: 'stdout stub', engine: 'stub', outputKind: 'stdout',
+    inputs: [{ key: 'pkg', label: 'package', kind: 'package', required: true }],
+    buildArgv: (v) => ['stub', '-P', typeof v.pkg === 'string' ? v.pkg : ''],
+  }
 
   it('wraps a jsonl run in su -c + timeout and appends -o', () => {
     const arg = composeRunArg({
-      cap: syscalls, vals: { pkg: 'com.android.deskclock', lib: 'libc.so' },
+      cap: syscalls, vals: { pkg: 'com.android.deskclock', libs: 'libc.so' },
       timeoutSecs: 20, jsonlPath: outJsonlPath('20260707T101500'),
     })
     expect(arg).toBe(
@@ -135,13 +151,13 @@ describe('composeRunArg', () => {
   })
 
   it('does not append -o for a stdout capability', () => {
-    const arg = composeRunArg({ cap: mod, vals: { analyzer: 'getprop', pkg: 'com.android.deskclock' }, timeoutSecs: 10 })
-    expect(arg).toBe("su -c 'timeout -s INT -k 3 10 /data/local/tmp/anubee mod getprop -P com.android.deskclock'")
+    const arg = composeRunArg({ cap: stdoutCap, vals: { pkg: 'com.android.deskclock' }, timeoutSecs: 10 })
+    expect(arg).toBe("su -c 'timeout -s INT -k 3 10 /data/local/tmp/anubee stub -P com.android.deskclock'")
   })
 
   it('omits the timeout wrapper when timeoutSecs is unset (run until Stop)', () => {
-    const arg = composeRunArg({ cap: mod, vals: { analyzer: 'getprop', pkg: 'com.android.deskclock' } })
-    expect(arg).toBe("su -c '/data/local/tmp/anubee mod getprop -P com.android.deskclock'")
+    const arg = composeRunArg({ cap: stdoutCap, vals: { pkg: 'com.android.deskclock' } })
+    expect(arg).toBe("su -c '/data/local/tmp/anubee stub -P com.android.deskclock'")
   })
 
   it('exposes the fixed binary path and stop command', () => {
@@ -226,7 +242,7 @@ describe('composeRunArg', () => {
 
   it('splices -b/-Q/-v before -o for a common cap', () => {
     const arg = composeRunArg({
-      cap: syscalls, vals: { pkg: 'com.android.deskclock', lib: 'libc.so', bufmb: '8', verbose: true },
+      cap: syscalls, vals: { pkg: 'com.android.deskclock', libs: 'libc.so', bufmb: '8', verbose: true },
       timeoutSecs: 20, jsonlPath: outJsonlPath('20260712T101500'),
     })
     expect(arg).toBe(
@@ -235,13 +251,13 @@ describe('composeRunArg', () => {
   })
 
   it('never emits tuning flags for a non-common cap even if values are present', () => {
-    const arg = composeRunArg({ cap: mod, vals: { analyzer: 'getprop', pkg: 'com.android.deskclock', bufmb: '8', verbose: true } })
-    expect(arg).toBe("su -c '/data/local/tmp/anubee mod getprop -P com.android.deskclock'")
+    const arg = composeRunArg({ cap: stdoutCap, vals: { pkg: 'com.android.deskclock', bufmb: '8', verbose: true } })
+    expect(arg).toBe("su -c '/data/local/tmp/anubee stub -P com.android.deskclock'")
   })
 
   it('places --snapshot before the internally-managed -o', () => {
     const arg = composeRunArg({
-      cap: syscalls, vals: { pkg: 'com.android.deskclock', lib: 'libc.so', snapshot: true },
+      cap: syscalls, vals: { pkg: 'com.android.deskclock', libs: 'libc.so', snapshot: true },
       timeoutSecs: 20, jsonlPath: outJsonlPath('20260713T101500'),
     })
     expect(arg).toBe(
@@ -271,21 +287,23 @@ describe('commonArgv', () => {
 describe('fieldErrors', () => {
   const syscalls = capById('syscalls')!
   it('reports a required-empty field by key', () => {
-    const { fields } = fieldErrors(syscalls, { all: true })
+    const { fields } = fieldErrors(syscalls, {})
     expect(fields.pkg).toBe('is required')
   })
   it('reports an unsupported-character field by key', () => {
-    const { fields } = fieldErrors(syscalls, { pkg: 'com bad', all: true })
+    const { fields } = fieldErrors(syscalls, { pkg: 'com bad' })
     expect(fields.pkg).toMatch(/unsupported characters/)
   })
-  it('reports the cross-field error in form, not fields', () => {
+  // syscalls no longer has a validate(): Anubee removed -a, so absence of
+  // every -l selector is a legal capture-all run, not a cross-field error.
+  it('has no cross-field errors for syscalls (no filter required)', () => {
     const { fields, form } = fieldErrors(syscalls, { pkg: 'com.x' })
     expect(fields.pkg).toBeUndefined()
-    expect(form).toEqual(['provide a library filter or check "capture all libraries"'])
+    expect(form).toEqual([])
   })
   it('validates int inputs as whole numbers >= min', () => {
     const sys = capById('syscalls')!
-    const base = { pkg: 'com.android.deskclock', all: true }
+    const base = { pkg: 'com.android.deskclock' }
     expect(fieldErrors(sys, { ...base }).fields.bufmb).toBeUndefined()        // blank ok
     expect(fieldErrors(sys, { ...base, bufmb: '4' }).fields.bufmb).toBeUndefined()
     expect(fieldErrors(sys, { ...base, bufmb: '0' }).fields.bufmb).toBe('must be a whole number >= 1')
@@ -295,15 +313,91 @@ describe('fieldErrors', () => {
   })
 })
 
-describe('capNeedsSpec', () => {
-  it('is true for the spec engines', () => {
-    for (const id of ['funcs', 'correlate', 'trace']) {
-      expect(capNeedsSpec(capById(id)!)).toBe(true)
-    }
+describe('validateStartRequest (F4: the main-process gate on tracer:start)', () => {
+  const syscalls = capById('syscalls')!
+
+  it('accepts a valid request with no timeout', () => {
+    expect(validateStartRequest(syscalls, { pkg: 'dev.anubee.detector' }, undefined)).toBeUndefined()
   })
-  it('is false for the non-spec engines', () => {
-    for (const id of ['syscalls', 'mod']) {
-      expect(capNeedsSpec(capById(id)!)).toBe(false)
-    }
+
+  it('accepts a valid request with a positive integer timeout', () => {
+    expect(validateStartRequest(syscalls, { pkg: 'dev.anubee.detector' }, 30)).toBeUndefined()
+  })
+
+  it('rejects on the same input errors validateInputs would report', () => {
+    expect(validateStartRequest(syscalls, {}, undefined)).toBe('package is required')
+    expect(validateStartRequest(syscalls, { pkg: "p'; rm -rf /" }, undefined))
+      .toMatch(/unsupported characters/)
+  })
+
+  it('rejects a non-integer timeout', () => {
+    expect(validateStartRequest(syscalls, { pkg: 'p' }, 1.5)).toBe(
+      'timeout must be a positive whole number of seconds')
+  })
+
+  it('rejects a zero or negative timeout', () => {
+    expect(validateStartRequest(syscalls, { pkg: 'p' }, 0)).toBe(
+      'timeout must be a positive whole number of seconds')
+    expect(validateStartRequest(syscalls, { pkg: 'p' }, -5)).toBe(
+      'timeout must be a positive whole number of seconds')
+  })
+
+  it('rejects NaN and non-finite timeouts', () => {
+    expect(validateStartRequest(syscalls, { pkg: 'p' }, NaN)).toBe(
+      'timeout must be a positive whole number of seconds')
+    expect(validateStartRequest(syscalls, { pkg: 'p' }, Infinity)).toBe(
+      'timeout must be a positive whole number of seconds')
+  })
+})
+
+describe('capNeedsSpec', () => {
+  it('is true for the spec engine', () => {
+    expect(capNeedsSpec(capById('funcs')!)).toBe(true)
+  })
+  it('is false for the non-spec engine', () => {
+    expect(capNeedsSpec(capById('syscalls')!)).toBe(false)
+  })
+})
+
+describe('composeRunArg device-shell quoting', () => {
+  it('flags only glob-bearing tokens', () => {
+    expect(needsDeviceQuote('e_*')).toBe(true)
+    expect(needsDeviceQuote('lib?.so')).toBe(true)
+    expect(needsDeviceQuote('lib[0-9].so')).toBe(true)
+    expect(needsDeviceQuote('libsentinel.so')).toBe(false)
+    expect(needsDeviceQuote('dev.anubee.detector')).toBe(false)
+  })
+
+  // su -c '<inner>' runs inner through the device sh; an unquoted e_* would be
+  // expanded against the device cwd (and survives literally only by luck).
+  it("single-quotes a glob selector inside the su -c body", () => {
+    const arg = composeRunArg({
+      cap: capById('syscalls')!,
+      vals: { pkg: 'dev.anubee.detector', libs: 'e_*' },
+      jsonlPath: '/data/local/tmp/x.jsonl',
+    })
+    expect(arg).toBe(
+      "su -c '/data/local/tmp/anubee syscalls -P dev.anubee.detector -l '\\''e_*'\\'' -o /data/local/tmp/x.jsonl'")
+  })
+
+  it('leaves plain tokens bare', () => {
+    const arg = composeRunArg({
+      cap: capById('syscalls')!,
+      vals: { pkg: 'dev.anubee.detector', libs: 'libsentinel.so' },
+      jsonlPath: '/data/local/tmp/x.jsonl',
+    })
+    expect(arg).toBe(
+      "su -c '/data/local/tmp/anubee syscalls -P dev.anubee.detector -l libsentinel.so -o /data/local/tmp/x.jsonl'")
+  })
+
+  it('keeps quoting under a timeout wrapper', () => {
+    const arg = composeRunArg({
+      cap: capById('syscalls')!,
+      vals: { pkg: 'dev.anubee.detector', libs: 'e_*' },
+      timeoutSecs: 30,
+      jsonlPath: '/data/local/tmp/x.jsonl',
+    })
+    expect(arg).toContain("timeout -s INT -k 3 30 /data/local/tmp/anubee syscalls")
+    expect(arg).toContain("-l '\\''e_*'\\''")
   })
 })

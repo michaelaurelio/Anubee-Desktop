@@ -230,41 +230,156 @@
       #diff-table table { border-collapse: collapse; width: 100%; }
       #diff-table th, #diff-table td { text-align: left; padding: 2px 6px; font-size: 12px; }
 
-      /* capture */
-      #capture { padding: 4px; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
-      #capture-config, #capture-form-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-      #capture-config label, .cap-input { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
-      #capture input[type=text], #capture select { background: var(--input-bg); border: 1px solid var(--input-bd);
-        color: var(--text); border-radius: 5px; padding: 4px 7px; font: inherit; }
-      #cap-form { display: flex; flex-direction: column; gap: 8px; }
-      .cap-input { flex-wrap: wrap; }
-      .cap-input span { min-width: 92px; }
-      .cap-input input[type=text] { flex: 1 1 180px; }
-      #cap-console { font-family: var(--mono); font-size: 12px; background: var(--surface); color: var(--text);
-        border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; height: 200px;
-        overflow: auto; white-space: pre-wrap; }
-      .preflight-ok { color: var(--k-java); } .preflight-bad { color: var(--k-syscall); }
-      .cap-section-hd { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
-        color: var(--muted); display: flex; align-items: center; gap: 7px; margin-top: 4px; }
-      .cap-n { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;
-        border-radius: 50%; background: var(--accent, #c9a24a); color: var(--accent-ink); font-size: 10px; font-weight: 700; }
-      #capture-run-row { display: flex; gap: 8px; align-items: center; }
+      /* capture - two-pane while configuring, console-first while running.
+         Layout mirrors the approved modal mockup. */
+      #capture { display: flex; flex-direction: column; min-height: 0; }
+      #capture-config { display: grid; grid-template-columns: 1fr 296px; gap: 14px;
+                        align-items: start; padding: 2px 2px 12px; }
+      #capture.state-running #capture-config { display: none; }
+      #capture-run { display: none; flex-direction: column; gap: 11px; padding: 2px 2px 12px; }
+      #capture.state-running #capture-run { display: flex; }
+      /* grid items default to a content-based min-width (their intrinsic
+         min-content size), which fights the 296px track once a row holds
+         non-wrapping text (pf-detail, argv tokens) - it grows the track and
+         forces the whole modal to scroll horizontally. Pin both columns to
+         their track size instead. */
+      .cap-col-form, .cap-col-run { min-width: 0; }
+
+      .cap-col-run { background: var(--panel-2); border: 1px solid var(--border-soft);
+                     border-radius: 8px; padding: 12px; display: flex;
+                     flex-direction: column; gap: 10px; }
+      .cap-pane-hd, .cap-section-hd { display: flex; align-items: center; gap: 8px;
+                     font-size: 10.5px; letter-spacing: .08em;
+                     text-transform: uppercase; color: var(--muted); }
+      #cap-pf-count { margin-left: auto; text-transform: none; letter-spacing: 0; }
+      #cap-pf-count.all-passed { color: var(--k-java); }
+      .cap-section-hd { margin: 0 0 11px; }
+      .cap-col-form > .cap-section-hd:not(:first-child) { margin-top: 18px; }
+      .cap-n { display: inline-flex; align-items: center; justify-content: center;
+               width: 17px; height: 17px; border-radius: 50%; background: var(--accent-soft);
+               color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: 0; }
+
+      /* One grid per row: caption, control, trailing bits, then a full-width
+         error slot. The slot always occupies its line, so an error appearing
+         never reflows the rows below it. */
+      .cap-input { display: grid; grid-template-columns: 96px 1fr auto auto;
+                   gap: 6px 10px; align-items: center; font-size: 12px;
+                   color: var(--muted); margin-bottom: 9px; }
+      .cap-input > span:first-child { text-align: right; }
+      .cap-input-err { grid-column: 2 / -1; display: block; font-size: 11px;
+                       color: var(--k-syscall); min-height: 14px; }
+      #cap-form-err { margin-left: 106px; }
+      .cap-hint { font-size: 11px; color: var(--muted); }
+      /* .hint: the chip-list's OR'd/glob explanation (capture-view.ts
+         globlistHint()), a sibling below the row rather than trailing inside
+         it - matches the mockup's own `.hint` class, not `.cap-hint`. */
+      .hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
+      #capture input[type=text], #capture input[type=number], #capture select {
+        background: var(--input-bg); border: 1px solid var(--border-soft); color: var(--text);
+        border-radius: 5px; padding: 5px 9px; font-size: 12.5px; min-width: 0; }
+      #capture input[type=text]:focus, #capture select:focus {
+        outline: none; border-color: var(--accent-bd); }
+
+      /* engine picker */
+      .engine-row { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
+      /* cap-seg, not seg: `.seg.cs-mode` already exists for the call-site mode
+         switcher and a bare `.seg button` rule would restyle it. */
+      .cap-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px;
+             overflow: hidden; }
+      .cap-seg button { background: transparent; border: 0; padding: 5px 13px;
+                    font-size: 12.5px; color: var(--muted); cursor: pointer; }
+      .cap-seg button:hover { background: var(--hover); }
+      .cap-seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+      .engine-badge { font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+                      border: 1px solid var(--border); border-radius: 4px;
+                      padding: 2px 6px; color: var(--muted); }
+      .engine-desc { font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+
+      /* library-filter chips */
+      .chip-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+      .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--surface);
+              border: 1px solid var(--border); border-radius: 20px;
+              padding: 3px 5px 3px 11px; font-family: var(--mono); font-size: 11.5px;
+              color: var(--text); }
+      .chip [data-role=chipdel] { background: none; border: 0; color: var(--muted);
+              cursor: pointer; padding: 0 3px; line-height: 1; }
+      .chip [data-role=chipdel]:hover { color: var(--k-syscall); }
+      .chip-empty { font-size: 11.5px; color: var(--muted); }
+      /* the mockup draws a static dashed "+ add" pill; this is a real input
+         (a static label can't also accept typed text), so give the input
+         the same dashed-pill treatment instead - overrides the generic
+         #capture input[type=text] rule via the extra .chip-list ancestor
+         class, not declaration order. */
+      #capture .chip-list .chip-add { flex: 1 1 120px; background: transparent;
+              border: 1px dashed var(--border); border-radius: 20px; padding: 3px 11px;
+              font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+      #capture .chip-list .chip-add:focus { border-style: solid; border-color: var(--accent-bd); color: var(--text); }
+
+      /* argv preview */
+      .argv { background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+              padding: 9px 11px; font-family: var(--mono); font-size: 11.5px;
+              color: var(--muted); line-height: 1.65; white-space: pre-wrap;
+              word-break: break-all; }
+      .argv-bin { color: var(--accent); }
+      .argv-val { color: var(--text); }
+
+      /* preflight pane */
+      #cap-preflight-pane { font-family: var(--mono); font-size: 11.5px; position: relative; }
+      #cap-preflight-pane.pf-stale .pf-row { opacity: .4; }
+      #cap-preflight-pane.pf-stale .pf-dot { color: var(--muted); }
+      .pf-row { display: flex; align-items: center; gap: 8px; line-height: 1.9; }
+      .pf-dot { font-size: 8px; flex: none; }
+      .pf-label { color: var(--text); }
+      .pf-detail { color: var(--muted); margin-left: auto; overflow: hidden;
+                   text-overflow: ellipsis; white-space: nowrap; max-width: 46%; }
+      .pf-empty { color: var(--muted); font-size: 12px; text-align: center;
+                  padding: 24px 8px; line-height: 1.6; font-family: var(--font); }
+      .pf-stale-badge { font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+                        border: 1px solid var(--warn-bd); background: var(--warn-bg);
+                        color: var(--warn-fg); border-radius: 4px; padding: 2px 6px;
+                        float: right; font-family: var(--font); }
+      /* the badge is the pane's first child (prepended ahead of the rows), so
+         without a clear it floats beside - and visually collides with - the
+         first row's right-aligned pf-detail text. Clear the rows below it
+         instead of overlapping them. */
+      #cap-preflight-pane.pf-stale .pf-row { clear: both; }
+      .pf-stale-reason { font-size: 11px; color: var(--muted); margin-top: 8px;
+                         font-family: var(--font); }
+      /* pf-dot/path-dot are text (`●`), not shape - the ok/bad rules that
+         color them are the same ones used elsewhere (Libraries live modal via
+         renderPreflightRow, capture-view.ts renderDot), so they stay here
+         rather than being dropped with the rest of the old capture block. */
+      .preflight-ok { color: var(--k-java); }
+      .preflight-bad { color: var(--k-syscall); }
       .path-dot { font-size: 13px; width: 12px; display: inline-block; text-align: center; }
-      .cap-input-err { display: block; font-size: 11px; color: var(--k-syscall); min-height: 14px; }
-      .cap-input .cap-input-err { margin-left: 92px; }
-      /* the host-field error (#cfg-binary-err) is a direct child of
-         #capture-config, not nested in .cap-input, so the rule above misses it;
-         approximate the same 92px indent here (host labels are variable-width text,
-         not a fixed-width span, so this is a close match rather than exact). */
-      #capture-config > .cap-input-err { margin-left: 92px; }
+
+      /* console + footer */
+      #cap-console { font-family: var(--mono); font-size: 12px; background: var(--surface);
+                     color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+                     padding: 10px 12px; height: 220px; overflow: auto; line-height: 1.7; }
+      .console-line.preflight-replay { color: var(--muted); }
+      #cap-foot { display: flex; align-items: center; gap: 8px; padding: 12px 0 0;
+                  border-top: 1px solid var(--border-soft); }
+      .cap-foot-spacer { flex: 1; }
+      .cap-foot-note { font-size: 11px; color: var(--k-syscall); }
+      .cap-foot-counters { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+      .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+      .btn.ghost:hover { background: var(--hover); }
+      .btn:disabled { opacity: .38; cursor: default; }
+      .cap-live-badge { font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+                        border: 1px solid var(--accent-bd); background: var(--accent-soft);
+                        color: var(--accent); border-radius: 4px; padding: 2px 6px;
+                        margin-left: 8px; font-family: var(--mono); }
+
+      /* advanced disclosure */
       .cap-advanced { margin-top: 4px; }
-      .cap-advanced > summary {
-        cursor: pointer; font-size: 12px; color: var(--muted);
-        list-style: none; padding: 2px 0; user-select: none;
-      }
+      .cap-advanced > summary { cursor: pointer; font-size: 12px; color: var(--muted);
+                                list-style: none; }
+      .cap-advanced > summary::-webkit-details-marker { display: none; }
       .cap-advanced > summary::before { content: '\25B8'; display: inline-block; width: 14px; }
       .cap-advanced[open] > summary::before { content: '\25BE'; }
-      .cap-advanced-body { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px 14px; }
+      .cap-advanced-body { display: flex; flex-direction: column; gap: 6px;
+                           padding: 8px 0 2px 14px; }
       .cap-advanced-body input[type=number] { flex: 0 1 90px; }
 
       /* offset-popup: floating table for native node offsets */
@@ -675,35 +790,48 @@
       </div>
     </div>
     <template id="capture-template">
-      <div id="capture">
-        <div class="cap-section-hd"><span class="cap-n">1</span> host setup</div>
+      <div id="capture" class="state-config">
         <div id="capture-config">
-          <label>anubee binary
-            <input id="cfg-binary" type="text" placeholder="/host/build/anubee" />
-            <button id="cfg-binary-browse" class="btn">Browse&hellip;</button>
-            <span id="cfg-binary-dot" class="path-dot"></span>
-          </label>
-          <span id="cfg-binary-err" class="cap-input-err"></span>
-          <label>save to
-            <input id="cap-savepath" type="text" placeholder="(default app data)" />
-            <button id="cap-browse" class="btn">Browse&hellip;</button>
-          </label>
+          <div class="cap-col-form">
+            <div class="cap-section-hd"><span class="cap-n">1</span> host setup</div>
+            <label class="cap-input">
+              <span>anubee binary *</span>
+              <input id="cfg-binary" type="text" placeholder="/host/build/anubee" />
+              <button id="cfg-binary-browse" class="btn">Browse&hellip;</button>
+              <span id="cfg-binary-dot" class="path-dot"></span>
+              <span id="cfg-binary-err" class="cap-input-err" data-err="binary"></span>
+            </label>
+            <label class="cap-input">
+              <span>save run to</span>
+              <input id="cap-savepath" type="text" placeholder="(default app data)" />
+              <button id="cap-browse" class="btn">Browse&hellip;</button>
+              <span class="cap-input-err"></span>
+            </label>
+            <div id="cap-specs-host"></div>
+
+            <div class="cap-section-hd"><span class="cap-n">2</span> engine &amp; arguments</div>
+            <div id="cap-engine"></div>
+            <div id="cap-form"></div>
+            <label class="cap-input">
+              <span>timeout</span>
+              <input id="cap-timeout" type="text" size="4" placeholder="secs" />
+              <span class="cap-hint">blank = run until Stop</span>
+              <span class="cap-input-err"></span>
+            </label>
+            <div id="cap-form-err" class="cap-input-err"></div>
+          </div>
+          <div class="cap-col-run">
+            <div class="cap-pane-hd">command</div>
+            <div id="cap-argv" class="argv"></div>
+            <div class="cap-pane-hd">preflight <span id="cap-pf-count"></span></div>
+            <div id="cap-preflight-pane"></div>
+          </div>
         </div>
-        <div class="cap-section-hd"><span class="cap-n">2</span> engine &amp; arguments</div>
-        <div id="capture-form-row">
-          <select id="cap-select"></select>
-          <input id="cap-timeout" type="text" size="4" placeholder="secs" title="timeout window (blank = run until Stop)" />
+        <div id="capture-run">
+          <div class="argv" data-role="argvRunning"></div>
+          <div id="cap-console"></div>
         </div>
-        <div id="cap-form"></div>
-        <div id="cap-form-err" class="cap-input-err"></div>
-        <div class="cap-section-hd"><span class="cap-n">3</span> run</div>
-        <div id="capture-run-row">
-          <button id="cap-preflight" class="btn">Preflight</button>
-          <button id="cap-start" class="btn pri" disabled>Start</button>
-          <button id="cap-stop" class="btn" disabled>Stop</button>
-        </div>
-        <div id="cap-preflight-status"></div>
-        <div id="cap-console"></div>
+        <div id="cap-foot"></div>
       </div>
     </template>
     <script type="module" src="./main.ts"></script>

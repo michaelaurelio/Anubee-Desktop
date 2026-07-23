@@ -4,7 +4,7 @@
 // Verified against ../Anubee src/*/*.c argp tables (see spec s2).
 
 export type OutputKind = 'jsonl' | 'stdout'
-export type InputKind = 'package' | 'text' | 'bool' | 'csv' | 'pattern' | 'spec' | 'analyzer' | 'int'
+export type InputKind = 'package' | 'text' | 'bool' | 'csv' | 'pattern' | 'spec' | 'globlist' | 'int'
 
 export interface CapInput {
   key: string
@@ -23,11 +23,8 @@ export interface Capability {
   label: string
   engine: string
   outputKind: OutputKind
-  loud?: boolean
-  // Engine embeds the shared common_args block (-b/-Q/-v). Only syscalls, funcs,
-  // and correlate do; drives COMMON_TUNING_INPUTS + commonArgv. trace is jsonl
-  // too but hand-rolls its args and takes these only inside sections, so it is
-  // deliberately excluded.
+  // Engine embeds the shared common_args block (-b/-Q/-v). Drives
+  // COMMON_TUNING_INPUTS + commonArgv.
   common?: boolean
   inputs: CapInput[]
   buildArgv(vals: CapValues): string[]
@@ -45,6 +42,19 @@ function intVal(v: CapValues[string]): number | undefined {
   if (typeof v !== 'string' || v.trim() === '') return undefined
   const n = Number(v)
   return Number.isInteger(n) ? n : undefined
+}
+
+// argp accumulates at most 64 -l selectors and warns on the rest (see
+// ../Anubee/src/syscalls/syscalls.c, `case 'l'`). Reject past the cap here so
+// the analyst sees it in the form instead of in a device log.
+export const LIB_SELECTOR_CAP = 64
+
+// A globlist value is stored newline-joined in CapValues (which holds only
+// string | boolean | undefined). Newline cannot appear in a selector -
+// SAFE_PATTERN rejects it - so no escaping is needed.
+export function libList(v: CapValues[string]): string[] {
+  if (typeof v !== 'string') return []
+  return v.split('\n').map(x => x.trim()).filter(Boolean)
 }
 
 // Shared common_args flags for a `common` capability. Emit -b/-Q only when the
@@ -81,31 +91,26 @@ export const SNAPSHOT_INPUT: CapInput = {
 
 export const CAPABILITIES: Capability[] = [
   {
-    id: 'syscalls', label: 'syscalls (stealthy)', engine: 'syscalls', outputKind: 'jsonl', common: true,
+    id: 'syscalls', label: 'syscalls', engine: 'syscalls', outputKind: 'jsonl', common: true,
     inputs: [
       { key: 'pkg', label: 'package', kind: 'package', required: true },
-      { key: 'lib', label: 'library filter', kind: 'text' },
-      { key: 'all', label: 'capture all libraries', kind: 'bool' },
+      { key: 'libs', label: 'library filters', kind: 'globlist' },
       { key: 'syscalls', label: 'syscalls (comma-separated)', kind: 'csv' },
       SNAPSHOT_INPUT,
       ...COMMON_TUNING_INPUTS,
     ],
+    // No -a: Anubee removed it (commit ad14f98). Absence of every -l selector
+    // IS capture-all, so an empty list needs no flag and no validate().
     buildArgv(v) {
       const a = ['syscalls', '-P', s(v.pkg)]
-      if (v.all) a.push('-a')
-      else if (v.lib) a.push('-l', s(v.lib))
+      for (const sel of libList(v.libs)) a.push('-l', sel)
       if (v.syscalls) a.push('-s', s(v.syscalls))
       if (v.snapshot) a.push('--snapshot')
       return a
     },
-    // anubee rejects `syscalls -P <pkg>` alone: a stack-origin library filter (-l)
-    // or capture-all (-a) is mandatory. Enforce it before a run is dispatched.
-    validate(v) {
-      return v.lib || v.all ? [] : ['provide a library filter or check "capture all libraries"']
-    },
   },
   {
-    id: 'funcs', label: 'funcs (uprobe, detectable)', engine: 'funcs', outputKind: 'jsonl', common: true,
+    id: 'funcs', label: 'funcs', engine: 'funcs', outputKind: 'jsonl', common: true,
     inputs: [
       { key: 'pkg', label: 'package', kind: 'package', required: true },
       { key: 'spec', label: 'probe spec', kind: 'spec', required: true },
@@ -118,45 +123,14 @@ export const CAPABILITIES: Capability[] = [
       return a
     },
   },
-  {
-    id: 'correlate', label: 'correlate (loud)', engine: 'correlate', outputKind: 'jsonl', loud: true, common: true,
-    inputs: [
-      { key: 'pkg', label: 'package', kind: 'package', required: true },
-      { key: 'spec', label: 'probe spec', kind: 'spec', required: true },
-      ...COMMON_TUNING_INPUTS,
-    ],
-    buildArgv(v) {
-      return ['correlate', '-P', s(v.pkg), '-F', `${DEVICE_SPECS}/${s(v.spec)}`]
-    },
-  },
-  {
-    id: 'trace', label: 'trace (syscalls+funcs, loud)', engine: 'trace', outputKind: 'jsonl', loud: true,
-    inputs: [
-      { key: 'pkg', label: 'package', kind: 'package', required: true },
-      { key: 'spec', label: 'probe spec', kind: 'spec', required: true },
-    ],
-    buildArgv(v) {
-      return ['trace', '-P', s(v.pkg), '-F', `${DEVICE_SPECS}/${s(v.spec)}`]
-    },
-  },
-  {
-    id: 'mod', label: 'mod (named analyzer)', engine: 'mod', outputKind: 'stdout',
-    inputs: [
-      { key: 'analyzer', label: 'analyzer', kind: 'analyzer', required: true },
-      { key: 'pkg', label: 'package', kind: 'package', required: true },
-    ],
-    buildArgv(v) {
-      return ['mod', s(v.analyzer), '-P', s(v.pkg)]
-    },
-  },
 ]
 
 export function capById(id: string): Capability | undefined {
   return CAPABILITIES.find(c => c.id === id)
 }
 
-// A capability needs the host specs dir iff it takes a probe spec (funcs /
-// correlate / trace). Drives whether the form shows the specs-dir + spec fields.
+// A capability needs the host specs dir iff it takes a probe spec (funcs).
+// Drives whether the form shows the specs-dir + spec fields.
 export function capNeedsSpec(cap: Capability): boolean {
   return cap.inputs.some(i => i.kind === 'spec')
 }
@@ -183,6 +157,15 @@ function inputError(inp: CapInput, vals: CapValues): string | undefined {
     if (!Number.isInteger(n) || n < min) return `must be a whole number >= ${min}`
     return undefined
   }
+  if (inp.kind === 'globlist') {
+    const list = libList(v)
+    if (list.length > LIB_SELECTOR_CAP) return `accepts at most ${LIB_SELECTOR_CAP} selectors`
+    // isSafePattern, not isSafeToken: a selector may be a glob (e_*), which
+    // isSafeToken rejects. Both still forbid quotes, spaces and $ ` ( ).
+    const bad = list.find(x => !isSafePattern(x))
+    if (bad) return `selector "${bad}" has unsupported characters (allowed: letters, digits, . _ - / : , + and the globs * ? [ ])`
+    return undefined
+  }
   if (inp.kind !== 'bool' && typeof v === 'string' && v && !isSafeToken(v)) {
     return 'has unsupported characters (allowed: letters, digits, and . _ - / : , +)'
   }
@@ -197,6 +180,25 @@ export function validateInputs(cap: Capability, vals: CapValues): string[] {
   }
   if (cap.validate) errs.push(...cap.validate(vals))
   return errs
+}
+
+// Runtime gate for tracer:start (main process). The renderer's Capture form
+// already calls validateInputs before dispatch, but that is renderer-side
+// only - contextIsolation + no nodeIntegration + local file:// content make
+// it trusted today, but the composed string is executed as root on the
+// device, so the only barrier belongs on the privileged side too. Mirrors
+// validateInputs and adds the one field it does not cover: timeoutSecs is
+// typed `number` at the IPC boundary but never checked at runtime otherwise,
+// and is string-interpolated straight into the command (composeRunArg).
+// Returns a human-readable error, or undefined when the request is safe to
+// dispatch.
+export function validateStartRequest(cap: Capability, vals: CapValues, timeoutSecs: number | undefined): string | undefined {
+  const errs = validateInputs(cap, vals)
+  if (errs.length) return errs.join('; ')
+  if (timeoutSecs !== undefined && !(Number.isInteger(timeoutSecs) && timeoutSecs > 0)) {
+    return 'timeout must be a positive whole number of seconds'
+  }
+  return undefined
 }
 
 // Per-field + cross-field errors for the Capture form. `fields` keys are input
@@ -253,11 +255,25 @@ export function resolveSavePath(chosen: string | undefined, defaultPath: string)
   return chosen && chosen.trim() ? chosen.trim() : defaultPath
 }
 
+// A token containing a glob metacharacter must reach anubee literally: the
+// device runs `su -c '<inner>'` through sh, which would expand it against the
+// device cwd. Wrapping in '\'' closes the outer single quote, emits a literal
+// quote, and reopens - the same escape src/main/native-lib-live.ts uses for
+// dump's on-map glob. Plain tokens stay bare (SAFE_TOKEN already forbids
+// whitespace, quotes, $ and backticks, so they need no quoting at all).
+export function needsDeviceQuote(tok: string): boolean {
+  return /[*?[\]]/.test(tok)
+}
+
+function deviceToken(tok: string): string {
+  return needsDeviceQuote(tok) ? `'\\''${tok}'\\''` : tok
+}
+
 // Build the single string handed to `adb shell` as `su -c '<...>'`. One su -c
 // per run (chaining breaks BPF load with -EPERM, spec s2). Package/lib/pattern
-// tokens are simple identifiers (no quotes/spaces), so plain space-join inside
-// the single-quoted su -c body is safe; reject exotic tokens upstream if ever
-// needed.
+// tokens carry no quotes/spaces (SAFE_TOKEN/SAFE_PATTERN forbid them), so a
+// plain token is safe bare; deviceToken additionally quotes any token that
+// carries a glob metacharacter, so the device sh cannot expand it.
 export function composeRunArg(opts: {
   cap: Capability
   vals: CapValues
@@ -267,8 +283,9 @@ export function composeRunArg(opts: {
   const argv = opts.cap.buildArgv(opts.vals)
   if (opts.cap.common) argv.push(...commonArgv(opts.vals))
   if (opts.cap.outputKind === 'jsonl' && opts.jsonlPath) argv.push('-o', opts.jsonlPath)
+  const body = argv.map(deviceToken).join(' ')
   const inner = opts.timeoutSecs
-    ? `timeout -s INT -k 3 ${opts.timeoutSecs} ${DEVICE_BIN} ${argv.join(' ')}`
-    : `${DEVICE_BIN} ${argv.join(' ')}`
+    ? `timeout -s INT -k 3 ${opts.timeoutSecs} ${DEVICE_BIN} ${body}`
+    : `${DEVICE_BIN} ${body}`
   return `su -c '${inner}'`
 }

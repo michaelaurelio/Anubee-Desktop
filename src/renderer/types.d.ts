@@ -62,8 +62,11 @@ declare global {
       setTracerConfig(cfg: { anubeeBinary: string; specsDir: string }): Promise<void>
       tracerPreflight(pkg: string): Promise<{ id: string; label: string; ok: boolean; detail: string }[]>
       tracerStart(capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string):
-        Promise<{ code: number; kind: string; runId?: number }>
-      tracerStop(): Promise<void>
+        Promise<{ code: number; kind: string; runId?: number; error?: string }>
+      tracerStop(discard?: boolean): Promise<void>
+      tracerIsRunning(): Promise<{ running: boolean; argv: string | null; phase: 'idle' | 'device' | 'finishing' }>
+      onTracerDone(cb: (result: { code: number; kind: string; runId?: number; error?: string }) => void): void
+      onTracerPhase(cb: (p: { phase: 'finishing' }) => void): void
       pickSavePath(): Promise<string | undefined>
       tracerCheckPaths(binaryPath: string, specsDir: string): Promise<{
         binary: { ok: boolean; detail: string }
