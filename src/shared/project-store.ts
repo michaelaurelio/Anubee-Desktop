@@ -4,7 +4,7 @@
 // optional block refinement, and the RASP behaviour it implements. Node/edge
 // id grammar comes from graph-shape.
 
-import { coerceRules, type Rule } from './rasp-heuristics'
+import { coerceRules, type Rule, type Suggestion, type OffsetHit } from './rasp-heuristics'
 
 export type RaspCategory = 'root' | 'debugger' | 'emulator' | 'integrity' | 'hook' | 'custom'
 
@@ -156,4 +156,25 @@ export function tagsByTarget(tags: Tag[], target: string): Tag[] {
 // caller supplies the orphaned-target set (computed against the live run).
 export function orphanedTags(tags: Tag[], orphanTargets: Set<string>): Tag[] {
   return tags.filter(t => orphanTargets.has(t.target))
+}
+
+// The Suggestions popup's read-path filter. A row drops off the list once it
+// is actioned at the symbol level: a symbol-level tag (no offset) exists, or
+// the row itself was dismissed (isDismissed with no offset - row-level).
+// Independently, each surviving row's offsets are pruned to the still-open
+// call sites: an offset drops once it is confirmed to a tag carrying that
+// exact offset, or individually dismissed. A row whose every offset has been
+// actioned this way still renders, with no children - the row-level check
+// above is the only thing that removes the row itself.
+export function openSuggestions(all: Suggestion[], tags: Tag[], dismissed: Dismissed[]): Suggestion[] {
+  return all
+    .filter(s =>
+      !isDismissed(dismissed, s.target, s.category) &&
+      !tags.some(t => t.target === s.target && t.category === s.category && t.offset === undefined))
+    .map(s => ({
+      ...s,
+      offsets: s.offsets.filter((o: OffsetHit) =>
+        !tags.some(t => t.target === s.target && t.category === s.category && t.offset === o.offset) &&
+        !isDismissed(dismissed, s.target, s.category, o.offset)),
+    }))
 }

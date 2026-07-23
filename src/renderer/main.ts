@@ -17,7 +17,7 @@ import { renderSuggestions } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
 import { raspNodeStates } from './rasp-node-state'
-import { upsertTag, removeTag, tagsByTarget, orphanedTags, isDismissed, addDismissed, type Tag, type Dismissed, type RaspCategory } from '@shared/project-store'
+import { upsertTag, removeTag, tagsByTarget, orphanedTags, isDismissed, addDismissed, openSuggestions, type Tag, type Dismissed, type RaspCategory } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
 import { nativeNodeId } from '@shared/graph-shape'
 import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
@@ -322,15 +322,15 @@ function wireColGrips(scroll: HTMLElement): void {
   })
 }
 
-// Populate the suggestions list into a given host. A suggestion drops off the
-// list once it is confirmed (already a tag of that category) or rejected
-// (dismissed) - both persisted, so it never returns.
+// Populate the suggestions list into a given host. openSuggestions drops a
+// row off the list once it is confirmed (already a tag of that category) or
+// rejected (dismissed) - both persisted, so it never returns - and prunes
+// each surviving row's call sites the same way, so an actioned child does not
+// reappear under a row that is still open.
 async function renderSuggestionsInto(host: HTMLElement): Promise<void> {
   if (activeRunId === undefined) return
   const all = await window.anubee.suggest(activeRunId)
-  const open = all.filter(s =>
-    !isDismissed(dismissed, s.target, s.category) &&
-    !tags.some(t => t.target === s.target && t.category === s.category && t.offset === undefined))
+  const open = openSuggestions(all, tags, dismissed)
   renderSuggestions(host, open,
     async tag => {
       tags = upsertTag(tags, tag)

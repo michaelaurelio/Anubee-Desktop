@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseSidecar, serializeSidecar, upsertTag, removeTag, tagsByTarget, orphanedTags,
-  addDismissed, isDismissed, type Tag, type RaspCategory,
+  addDismissed, isDismissed, openSuggestions, type Tag, type RaspCategory,
 } from '../src/shared/project-store'
+import type { Suggestion } from '../src/shared/rasp-heuristics'
 
 const tag = (over: Partial<Tag> = {}): Tag => ({
   target: 'nat:libexample.so!check_su', category: 'root', source: 'manual',
@@ -157,5 +158,43 @@ describe('dismissal offsets', () => {
       dismissed: [{ target: 'n', category: 'hook' }],
     }))
     expect(isDismissed(back.dismissed, 'n', 'hook', '0x88c')).toBe(true)
+  })
+})
+
+describe('openSuggestions', () => {
+  const sugg = (over: Partial<Suggestion> = {}): Suggestion => ({
+    target: 'nat:libsentinel.so!chk', category: 'hook', confidence: 0.9,
+    rationale: 'maps scan', occurrences: 3,
+    offsets: [{ offset: '0x88c', occurrences: 2 }, { offset: '0xabc', occurrences: 1 }],
+    ...over,
+  })
+  const tag = (over: Partial<Tag> = {}): Tag => ({
+    target: 'nat:libsentinel.so!chk', category: 'hook', source: 'heuristic',
+    createdAt: '2026-07-06T00:00:00.000Z', ...over,
+  })
+
+  it('a confirmed call-site tag removes only that child', () => {
+    const [s] = openSuggestions([sugg()], [tag({ offset: '0x88c' })], [])
+    expect(s.offsets.map(o => o.offset)).toEqual(['0xabc'])
+  })
+
+  it('a call-site dismissal removes only that child', () => {
+    const [s] = openSuggestions([sugg()], [], [{ target: sugg().target, category: 'hook', offset: '0x88c' }])
+    expect(s.offsets.map(o => o.offset)).toEqual(['0xabc'])
+  })
+
+  it('a row-level dismissal still removes the whole row', () => {
+    expect(openSuggestions([sugg()], [], [{ target: sugg().target, category: 'hook' }])).toEqual([])
+  })
+
+  it('a row with every child actioned still renders as a row', () => {
+    const [s] = openSuggestions([sugg()], [tag({ offset: '0x88c' }), tag({ offset: '0xabc' })], [])
+    expect(s).toBeDefined()
+    expect(s.offsets).toEqual([])
+  })
+
+  it('a child whose offset was not actioned still renders', () => {
+    const [s] = openSuggestions([sugg()], [tag({ offset: '0x88c' })], [])
+    expect(s.offsets.map(o => o.offset)).toContain('0xabc')
   })
 })
