@@ -4,7 +4,7 @@ import type { Suggestion } from '@shared/rasp-heuristics'
 import type { Tag } from '@shared/project-store'
 
 const sug = (target: string, category: Suggestion['category']): Suggestion =>
-  ({ target, category, confidence: 0.8, rationale: 'x', occurrences: 1 })
+  ({ target, category, confidence: 0.8, rationale: 'x', occurrences: 1, offsets: [] })
 const tag = (target: string, category: Tag['category']): Tag =>
   ({ target, category, source: 'manual', createdAt: '2026-07-08T00:00:00Z' })
 

@@ -3,6 +3,8 @@
 // copy / JSON shaping. Electron-free and DB-free so it is unit-tested in
 // isolation and shared by the store, the renderer, and (later) the Session MCP.
 
+import type { RawHit, ResolvedHit } from './rasp-heuristics'
+
 export interface OffsetRow {
   module: string                       // library basename, e.g. 'libexample.so'
   offset: string                       // module-relative, 0x-hex (ghidra offset)
@@ -41,4 +43,33 @@ export function rowJson(row: OffsetRow): string {
 
 export function blobJson(blob: OriginBlob): string {
   return JSON.stringify(blob)
+}
+
+// The load-base lookup: "<pid>|<module basename>" -> base address. Plain data,
+// owned by the store at ingest, passed by value into the pure resolver.
+export type ModuleBases = ReadonlyMap<string, bigint>
+
+export function baseKey(pid: number, module: string): string {
+  return `${pid}|${module}`
+}
+
+// Stamp each hit's anchor frame with its module-relative (ghidra) offset, so a
+// heuristic tag's offset is byte-identical to one authored from the offset popup.
+// A hit with no frame, no load base, or an unparseable address is '[unmapped]'
+// rather than dropped: the behaviour was still detected, only the call site is
+// unknown.
+export function resolveHits(hits: RawHit[], bases: ModuleBases): ResolvedHit[] {
+  return hits.map(h => ({
+    target: h.target, category: h.category, confidence: h.confidence,
+    rationale: h.rationale, offset: offsetOf(h, bases),
+  }))
+}
+
+function offsetOf(h: RawHit, bases: ModuleBases): string {
+  if (h.frame === null) return '[unmapped]'
+  const base = bases.get(baseKey(h.pid, h.frame.module))
+  if (base === undefined) return '[unmapped]'
+  const addr = parseHexAddr(h.frame.addr)
+  if (addr === null) return '[unmapped]'
+  return moduleRelative(addr, base)
 }

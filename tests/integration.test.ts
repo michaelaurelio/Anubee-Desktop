@@ -7,7 +7,7 @@ import { parseJsonl, isSyscall } from '@shared/anubee-parse'
 import { foldEvents, foldFuncEvents, mergeGraphs } from '@shared/graph-shape'
 import { presenceOf } from '../src/shared/diff'
 import type { StackRollup } from '../src/shared/flame-shape'
-import { compileWhere, scoreWith, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
+import { compileWhere, matchSequences, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
 import type { SyscallEvent, FuncEvent } from '@shared/events'
 
 // oracle.jsonl is the tiny deterministic fixture these exact-value assertions pin
@@ -173,7 +173,7 @@ describe('heuristic suggestions', () => {
   })
 })
 
-describe('compiler lockstep (real DuckDB admits exactly what scoreWith scores)', () => {
+describe('compiler lockstep (real DuckDB admits exactly what matchSequences scores)', () => {
   // Synthetic events modeled on the real record shapes, one per built-in signal.
   const events = [
     { ...evA, id: 1, syscall: 'ptrace', args: ['0x10'], string_args: {},
@@ -195,7 +195,7 @@ describe('compiler lockstep (real DuckDB admits exactly what scoreWith scores)',
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // unresolved: matches nothing
   ]
 
-  it('for every built-in rule, DuckDB WHERE-admission matches scoreWith over all events', async () => {
+  it('for every built-in rule, DuckDB WHERE-admission matches matchSequences over all events', async () => {
     const store = new GraphStore()
     const { runId } = await store.ingest(fixture(events))
     for (const rule of BUILTIN_RULES) {
@@ -204,7 +204,7 @@ describe('compiler lockstep (real DuckDB admits exactly what scoreWith scores)',
         (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
       )
       for (const e of events) {
-        const jsMatches = scoreWith([rule], e as any).length > 0
+        const jsMatches = matchSequences([rule], [e as any]).hits.length > 0
         expect(admitted.has(e.id), `${rule.id} vs event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
       }
     }

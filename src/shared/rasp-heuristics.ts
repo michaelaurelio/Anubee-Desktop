@@ -57,7 +57,7 @@ const OPS: RuleOp[] = ['path_matches', 'equals', 'arg_hex_eq']
 const HEX = /^0x[0-9a-f]+$/i
 // Constructs valid in a JS RegExp but unsupported by DuckDB's RE2 engine
 // (lookahead/lookbehind/backreference). A path_matches value using one would pass
-// JS validation and work in scoreWith, but make compileWhere emit SQL that DuckDB
+// JS validation and work in matchOne, but make compileWhere emit SQL that DuckDB
 // rejects at runtime - reject it at authoring time so the two compilers stay in lockstep.
 const RE2_INCOMPATIBLE = /\(\?<?[=!]|\\[1-9]/
 
@@ -200,12 +200,26 @@ export function resolveRules(builtin: Rule[], global: RuleScope, project: RuleSc
   return order.map(id => map.get(id)!)
 }
 
+export interface ResolvedHit {
+  target: string
+  category: RaspCategory
+  confidence: number
+  rationale: string
+  offset: string        // module-relative hex, or '[unmapped]'
+}
+
+export interface OffsetHit {
+  offset: string
+  occurrences: number
+}
+
 export interface Suggestion {
   target: string
   category: RaspCategory
   confidence: number
   rationale: string
-  occurrences: number
+  occurrences: number   // completed sequences
+  offsets: OffsetHit[]  // distinct call sites, the expandable children
 }
 
 // Parse a raw syscall arg ("0x0", "0", 16) to a number, or NaN.
@@ -559,8 +573,8 @@ export function normalizeFdValue(v: string): string | null {
 }
 
 // Compile the enabled rules to a bounded DuckDB WHERE (OR of per-rule clauses).
-// Only genuine RASP candidates are pulled off DuckDB onto the JS heap; scoreWith
-// re-checks each and remains the scoring authority. An empty list matches
+// Only genuine RASP candidates are pulled off DuckDB onto the JS heap; SequenceMatcher
+// re-checks each and remains the matching authority. An empty list matches
 // nothing. Values are single-quote escaped - the safety boundary (no raw SQL).
 export function compileWhere(rules: Rule[]): string {
   const clauses = rules.flatMap(r => r.steps).map(clauseOf)
@@ -617,7 +631,7 @@ function valuesOf(field: RuleField, e: SyscallEvent): string[] {
 
 // A step matches only within the syscalls it is scoped to - the JS twin of
 // clauseOf's `syscall IN (...) AND pred`. Gated here rather than at each call
-// site so every consumer (scoreWith, SequenceMatcher) inherits it.
+// site so every consumer of matchOne (SequenceMatcher) inherits it.
 function matchOne(m: RuleStep, e: SyscallEvent): boolean {
   if (!m.syscalls.includes(e.syscall)) return false
   if (m.op === 'arg_hex_eq') {
@@ -630,34 +644,28 @@ function matchOne(m: RuleStep, e: SyscallEvent): boolean {
   return vals.some(v => re.test(v))
 }
 
-// The scoring authority. One suggestion per rule whose syscall + predicate match;
-// target is the nearest native frame (targetOf), rationale verbatim.
-export function scoreWith(rules: Rule[], e: SyscallEvent): Suggestion[] {
-  const target = targetOf(e)
-  if (target === null) return []
-  const out: Suggestion[] = []
-  for (const r of rules) {
-    if (matchOne(r.steps[0], e)) {
-      out.push({ target, category: r.category, confidence: r.confidence, rationale: r.rationale, occurrences: 1 })
-    }
-  }
-  return out
-}
-
-export function aggregate(suggestions: Suggestion[]): Suggestion[] {
-  const byTarget = new Map<string, Suggestion>()
-  for (const s of suggestions) {
-    const cur = byTarget.get(s.target)
-    if (!cur) {
-      byTarget.set(s.target, { ...s })
-    } else {
-      cur.occurrences += s.occurrences
-      if (s.confidence > cur.confidence) {
-        cur.confidence = s.confidence
-        cur.category = s.category
+// Fold resolved hits into one row per (target, category). Identity includes the
+// category so a library that performs several RASP checks yields one row each,
+// instead of collapsing to the highest-confidence one and losing the others.
+export function aggregate(hits: ResolvedHit[]): Suggestion[] {
+  const rows = new Map<string, Suggestion & { byOffset: Map<string, number> }>()
+  for (const h of hits) {
+    const key = `${h.target} ${h.category}`
+    let row = rows.get(key)
+    if (!row) {
+      row = {
+        target: h.target, category: h.category, confidence: h.confidence,
+        rationale: h.rationale, occurrences: 0, offsets: [], byOffset: new Map(),
       }
-      if (!cur.rationale.includes(s.rationale)) cur.rationale += `; ${s.rationale}`
+      rows.set(key, row)
     }
+    row.occurrences++
+    if (h.confidence > row.confidence) row.confidence = h.confidence
+    if (!row.rationale.includes(h.rationale)) row.rationale += `; ${h.rationale}`
+    row.byOffset.set(h.offset, (row.byOffset.get(h.offset) ?? 0) + 1)
   }
-  return [...byTarget.values()]
+  return [...rows.values()].map(({ byOffset, ...row }) => ({
+    ...row,
+    offsets: [...byOffset.entries()].map(([offset, occurrences]) => ({ offset, occurrences })),
+  }))
 }

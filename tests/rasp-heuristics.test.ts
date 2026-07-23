@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { compileWhere, scoreWith, aggregate, normalizeFdValue, BUILTIN_RULES, type Rule } from '../src/shared/rasp-heuristics'
+import { compileWhere, matchSequences, normalizeFdValue, BUILTIN_RULES, type Rule } from '../src/shared/rasp-heuristics'
 import type { SyscallEvent } from '../src/shared/events'
 
 const base: SyscallEvent = {
@@ -8,7 +8,8 @@ const base: SyscallEvent = {
   backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!check_su+0x10' }],
 }
 const rules = BUILTIN_RULES
-const cats = (e: SyscallEvent) => scoreWith(rules, e).map(s => s.category).sort()
+const cats = (e: SyscallEvent) =>
+  matchSequences(rules, [e]).hits.map(h => h.category).sort()
 
 describe('scoreWith over the built-in set', () => {
   it('flags ptrace ATTACH (0x10) as debugger', () => {
@@ -20,22 +21,22 @@ describe('scoreWith over the built-in set', () => {
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] })).toContain('debugger')
   })
   it('flags an openat on an su path as root, targeting the nearest native frame', () => {
-    const s = scoreWith(rules, { ...base, syscall: 'openat', string_args: { '1': '/system/bin/su' } })
-    expect(s.find(x => x.category === 'root')!.target).toBe('nat:libexample.so!check_su')
+    const { hits } = matchSequences(rules, [{ ...base, syscall: 'openat', string_args: { '1': '/system/bin/su' } }])
+    expect(hits.find(x => x.category === 'root')!.target).toBe('nat:libexample.so!check_su')
   })
 
   it('targets the innermost NON-system native block, skipping the libc wrapper', () => {
     // backtrace[0] = innermost (libc syscall wrapper); the app's RASP block is
     // one frame out; libart is outermost. The suggestion must name the app block.
-    const s = scoreWith(rules, {
+    const { hits } = matchSequences(rules, [{
       ...base, syscall: 'openat', string_args: { '1': '/system/bin/su' },
       backtrace: [
         { frame: 0, addr: '0x1', symbol: 'libc.so!__openat+0x8' },
         { frame: 1, addr: '0x2', symbol: 'librasp.so!detect_root+0x4c' },
         { frame: 2, addr: '0x3', symbol: 'libart.so!_ZN3artEv+0x10' },
       ],
-    })
-    expect(s.find(x => x.category === 'root')!.target).toBe('nat:librasp.so!detect_root')
+    }])
+    expect(hits.find(x => x.category === 'root')!.target).toBe('nat:librasp.so!detect_root')
   })
 
   it('flags magisk, busybox, and /data/adb paths as root', () => {
@@ -66,11 +67,11 @@ describe('scoreWith over the built-in set', () => {
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] })).toContain('hook')
   })
   it('returns nothing for a benign event', () => {
-    expect(scoreWith(rules, { ...base, syscall: 'openat', string_args: { '1': '/data/app/lib.so' } })).toEqual([])
+    expect(matchSequences(rules, [{ ...base, syscall: 'openat', string_args: { '1': '/data/app/lib.so' } }]).hits).toEqual([])
   })
   it('does not flag connect to an unrelated socket', () => {
-    expect(scoreWith(rules, { ...base, syscall: 'connect', sock_addr: 'unix:@/some-app',
-      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] })).toEqual([])
+    expect(matchSequences(rules, [{ ...base, syscall: 'connect', sock_addr: 'unix:@/some-app',
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }]).hits).toEqual([])
   })
 })
 
@@ -105,39 +106,29 @@ describe('compileWhere', () => {
   })
 })
 
-describe('aggregate (unchanged)', () => {
-  it('collapses to one per target with summed occurrences and max confidence', () => {
-    const a = { target: 'sys:ptrace', category: 'debugger' as const, confidence: 0.7, rationale: 'x', occurrences: 1 }
-    const b = { target: 'sys:ptrace', category: 'debugger' as const, confidence: 0.9, rationale: 'y', occurrences: 1 }
-    const out = aggregate([a, b])
-    expect(out).toHaveLength(1)
-    expect(out[0].occurrences).toBe(2)
-    expect(out[0].confidence).toBe(0.9)
-  })
-})
-
 describe('target attribution', () => {
   const platform = [
     { frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
     { frame: 1, addr: '0x2000', symbol: 'libart.so!ReadMaps+0x40' },
   ]
   it('does not attribute a platform-only stack to a platform library', () => {
-    expect(scoreWith(rules, { ...base, syscall: 'openat',
-      string_args: { '1': '/proc/self/maps' }, backtrace: platform })).toEqual([])
+    const { hits } = matchSequences(rules, [{ ...base, syscall: 'openat',
+      string_args: { '1': '/proc/self/maps' }, backtrace: platform }])
+    expect(hits).toEqual([])
   })
   it('attributes to the app library when one is present', () => {
-    const s = scoreWith(rules, { ...base, syscall: 'openat',
+    const { hits } = matchSequences(rules, [{ ...base, syscall: 'openat',
       string_args: { '1': '/proc/self/maps' },
-      backtrace: [...platform, { frame: 2, addr: '0x3000', symbol: 'libsentinel.so!scan+0x88' }] })
-    expect(s[0].target).toBe('nat:libsentinel.so!scan')
+      backtrace: [...platform, { frame: 2, addr: '0x3000', symbol: 'libsentinel.so!scan+0x88' }] }])
+    expect(hits[0].target).toBe('nat:libsentinel.so!scan')
   })
   it('falls back to the innermost java frame for a pure-java check', () => {
     // java_stack is innermost-first, same convention as backtrace (see chainOf) -
     // checkMaps (the check itself) is the innermost frame, onCreate its caller.
-    const s = scoreWith(rules, { ...base, syscall: 'openat',
+    const { hits } = matchSequences(rules, [{ ...base, syscall: 'openat',
       string_args: { '1': '/proc/self/maps' }, backtrace: platform,
-      java_stack: ['com.example.Rasp.checkMaps', 'com.example.App.onCreate'] })
-    expect(s[0].target).toBe('java:com.example.Rasp.checkMaps')
+      java_stack: ['com.example.Rasp.checkMaps', 'com.example.App.onCreate'] }])
+    expect(hits[0].target).toBe('java:com.example.Rasp.checkMaps')
   })
 })
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { matchSequences, scoreWith, SequenceMatcher, type Rule } from '../src/shared/rasp-heuristics'
+import { matchSequences, SequenceMatcher, type Rule } from '../src/shared/rasp-heuristics'
 import type { SyscallEvent } from '../src/shared/events'
 
 const APP = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
@@ -256,35 +256,31 @@ describe('SequenceMatcher', () => {
   })
 })
 
-describe('one-step rules agree with scoreWith', () => {
+describe('one-step rules', () => {
   const single: Rule = {
     id: 'maps', category: 'hook', confidence: 0.5, rationale: 'maps read',
     enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
     steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' }],
   }
 
-  it('both match a scoped syscall', () => {
+  it('matches a scoped syscall', () => {
     const e = ev(1, 'openat', '/proc/self/maps')
-    expect(scoreWith([single], e)).toHaveLength(1)
     expect(matchSequences([single], [e]).hits).toHaveLength(1)
   })
 
-  it('neither matches a syscall outside the step scope', () => {
+  it('does not match a syscall outside the step scope', () => {
     const e = ev(1, 'read', '/proc/self/maps')
-    expect(scoreWith([single], e)).toEqual([])
     expect(matchSequences([single], [e]).hits).toEqual([])
   })
 
-  it('both match a java-attributed event with a platform-only backtrace', () => {
+  it('matches a java-attributed event with a platform-only backtrace', () => {
     const e = ev(1, 'openat', '/proc/self/maps', {
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
                   { frame: 1, addr: '0x1100', symbol: 'libart.so!JniInvoke+0x20' }],
       java_stack: ['com.example.Rasp.scan', 'com.example.App.onCreate'],
     })
-    const scored = scoreWith([single], e)
-    expect(scored).toHaveLength(1)
     const { hits } = matchSequences([single], [e])
     expect(hits).toHaveLength(1)
-    expect(hits[0].target).toBe(scored[0].target)
+    expect(hits[0].target).toBe('java:com.example.Rasp.scan')
   })
 })
