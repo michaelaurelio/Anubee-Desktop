@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  parseSidecar, serializeSidecar, upsertTag, removeTag, tagsByTarget, orphanedTags, type Tag,
+  parseSidecar, serializeSidecar, upsertTag, removeTag, tagsByTarget, orphanedTags,
+  addDismissed, isDismissed, type Tag, type RaspCategory,
 } from '../src/shared/project-store'
 
 const tag = (over: Partial<Tag> = {}): Tag => ({
@@ -47,7 +48,7 @@ describe('project-store', () => {
   it('remove drops the matching (target, offset) tag', () => {
     const a = tag()
     const b = tag({ offset: 'libexample.so+0x10' })
-    expect(removeTag([a, b], 'nat:libexample.so!check_su')).toEqual([b])
+    expect(removeTag([a, b], 'nat:libexample.so!check_su', undefined, 'root')).toEqual([b])
   })
 
   it('tagsByTarget returns all tags on a target', () => {
@@ -112,5 +113,49 @@ describe('sidecar schemaVersion', () => {
     expect(parseSidecar(v1).errors).toEqual([])
     const out = JSON.parse(serializeSidecar({ file: 'r.jsonl', ingestedAt: 'now' }, []))
     expect(out.schemaVersion).toBe(2)
+  })
+})
+
+describe('tag identity includes category', () => {
+  const t = (category: RaspCategory, offset?: string): Tag =>
+    ({ target: 'nat:libsentinel.so!chk', offset, category, source: 'manual', createdAt: 'now' })
+
+  it('keeps two categories on the same target and offset', () => {
+    const tags = upsertTag(upsertTag([], t('root')), t('hook'))
+    expect(tags).toHaveLength(2)
+  })
+  it('still replaces the same category on the same target and offset', () => {
+    const tags = upsertTag(upsertTag([], t('root')), { ...t('root'), note: 'second' })
+    expect(tags).toHaveLength(1)
+    expect(tags[0].note).toBe('second')
+  })
+  it('keeps the same category at different offsets', () => {
+    const tags = upsertTag(upsertTag([], t('root', '0x88c')), t('root', '0xabc'))
+    expect(tags).toHaveLength(2)
+  })
+  it('removes only the named category', () => {
+    const tags = removeTag(upsertTag(upsertTag([], t('root')), t('hook')), 'nat:libsentinel.so!chk', undefined, 'root')
+    expect(tags.map(x => x.category)).toEqual(['hook'])
+  })
+})
+
+describe('dismissal offsets', () => {
+  it('a row-level dismissal covers every call site', () => {
+    const d = addDismissed([], 'n', 'hook')
+    expect(isDismissed(d, 'n', 'hook')).toBe(true)
+    expect(isDismissed(d, 'n', 'hook', '0x88c')).toBe(true)
+  })
+  it('a call-site dismissal covers only that call site', () => {
+    const d = addDismissed([], 'n', 'hook', '0x88c')
+    expect(isDismissed(d, 'n', 'hook', '0x88c')).toBe(true)
+    expect(isDismissed(d, 'n', 'hook', '0xabc')).toBe(false)
+    expect(isDismissed(d, 'n', 'hook')).toBe(false)
+  })
+  it('reads a legacy dismissal with no offset as row-level', () => {
+    const back = parseSidecar(JSON.stringify({
+      schemaVersion: 1, run: { file: 'r', ingestedAt: 'n' }, tags: [],
+      dismissed: [{ target: 'n', category: 'hook' }],
+    }))
+    expect(isDismissed(back.dismissed, 'n', 'hook', '0x88c')).toBe(true)
   })
 })

@@ -1,4 +1,4 @@
-import type { Tag } from '@shared/project-store'
+import type { Tag, RaspCategory } from '@shared/project-store'
 import { badgeText } from './tag-view'
 
 // Panel listing tags whose target no longer matches any node/edge in the active
@@ -7,7 +7,7 @@ import { badgeText } from './tag-view'
 export function renderOrphans(
   host: HTMLElement,
   orphans: Tag[],
-  onDrop: (target: string, offset?: string) => void,
+  onDrop: (target: string, offset: string | undefined, category: RaspCategory) => void,
   onDropAll: () => void,
 ): void {
   host.innerHTML = ''
@@ -34,7 +34,7 @@ export function renderOrphans(
     const drop = document.createElement('button')
     drop.textContent = 'Drop'
     drop.style.marginLeft = '6px'
-    drop.onclick = () => onDrop(t.target, t.offset)
+    drop.onclick = () => onDrop(t.target, t.offset, t.category)
     row.appendChild(drop)
     host.appendChild(row)
   }

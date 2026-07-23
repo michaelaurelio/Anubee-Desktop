@@ -17,7 +17,7 @@ import { renderSuggestions } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
 import { raspNodeStates } from './rasp-node-state'
-import { upsertTag, removeTag, tagsByTarget, orphanedTags, isDismissed, addDismissed, type Tag, type Dismissed } from '@shared/project-store'
+import { upsertTag, removeTag, tagsByTarget, orphanedTags, isDismissed, addDismissed, type Tag, type Dismissed, type RaspCategory } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
 import { nativeNodeId } from '@shared/graph-shape'
 import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
@@ -376,8 +376,8 @@ async function refreshOrphans(): Promise<void> {
   // Orphan warnings live in the (now selection-gated) side panel; reveal it when
   // there are any, so they aren't silently hidden until a row/node is clicked.
   if (orphanedTags(tags, orphanSet).length) showSide(true)
-  const drop = async (target: string, off?: string) => {
-    tags = removeTag(tags, target, off)
+  const drop = async (target: string, off: string | undefined, cat: RaspCategory) => {
+    tags = removeTag(tags, target, off, cat)
     await persistTags()
     void refreshTable()
     redrawBadges()
@@ -385,7 +385,7 @@ async function refreshOrphans(): Promise<void> {
     void refreshOrphans()
   }
   renderOrphans(host, orphanedTags(tags, orphanSet), drop, async () => {
-    for (const o of orphanedTags(tags, orphanSet)) tags = removeTag(tags, o.target, o.offset)
+    for (const o of orphanedTags(tags, orphanSet)) tags = removeTag(tags, o.target, o.offset, o.category)
     await persistTags()
     void refreshTable()
     redrawBadges()
@@ -557,7 +557,7 @@ cy.on('cxttap', 'node', evt => {
       anchor,
       tagHost: h => renderTagEditor(h, nodeId, undefined, tagsByTarget(tags, nodeId),
         async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
-        async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() }),
+        async (t, off, cat) => { tags = removeTag(tags, t, off, cat); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() }),
     }),
   })
 })

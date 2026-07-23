@@ -1,7 +1,8 @@
 // The tag sidecar model. Pure and fs-free: main reads/writes the file, this
 // module only parses, validates, serialises, and edits the in-memory tag list.
-// A tag's identity is (target, offset) - the graph node id plus an optional
-// block refinement. Node/edge id grammar comes from graph-shape.
+// A tag's identity is (target, offset, category) - the graph node id, an
+// optional block refinement, and the RASP behaviour it implements. Node/edge
+// id grammar comes from graph-shape.
 
 import { coerceRules, type Rule } from './rasp-heuristics'
 
@@ -18,11 +19,13 @@ export interface Tag {
   createdAt: string // ISO
 }
 
-// A rejected heuristic suggestion, keyed by (target, category), so it never
-// re-appears in the suggestions list for this run.
+// A rejected heuristic suggestion. Identity is (target, category, offset), where an
+// absent offset is row-level and suppresses every call site. The field is optional
+// so sidecars written before call-site rejection existed read as row-level.
 export interface Dismissed {
   target: string
   category: RaspCategory
+  offset?: string
 }
 
 export interface Sidecar {
@@ -69,8 +72,11 @@ function coerceDismissed(v: unknown): Dismissed[] {
   for (const e of v) {
     if (typeof e !== 'object' || e === null) continue
     const o = e as Record<string, unknown>
-    if (typeof o.target === 'string' && typeof o.category === 'string' && CATEGORIES.includes(o.category as RaspCategory))
-      out.push({ target: o.target, category: o.category as RaspCategory })
+    if (typeof o.target === 'string' && typeof o.category === 'string' && CATEGORIES.includes(o.category as RaspCategory)) {
+      const entry: Dismissed = { target: o.target, category: o.category as RaspCategory }
+      if (typeof o.offset === 'string') entry.offset = o.offset
+      out.push(entry)
+    }
   }
   return out
 }
@@ -111,26 +117,35 @@ export function serializeSidecar(
   return JSON.stringify(sidecar, null, 2)
 }
 
-export function isDismissed(list: Dismissed[], target: string, category: RaspCategory): boolean {
-  return list.some(d => d.target === target && d.category === category)
+export function isDismissed(list: Dismissed[], target: string, category: RaspCategory, offset?: string): boolean {
+  return list.some(d =>
+    d.target === target && d.category === category &&
+    (d.offset === undefined || d.offset === offset))
 }
 
-export function addDismissed(list: Dismissed[], target: string, category: RaspCategory): Dismissed[] {
-  if (isDismissed(list, target, category)) return list
-  return [...list, { target, category }]
+export function addDismissed(
+  list: Dismissed[], target: string, category: RaspCategory, offset?: string,
+): Dismissed[] {
+  if (list.some(d => d.target === target && d.category === category && d.offset === offset)) return list
+  const entry: Dismissed = { target, category }
+  if (offset !== undefined) entry.offset = offset
+  return [...list, entry]
 }
 
-function sameIdentity(a: Tag, target: string, offset?: string): boolean {
-  return a.target === target && (a.offset ?? undefined) === (offset ?? undefined)
+// A tag's identity is (target, offset, category): one node can implement several
+// RASP behaviours, and one symbol can implement different behaviours at different
+// call sites, so neither alone is enough to key on.
+function sameIdentity(a: Tag, target: string, offset: string | undefined, category: RaspCategory): boolean {
+  return a.target === target && (a.offset ?? undefined) === (offset ?? undefined) && a.category === category
 }
 
 export function upsertTag(tags: Tag[], tag: Tag): Tag[] {
-  const rest = tags.filter(t => !sameIdentity(t, tag.target, tag.offset))
+  const rest = tags.filter(t => !sameIdentity(t, tag.target, tag.offset, tag.category))
   return [...rest, tag]
 }
 
-export function removeTag(tags: Tag[], target: string, offset?: string): Tag[] {
-  return tags.filter(t => !sameIdentity(t, target, offset))
+export function removeTag(tags: Tag[], target: string, offset: string | undefined, category: RaspCategory): Tag[] {
+  return tags.filter(t => !sameIdentity(t, target, offset, category))
 }
 
 export function tagsByTarget(tags: Tag[], target: string): Tag[] {
