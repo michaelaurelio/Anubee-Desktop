@@ -137,7 +137,7 @@ function buildRow(
   } else {
     const tx = document.createElement('input')
     tx.type = 'text'; tx.dataset.key = inp.key
-    tx.value = String(current[inp.key] ?? ''); tx.placeholder = inp.label
+    tx.value = String(current[inp.key] ?? ''); tx.placeholder = inp.placeholder ?? inp.label
     tx.addEventListener('input', () => { current[inp.key] = tx.value; onChange({ ...current }) })
     ctrl = tx
   }
@@ -290,13 +290,34 @@ export function renderPreflightRow(host: HTMLElement, c: PreflightCheck): void {
 // console DOM grows unbounded for the life of the run. Drop the oldest lines
 // past this limit - recent output is what an analyst watching a live capture
 // actually needs.
-const CONSOLE_LINE_CAP = 5000
+export const CONSOLE_LINE_CAP = 5000
+
+// How close to the bottom still counts as "following" the log, in px. A couple
+// of pixels of slack absorbs fractional scroll positions from zoom or DPI.
+const PINNED_SLACK = 4
+
+// Append a whole batch in one pass: one DocumentFragment, one eviction sweep,
+// and at most one scroll write. Reading scrollHeight forces a synchronous
+// layout, so doing it per line is what pegged the renderer on a chatty capture
+// and starved click handling. Auto-scroll only when the analyst is already at
+// the bottom, so scrolling up to read something mid-run is not yanked away.
+export function appendConsoleLines(host: HTMLElement, lines: readonly string[]): void {
+  if (lines.length === 0) return
+  // Measured before mutating; afterwards scrollHeight has already grown.
+  const pinned = host.scrollTop + host.clientHeight >= host.scrollHeight - PINNED_SLACK
+  const frag = document.createDocumentFragment()
+  // Anything beyond the cap would be evicted below without ever being painted.
+  for (const line of lines.slice(-CONSOLE_LINE_CAP)) {
+    const div = document.createElement('div')
+    div.className = 'console-line'
+    div.textContent = line
+    frag.appendChild(div)
+  }
+  host.appendChild(frag)
+  while (host.childElementCount > CONSOLE_LINE_CAP) host.firstElementChild!.remove()
+  if (pinned) host.scrollTop = host.scrollHeight
+}
 
 export function appendConsoleLine(host: HTMLElement, line: string): void {
-  const div = document.createElement('div')
-  div.className = 'console-line'
-  div.textContent = line
-  host.appendChild(div)
-  while (host.childElementCount > CONSOLE_LINE_CAP) host.firstElementChild!.remove()
-  host.scrollTop = host.scrollHeight
+  appendConsoleLines(host, [line])
 }

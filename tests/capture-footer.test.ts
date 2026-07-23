@@ -62,7 +62,25 @@ describe('captureFooter state machine', () => {
   // non-interactive busy note instead of buttons that can no longer act.
   it('running + finishing: a busy note, no buttons at all', () => {
     const s = st({ running: true, finishing: true, counters: '3,517 events' })
-    expect(captureFooter(s)).toEqual({ left: { kind: 'note', text: 'Pulling & ingesting…' }, buttons: [] })
+    expect(captureFooter(s)).toEqual({ left: { kind: 'busy', text: 'Pulling & ingesting…' }, buttons: [] })
+  })
+
+  // Signalling the device and letting anubee drain takes seconds. Without an
+  // immediate acknowledgement the footer sat unchanged and the click read as
+  // ignored, which is what prompted this state.
+  it('running + stopping: acknowledges the click and withdraws the Stop buttons', () => {
+    const s = st({ running: true, stopping: true, counters: '3,517 events' })
+    expect(captureFooter(s)).toEqual({ left: { kind: 'busy', text: 'Stopping the capture…' }, buttons: [] })
+  })
+
+  it('finishing outranks stopping once the device has actually exited', () => {
+    const s = st({ running: true, stopping: true, finishing: true })
+    expect(captureFooter(s).left.text).toBe('Pulling & ingesting…')
+  })
+
+  it('stopping is inert when no run is live', () => {
+    const s = st({ running: false, stopping: true, preflight: 'passed' })
+    expect(captureFooter(s).buttons.some(b => b.id === 'cap-start')).toBe(true)
   })
 
   it('exactly one primary in every state', () => {
@@ -138,5 +156,17 @@ describe('setFooterCounters', () => {
     renderCaptureFooter(host, captureFooter(st({ preflight: 'passed' })), () => {})
     expect(() => setFooterCounters(host, '1 lines')).not.toThrow()
     expect(host.querySelector('.cap-foot-counters')).toBeNull()
+  })
+})
+
+describe('renderCaptureFooter busy state', () => {
+  it('renders a spinner alongside the busy text', () => {
+    const host = document.createElement('div')
+    renderCaptureFooter(host, captureFooter(st({ running: true, stopping: true })), () => {})
+    expect(host.querySelector('.cap-foot-busy')).not.toBeNull()
+    expect(host.querySelector('.cap-spinner')).not.toBeNull()
+    expect(host.textContent).toContain('Stopping the capture…')
+    // No Stop button survives, so a second click cannot double-signal.
+    expect(host.querySelectorAll('button')).toHaveLength(0)
   })
 })

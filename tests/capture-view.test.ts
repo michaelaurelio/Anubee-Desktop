@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   renderCapabilityForm, renderEngineSegments, specsDirRow,
-  appendConsoleLine, applyFieldErrors, renderDot, applySpecChoices,
+  appendConsoleLine, appendConsoleLines, CONSOLE_LINE_CAP,
+  applyFieldErrors, renderDot, applySpecChoices,
 } from '../src/renderer/capture-view'
 import { capById, CAPABILITIES } from '../src/shared/tracer-caps'
 
@@ -298,4 +299,47 @@ describe('appendConsoleLine', () => {
     expect(host.firstElementChild!.textContent).toBe('line 10')
     expect(host.lastElementChild!.textContent).toBe('line 5009')
   }, 20000)
+})
+
+describe('appendConsoleLines', () => {
+  it('appends a whole batch in order', () => {
+    const host = document.createElement('div')
+    appendConsoleLines(host, ['a', 'b', 'c'])
+    expect([...host.children].map(e => e.textContent)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('is a no-op for an empty batch', () => {
+    const host = document.createElement('div')
+    appendConsoleLines(host, [])
+    expect(host.children.length).toBe(0)
+  })
+
+  // A batch larger than the cap would be evicted down to it anyway, so the
+  // surplus is never painted - building those nodes is pure waste.
+  it('never builds more nodes than the cap, even for an oversized batch', () => {
+    const host = document.createElement('div')
+    const created: string[] = []
+    const realCreate = document.createElement.bind(document)
+    const spy = vi.spyOn(document, 'createElement').mockImplementation(((tag: string) => {
+      created.push(tag)
+      return realCreate(tag)
+    }) as typeof document.createElement)
+    appendConsoleLines(host, Array.from({ length: CONSOLE_LINE_CAP + 500 }, (_, i) => `line ${i}`))
+    spy.mockRestore()
+    expect(created.filter(t => t === 'div').length).toBe(CONSOLE_LINE_CAP)
+    expect(host.children.length).toBe(CONSOLE_LINE_CAP)
+    // The newest lines are the ones kept.
+    expect(host.lastElementChild!.textContent).toBe(`line ${CONSOLE_LINE_CAP + 499}`)
+  }, 20000)
+
+  // Reading scrollHeight per line forced a synchronous layout and starved the
+  // event loop on a chatty capture; a batch must touch it a bounded number of
+  // times regardless of how many lines it carries.
+  it('does not scale scroll reads with batch size', () => {
+    const host = document.createElement('div')
+    let reads = 0
+    Object.defineProperty(host, 'scrollHeight', { get() { reads += 1; return 0 } })
+    appendConsoleLines(host, Array.from({ length: 500 }, (_, i) => `line ${i}`))
+    expect(reads).toBeLessThanOrEqual(2)
+  })
 })

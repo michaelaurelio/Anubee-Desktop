@@ -14,6 +14,9 @@ export interface CapInput {
   default?: number   // int inputs: anubee default, shown as placeholder ("use default")
   min?: number       // int inputs: minimum accepted whole number (defaults to 1)
   advanced?: boolean // render inside the collapsible Advanced disclosure
+  // Text inputs default their placeholder to `label`. Set this when the label
+  // has to stay short for the caption column but the field needs a format hint.
+  placeholder?: string
 }
 
 export type CapValues = Record<string, string | boolean | undefined>
@@ -67,6 +70,7 @@ export function commonArgv(vals: CapValues): string[] {
   if (b !== undefined && b !== 4) a.push('-b', String(b))
   if (q !== undefined && q !== 256) a.push('-Q', String(q))
   if (vals.verbose) a.push('-v')
+  if (vals.quiet) a.push('-q')
   return a
 }
 
@@ -76,6 +80,12 @@ export const COMMON_TUNING_INPUTS: CapInput[] = [
   { key: 'bufmb', label: 'ring buffer (MB)', kind: 'int', default: 4, min: 1, advanced: true },
   { key: 'queuemb', label: 'worker queue (MB)', kind: 'int', default: 256, min: 1, advanced: true },
   { key: 'verbose', label: 'verbose debug', kind: 'bool', advanced: true },
+  // -q silences anubee's per-event console output. The JSONL that -o writes is
+  // unaffected, so a quiet run still captures everything - it only stops the
+  // live console echoing it. Worth having: an unfiltered capture prints tens of
+  // thousands of lines a second, and rendering that is pure overhead when the
+  // analyst only wants the resulting run.
+  { key: 'quiet', label: 'quiet console', kind: 'bool', advanced: true },
 ]
 
 // --snapshot: opt-in per-engine flag (syscalls/funcs only). Populates stack_id
@@ -95,7 +105,9 @@ export const CAPABILITIES: Capability[] = [
     inputs: [
       { key: 'pkg', label: 'package', kind: 'package', required: true },
       { key: 'libs', label: 'library filters', kind: 'globlist' },
-      { key: 'syscalls', label: 'syscalls (comma-separated)', kind: 'csv' },
+      // Label kept short: at 96px the caption column wrapped it to three lines
+      // and left the row ragged. The input's placeholder carries the format.
+      { key: 'syscalls', label: 'syscalls', kind: 'csv', placeholder: 'openat,connect (blank = all)' },
       SNAPSHOT_INPUT,
       ...COMMON_TUNING_INPUTS,
     ],
