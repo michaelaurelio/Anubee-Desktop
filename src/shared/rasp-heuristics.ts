@@ -197,21 +197,22 @@ function isSystemNative(module: string | null): boolean {
   return SYSTEM_NATIVE.has(module)
 }
 
-// The native node id of the RASP block behind the syscall: the innermost native
-// frame that is NOT a platform lib (the app's own code that called into libc).
-// Falls back to the innermost native frame when the whole native path is system
-// libs (e.g. a Java-driven check with no custom lib), then to the syscall node.
-// Reuses chainOf so the id grammar matches the graph exactly.
-function nativeTargetOf(e: SyscallEvent): string {
+// The node id of the RASP block behind the syscall: the innermost native frame
+// that is NOT a platform lib (the app's own code that called into libc). A stack
+// that never leaves platform code is not app RASP code, so it yields no target -
+// falling back to the libc wrapper used to suggest libart.so as a hook check.
+// A managed-code check with no custom native lib falls back to its innermost
+// java frame. Reuses chainOf so the id grammar matches the graph exactly.
+function targetOf(e: SyscallEvent): string | null {
   const chain = chainOf(e)
-  let innermostNative: string | null = null
   for (let i = chain.length - 1; i >= 0; i--) {
     const c = chain[i]
-    if (c.kind !== 'native') continue
-    if (innermostNative === null) innermostNative = c.id // system-lib fallback
-    if (!isSystemNative(c.module)) return c.id // the app's own block
+    if (c.kind === 'native' && !isSystemNative(c.module)) return c.id
   }
-  return innermostNative ?? `sys:${e.syscall}`
+  for (let i = chain.length - 1; i >= 0; i--) {
+    if (chain[i].kind === 'java') return chain[i].id
+  }
+  return null
 }
 
 function sqlLit(s: string): string {
@@ -302,13 +303,15 @@ function matchOne(m: RuleMatch, e: SyscallEvent): boolean {
 }
 
 // The scoring authority. One suggestion per rule whose syscall + predicate match;
-// target is the nearest native frame (nativeTargetOf), rationale verbatim.
+// target is the nearest native frame (targetOf), rationale verbatim.
 export function scoreWith(rules: Rule[], e: SyscallEvent): Suggestion[] {
+  const target = targetOf(e)
+  if (target === null) return []
   const out: Suggestion[] = []
   for (const r of rules) {
     if (!r.match.syscalls.includes(e.syscall)) continue
     if (matchOne(r.match, e)) {
-      out.push({ target: nativeTargetOf(e), category: r.category, confidence: r.confidence, rationale: r.rationale, occurrences: 1 })
+      out.push({ target, category: r.category, confidence: r.confidence, rationale: r.rationale, occurrences: 1 })
     }
   }
   return out

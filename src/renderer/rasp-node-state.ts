@@ -1,5 +1,5 @@
 // Fold heuristic suggestions + confirmed tags into a per-node RASP category+state
-// for graph coloring. Suggestions target native nodes (nativeTargetOf); a
+// for graph coloring. Suggestions target the attributed node (targetOf); a
 // confirmed tag on the same node wins. See spec Phase 1b s3.3.
 import type { Suggestion } from '@shared/rasp-heuristics'
 import type { Tag, RaspCategory } from '@shared/project-store'

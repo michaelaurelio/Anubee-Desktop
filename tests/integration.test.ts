@@ -156,7 +156,8 @@ describe('heuristic suggestions', () => {
 
   it('honors an explicit resolved rule set (a disabled built-in stops firing)', async () => {
     const store = new GraphStore()
-    await store.ingest(fixture([{ ...evA, syscall: 'ptrace', args: ['0x10'], string_args: {}, backtrace: [] }]))
+    await store.ingest(fixture([{ ...evA, syscall: 'ptrace', args: ['0x10'], string_args: {},
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }]))
     const disabled = resolveRules(BUILTIN_RULES, { rules: [], enabledOverrides: { 'dbg-ptrace-attach': false } }, { rules: [], enabledOverrides: {} })
       .filter(r => r.enabled)
     const s = await store.suggest(undefined, disabled)
@@ -175,17 +176,23 @@ describe('heuristic suggestions', () => {
 describe('compiler lockstep (real DuckDB admits exactly what scoreWith scores)', () => {
   // Synthetic events modeled on the real record shapes, one per built-in signal.
   const events = [
-    { ...evA, id: 1, syscall: 'ptrace', args: ['0x10'], string_args: {}, backtrace: [] },
-    { ...evA, id: 2, syscall: 'ptrace', args: ['0x0'], string_args: {}, backtrace: [] },
+    { ...evA, id: 1, syscall: 'ptrace', args: ['0x10'], string_args: {},
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+    { ...evA, id: 2, syscall: 'ptrace', args: ['0x0'], string_args: {},
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
     { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/proc/self/status' } },
-    { ...evA, id: 4, syscall: 'read', string_args: {}, fd_args: { '0': 'fd=6 </proc/self/status>' }, backtrace: [] },
+    { ...evA, id: 4, syscall: 'read', string_args: {}, fd_args: { '0': 'fd=6 </proc/self/status>' },
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
     { ...evA, id: 5, syscall: 'openat', string_args: { '1': '/proc/self/maps' } },
-    { ...evA, id: 6, syscall: 'connect', string_args: {}, sock_addr: 'unix:@/frida-zymbiote-abc', backtrace: [] },
+    { ...evA, id: 6, syscall: 'connect', string_args: {}, sock_addr: 'unix:@/frida-zymbiote-abc',
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
     { ...evA, id: 7, syscall: 'access', string_args: { '1': '/system/xbin/busybox' } },
     { ...evA, id: 8, syscall: 'openat', string_args: { '1': '/sys/fs/selinux/enforce' } },
-    { ...evA, id: 9, syscall: 'prctl', args: ['0xdeadbeef'], string_args: {}, backtrace: [] },
+    { ...evA, id: 9, syscall: 'prctl', args: ['0xdeadbeef'], string_args: {},
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
     { ...evA, id: 10, syscall: 'openat', string_args: { '1': '/data/app/benign.so' } }, // matches nothing
-    { ...evA, id: 11, syscall: 'read', string_args: {}, fd_args: { '0': 'fd=122' }, backtrace: [] }, // unresolved: matches nothing
+    { ...evA, id: 11, syscall: 'read', string_args: {}, fd_args: { '0': 'fd=122' },
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // unresolved: matches nothing
   ]
 
   it('for every built-in rule, DuckDB WHERE-admission matches scoreWith over all events', async () => {
