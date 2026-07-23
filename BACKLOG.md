@@ -3,6 +3,79 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-23) - RASP sequence rules + call-site attribution
+
+The RASP heuristic engine (`src/shared/rasp-heuristics.ts`) moved from a
+stateless single-event predicate per rule to an ordered `steps` sequence
+matched by a stateful `SequenceMatcher`, correlated by `symbol` / `symbol+tid`
+/ `module` / `module+tid` / `java` and bounded by a `maxGap` event window.
+`compileWhere` widened to a per-step SQL prefilter (still the sole thing that
+reaches DuckDB); the matcher remains the scoring authority. Hits resolve to a
+module-relative call-site offset (`src/shared/origins.ts`) and aggregate to
+`(target, category)` suggestion rows with per-offset children, so a rejection
+or confirmation can act at either the row or the individual call-site level.
+The rule-authoring UI (`src/renderer/rules-view.ts`) gained a repeating step
+block (Add step / Remove step) plus `correlate`/`maxGap` controls, and a new
+built-in, `hook-frida-scan`, ships as the first two-step sequence rule (a maps
+walk followed by a frida-artefact probe). See `DOCUMENTATION.md`'s "Heuristic
+pre-tagging" and "RASP rule-authoring UI" sections.
+
+### Known drawbacks / follow-ups
+- **`suggest`'s candidate scan is paged, and a wide rule library widens it.**
+  `GraphStore.suggest` reads its DuckDB candidate set in pages (default 20000
+  rows, injectable per store instance via the constructor's `suggestPage`
+  option), and the `compileWhere` prefilter is an OR across every rule's every
+  step - so a larger built-in or user rule library admits more rows per page
+  and does more DuckDB work per page fetched. Re-measure the page size if the
+  built-in rule set grows substantially.
+- **`maxGap` counts rule-relevant events, not elapsed time**, because Anubee
+  syscall records carry no timestamp for the matcher to measure against - a
+  time-based window is not something the tracer's output can support. A rule
+  tuned to fire reliably on one workload's event rate may need its `maxGap`
+  retuned for a workload where the same real-world gap spans a different
+  number of rule-relevant events.
+- **Cross-step value binding (a step referencing a value an earlier step
+  captured) is not implemented.** Adding it would defeat the SQL prefilter:
+  matching "the same value across two steps" cannot be expressed as a bounded
+  per-row `WHERE` clause, so it would force the whole run's event set onto the
+  JS heap to check in JS instead - exactly what `compileWhere` exists to avoid.
+  The concrete residual gap this leaves: an `fd_args` value whose `readlink`
+  failed carries no path at all (`fd=<n>` with nothing to unwrap) and so
+  cannot be linked back to the `openat` that produced that fd - 168 of 4367
+  fd-referencing events (3.8%) in `tests/fixtures/detector_snap.jsonl`.
+- **A rule step matches exactly one `field`.** "This path was either opened or
+  read" needs two rules, or two steps in one rule (one per field) - a step
+  cannot itself say "match in `string_args` OR `fd_args`". Widening `field` to
+  accept a list was considered and rejected: it would multiply the number of
+  clauses `compileWhere` emits per step (one per field in the list), for a
+  case union types can already express with an extra step or rule.
+- **`SequenceMatcher` reports at most one occurrence per event per rule per
+  correlation key.** It advances only the oldest in-flight partial on a match
+  and consumes (retires) a partial the instant its last step completes, so two
+  independently-interleaved sequences sharing one correlation key (e.g. the
+  same thread running the same check twice, back to back, before either
+  finishes) report as one occurrence, not two. Accepted: the alternative -
+  advancing every eligible partial per event - multiplies matcher work by the
+  number of live partials per key per event, for a case (self-interleaved
+  identical sequences on one thread) that is rare in practice.
+- **`SequenceMatcher.counts` is never pruned.** Unlike `partials` (bounded by
+  `cap` plus a periodic sweep) and `ages` (periodically compacted), `counts`
+  keeps one entry per distinct correlation-key stream ever seen, for the life
+  of a `suggest()` run, and is never trimmed. This is bounded per-key metadata
+  (a single number) over an already-DuckDB-prefiltered candidate set, judged
+  an acceptable cost - but it is the only structure in the class with no cap
+  and no reclaim path. Revisit if a run with an extreme number of distinct
+  correlation keys (e.g. `symbol+tid` on a very high-thread-churn capture)
+  makes it measurably large.
+- **Pre-existing UI glitch, unrelated to this work but worth recording:** the
+  `root-paths` built-in's rule-list meta line (confidence + syscalls, e.g.
+  `85% · openat,access,newfstatat,faccessat`) wraps awkwardly onto its own
+  line under the id/category chips instead of staying right-aligned on the
+  first line, because `.rule-line1 { flex-wrap: wrap }` lets the row's items
+  wrap while `.rule-meta { margin-left: auto }` (both `src/renderer/index.html`)
+  only pushes the meta span right *within whichever wrapped line it lands on* -
+  a long comma-joined syscall list is wide enough to force the wrap. Cosmetic.
+
 ## Shipped (2026-07-23) - Capture run-lifecycle fix wave
 
 Pre-merge review of the tracer-control branch found four issues, all fixed:
