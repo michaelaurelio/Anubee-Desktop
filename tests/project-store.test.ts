@@ -103,3 +103,14 @@ describe('dismissed suggestions', () => {
     expect(back.dismissed).toEqual([{ target: 'nat:x', category: 'hook' }])
   })
 })
+
+describe('sidecar schemaVersion', () => {
+  it('reads a v1 sidecar and writes v2', () => {
+    const v1 = JSON.stringify({
+      schemaVersion: 1, run: { file: 'r.jsonl', ingestedAt: 'now' }, tags: [], rules: [], enabledOverrides: {},
+    })
+    expect(parseSidecar(v1).errors).toEqual([])
+    const out = JSON.parse(serializeSidecar({ file: 'r.jsonl', ingestedAt: 'now' }, []))
+    expect(out.schemaVersion).toBe(2)
+  })
+})

@@ -6,6 +6,8 @@ import { join } from 'node:path'
 import { coerceRules, type RuleScope } from '@shared/rasp-heuristics'
 
 const FILE = 'rasp-rules.json'
+const SCHEMA_VERSION = 2
+const READABLE = new Set([1, 2]) // v1 stored a single `match`; validateRule upgrades it
 
 function coerceOverrides(v: unknown): Record<string, boolean> {
   if (typeof v !== 'object' || v === null) return {}
@@ -21,7 +23,7 @@ export function loadRules(dir: string): RuleScope {
   if (!existsSync(p)) return { rules: [], enabledOverrides: {} }
   try {
     const j = JSON.parse(readFileSync(p, 'utf8'))
-    if (j.schemaVersion !== 1) return { rules: [], enabledOverrides: {} }
+    if (!READABLE.has(j.schemaVersion)) return { rules: [], enabledOverrides: {} }
     const { rules } = coerceRules(Array.isArray(j.rules) ? j.rules : [], 'global')
     return { rules, enabledOverrides: coerceOverrides(j.enabledOverrides) }
   } catch {
@@ -30,6 +32,6 @@ export function loadRules(dir: string): RuleScope {
 }
 
 export function saveRules(dir: string, scope: RuleScope): void {
-  const body = { schemaVersion: 1, rules: scope.rules, enabledOverrides: scope.enabledOverrides }
+  const body = { schemaVersion: SCHEMA_VERSION, rules: scope.rules, enabledOverrides: scope.enabledOverrides }
   writeFileSync(join(dir, FILE), JSON.stringify(body, null, 2))
 }
