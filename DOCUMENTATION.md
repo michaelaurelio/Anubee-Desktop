@@ -441,9 +441,14 @@ behavior it implements. A tag (`src/shared/project-store.ts`, type `Tag`) has:
 
 - `target` - a graph node id: `nat:<mod>!<sym>` (native symbol), `java:<method>`,
   `sys:<name>` (syscall), or `edge:<src>=><target>`.
-- `offset` (optional) - a block-level refinement, e.g. `libexample.so+0x1234`,
+- `offset` (optional) - a block-level refinement: a bare module-relative offset,
+  e.g. `0x1234` (or `[unmapped]` when the call site could not be resolved),
   chosen from a concrete backtrace frame in the node inspector when a symbol
-  covers more than one basic block.
+  covers more than one basic block. It is deliberately *not* module-qualified,
+  so a heuristic-confirmed offset and one authored from the offset popup are
+  byte-identical and share one tag identity. Anything rendering an offset for a
+  human (the findings export) has to pair it with the target to name the
+  library and symbol.
 - `category` - one of `root | debugger | emulator | integrity | hook | custom`.
 - `source` - `manual` (analyst-authored) or `heuristic` (confirmed from a
   suggestion, see below), plus `confidence`/`rationale` when heuristic-sourced.

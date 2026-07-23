@@ -10,7 +10,11 @@ export type RaspCategory = 'root' | 'debugger' | 'emulator' | 'integrity' | 'hoo
 
 export interface Tag {
   target: string // "nat:<mod>!<sym>" | "java:<method>" | "sys:<name>" | "edge:<src>=><target>"
-  offset?: string // optional block refinement, e.g. "libexample.so+0x1234"
+  // Optional block refinement: a bare module-relative offset, e.g. "0x1234", or
+  // "[unmapped]" when the call site could not be resolved. Bare (not module-
+  // qualified) so a heuristic tag and one authored from the node inspector's
+  // offset popup share the same identity for the same call site.
+  offset?: string
   category: RaspCategory
   note?: string
   source: 'manual' | 'heuristic'
