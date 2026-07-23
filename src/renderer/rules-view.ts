@@ -220,6 +220,7 @@ export async function renderRules(
         stepControls.splice(stepControls.indexOf(ctl), 1)
         block.remove()
         renumber()
+        syncStepButtons()
         refreshPreview()
       }
       heading.append(document.createElement('span'), del)
@@ -241,12 +242,20 @@ export async function renderRules(
       stepControls.push(ctl)
       stepsHost.append(block)
       renumber()
+      syncStepButtons()
     }
 
     function renumber(): void {
       stepsHost.querySelectorAll('.rf-step-head > span:first-child').forEach((el, i) => {
         el.textContent = `step ${i + 1}`
       })
+    }
+
+    // A rule always has at least one step, so Remove step is disabled while
+    // only one block remains (re-enabled the moment a second is added).
+    function syncStepButtons(): void {
+      const onlyOne = stepControls.length === 1
+      stepsHost.querySelectorAll<HTMLButtonElement>('.rf-step-del').forEach(btn => { btn.disabled = onlyOne })
     }
 
     const addStep = document.createElement('button')

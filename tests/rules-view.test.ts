@@ -181,6 +181,45 @@ describe('rules-view editor form (DOM)', () => {
     expect(stepBlocks(form)).toHaveLength(1)
   })
 
+  it('disables Remove step when a one-step rule is first rendered', async () => {
+    const form = await openNewRuleForm()
+    expect(stepBlocks(form)).toHaveLength(1)
+
+    expect(removeBtnOf(stepBlocks(form)[0]).disabled).toBe(true)
+  })
+
+  it('renders a two-step rule with Remove step enabled on both blocks', async () => {
+    const form = await openEditForm(twoStepRule)
+    const blocks = stepBlocks(form)
+    expect(blocks).toHaveLength(2)
+
+    expect(removeBtnOf(blocks[0]).disabled).toBe(false)
+    expect(removeBtnOf(blocks[1]).disabled).toBe(false)
+  })
+
+  it('enables Remove step on all blocks once Add step brings the count to two', async () => {
+    const form = await openNewRuleForm()
+    expect(removeBtnOf(stepBlocks(form)[0]).disabled).toBe(true)
+
+    findButton(form, 'Add step').click()
+
+    const blocks = stepBlocks(form)
+    expect(blocks).toHaveLength(2)
+    expect(removeBtnOf(blocks[0]).disabled).toBe(false)
+    expect(removeBtnOf(blocks[1]).disabled).toBe(false)
+  })
+
+  it('disables Remove step again once removal brings a rule back down to one step', async () => {
+    const form = await openEditForm(twoStepRule)
+    expect(stepBlocks(form)).toHaveLength(2)
+
+    removeBtnOf(stepBlocks(form)[1]).click()
+
+    const blocks = stepBlocks(form)
+    expect(blocks).toHaveLength(1)
+    expect(removeBtnOf(blocks[0]).disabled).toBe(true)
+  })
+
   it('removes the targeted step from a multi-step rule and renumbers survivors with no gap', async () => {
     const form = await openEditForm(threeStepRule)
     expect(stepBlocks(form)).toHaveLength(3)
