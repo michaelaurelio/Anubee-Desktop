@@ -324,9 +324,18 @@ interface PartialMatch {
   pid: number
 }
 
-// Sweep every this many push() calls so `partials` cannot grow without bound on
-// a long run of short-lived correlation keys.
+// Sweep at most once every this many push() calls so `partials` cannot grow
+// without bound on a long run of short-lived correlation keys, while a sweep
+// (which is O(live)) still costs amortised O(1) per event.
 const SWEEP_EVERY = 4096
+// Compact the age queue only once it is longer than this, so the copy it makes
+// is paid for by enough opens to stay amortised O(1).
+const COMPACT_ABOVE = 4096
+
+export interface SequenceMatcherOptions {
+  sweepEvery?: number
+  compactAbove?: number
+}
 
 // Ordered-sequence matcher over an id-ordered event stream. Stateful so it can be
 // driven page by page (the candidate set is never materialised whole), pure in the
@@ -342,25 +351,38 @@ const SWEEP_EVERY = 4096
 // prefilter admits only candidate rows), and unrelated work cannot dilute a
 // window because it either matches no step or keys differently.
 //
-// In-flight partials are capped. At the cap the matcher first reclaims what has
-// expired, then forgets its oldest partial to make room, counting it in
-// `dropped` - never refusing new ones, which would go blind for the rest of the
-// run once churning keys (a short-lived tid opens a partial and never speaks
-// again) filled the cap.
+// In-flight partials are capped. At the cap the matcher forgets its oldest
+// partial to make room, counting it in `dropped` - never refusing new ones,
+// which would go blind for the rest of the run once churning keys (a short-lived
+// tid opens a partial and never speaks again) filled the cap. Expired partials
+// are reclaimed by the periodic sweep, which is throttled so a saturated cap
+// costs O(1) per event rather than O(cap).
 export class SequenceMatcher {
   private hits: RawHit[] = []
   private dropped = 0
   private live = 0
   private pushes = 0
+  private sweptAt = 0                                   // this.pushes at the last sweep
+  private sweeps = 0                                    // sweeps performed, for tests
   private counts = new Map<string, number>()            // stream key -> events seen
   private partials = new Map<string, PartialMatch[]>()  // partial key -> in flight
   private ages: PartialMatch[] = []                     // open order, for eviction
   private agesHead = 0                                  // first not-yet-considered slot
+  private sweepEvery: number
+  private compactAbove: number
 
-  constructor(private rules: Rule[], private cap = 10000) {}
+  constructor(private rules: Rule[], private cap = 10000, opts: SequenceMatcherOptions = {}) {
+    this.sweepEvery = Math.max(1, opts.sweepEvery ?? SWEEP_EVERY)
+    this.compactAbove = opts.compactAbove ?? COMPACT_ABOVE
+  }
+
+  // Sweeps performed so far. Exposed so a test can pin the reclaim work done at
+  // a saturated cap without timing anything.
+  get sweepCount(): number { return this.sweeps }
 
   push(e: SyscallEvent): void {
-    if (++this.pushes % SWEEP_EVERY === 0) this.sweep()
+    this.pushes++
+    if (this.pushes - this.sweptAt >= this.sweepEvery) this.sweep()
     const keys = new Map<CorrelateKey, string | null>()
     const keyOf = (mode: CorrelateKey): string | null => {
       if (!keys.has(mode)) keys.set(mode, correlationKey(mode, e))
@@ -389,23 +411,34 @@ export class SequenceMatcher {
       let advanced = false
 
       if (list && list.length > 0) {
-        const kept: PartialMatch[] = []
-        for (const p of list) {
-          if (n - p.atCount > r.maxGap) { this.retire(p); continue }   // expired
-          if (!advanced && matchOne(r.steps[p.nextStep], e)) {
+        // `kept` is allocated only once something actually leaves the list; an
+        // advance mutates its partial in place, so the array is unchanged and
+        // the map entry does not need rewriting. This is the hottest path.
+        let kept: PartialMatch[] | null = null
+        for (let i = 0; i < list.length; i++) {
+          const p = list[i]
+          let drop = false
+          if (n - p.atCount - 1 > r.maxGap) { this.retire(p); drop = true }   // expired
+          else if (!advanced && matchOne(r.steps[p.nextStep], e)) {
             advanced = true
             p.nextStep++
             p.atCount = n
             if (p.nextStep === r.steps.length) {
               this.emit(r, p.target, p.frame, p.pid)
               this.retire(p)
-              continue
+              drop = true
             }
           }
-          kept.push(p)
+          if (drop) {
+            if (kept === null) kept = list.slice(0, i)
+            continue
+          }
+          if (kept !== null) kept.push(p)
         }
-        if (kept.length === 0) this.partials.delete(pk)
-        else this.partials.set(pk, kept)
+        if (kept !== null) {
+          if (kept.length === 0) this.partials.delete(pk)
+          else this.partials.set(pk, kept)
+        }
       }
 
       if (advanced) continue
@@ -415,14 +448,13 @@ export class SequenceMatcher {
       if (r.steps.length === 1) { this.emit(r, target, anchorFrame(e), e.pid); continue }
       // Expiry is otherwise lazy (it needs another event on the same rule+key), so
       // a partial on a key that goes silent would hold its slot forever and the
-      // cap would become a permanent block. Reclaim before refusing: sweep what
-      // has genuinely expired, then evict the oldest survivor.
+      // cap would become a permanent block. `evictOldest` alone guarantees a free
+      // slot in amortised O(1); reclaiming expired partials is the throttled
+      // periodic sweep's job, because sweeping here would be O(live) on every
+      // event once the cap saturates.
       if (this.live >= this.cap) {
-        this.sweep()
-        if (this.live >= this.cap) {
-          if (!this.evictOldest()) { this.dropped++; continue }
-          this.dropped++
-        }
+        if (!this.evictOldest()) { this.dropped++; continue }
+        this.dropped++
       }
       this.live++
       const p: PartialMatch = {
@@ -447,9 +479,11 @@ export class SequenceMatcher {
   // whether or not that stream still speaks to its rule. Keeps `live` equal to
   // the number of partials actually held, and bounds the map on a long run.
   private sweep(): void {
+    this.sweeps++
+    this.sweptAt = this.pushes
     for (const [pk, list] of this.partials) {
       const kept = list.filter(p => {
-        if ((this.counts.get(p.stream) ?? 0) - p.atCount <= p.maxGap) return true
+        if ((this.counts.get(p.stream) ?? 0) - p.atCount - 1 <= p.maxGap) return true
         this.retire(p)
         return false
       })
@@ -458,7 +492,7 @@ export class SequenceMatcher {
     }
     // Compact the age queue: drop consumed and retired slots. Amortised O(1) per
     // partial opened, since it only runs once the queue is twice the live set.
-    if (this.ages.length > SWEEP_EVERY && this.ages.length > this.live * 2) {
+    if (this.ages.length > this.compactAbove && this.ages.length > this.live * 2) {
       this.ages = this.ages.slice(this.agesHead).filter(p => !p.dead)
       this.agesHead = 0
     }

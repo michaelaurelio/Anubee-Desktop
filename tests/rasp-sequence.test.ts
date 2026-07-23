@@ -33,8 +33,31 @@ const benign: Rule = {
 const OTHER = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
                { frame: 1, addr: '0x9000', symbol: 'libother.so!f+0x4' }]
 
+// A backtrace with no app frame at all: it has no module key, so no rule with a
+// module correlate participates in it and no correlation stream is bumped.
+const PLATFORM_ONLY = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' }]
+
 function idsOf(hits: { ruleId: string }[]): string[] {
   return hits.map(h => h.ruleId)
+}
+
+// The cap, sweep and age-queue invariants are internal by design, and they are
+// exactly what the bookkeeping tests below pin, so read them directly.
+function state(m: SequenceMatcher): { live: number; held: number; ages: number; reachable: number } {
+  const i = m as unknown as {
+    live: number
+    ages: { dead: boolean }[]
+    agesHead: number
+    partials: Map<string, unknown[]>
+  }
+  let held = 0
+  for (const list of i.partials.values()) held += list.length
+  return {
+    live: i.live,
+    held,
+    ages: i.ages.length,
+    reachable: i.ages.slice(i.agesHead).filter(p => !p.dead).length,
+  }
 }
 
 describe('SequenceMatcher', () => {
@@ -59,6 +82,37 @@ describe('SequenceMatcher', () => {
     ])
     expect(idsOf(hits).filter(id => id === 'hook-frida-scan')).toEqual([])
     expect(idsOf(hits).filter(id => id === 'benign-probe')).toHaveLength(6)
+  })
+
+  it('admits exactly maxGap rule-relevant events between two steps', () => {
+    // maxGap is the count of rule-relevant events allowed BETWEEN the steps, so
+    // maxGap = 5 must still match with five of them in the way.
+    const filler = Array.from({ length: 5 }, (_, i) => ev(10 + i, 'openat', '/data/benign.so'))
+    const { hits } = matchSequences([seq, benign], [
+      ev(1, 'openat', '/proc/self/maps'), ...filler, ev(99, 'openat', '/data/frida-agent.so'),
+    ])
+    expect(idsOf(hits).filter(id => id === 'hook-frida-scan')).toHaveLength(1)
+  })
+
+  it('expires at maxGap + 1 rule-relevant events between two steps', () => {
+    const filler = Array.from({ length: 6 }, (_, i) => ev(10 + i, 'openat', '/data/benign.so'))
+    const { hits } = matchSequences([seq, benign], [
+      ev(1, 'openat', '/proc/self/maps'), ...filler, ev(99, 'openat', '/data/frida-agent.so'),
+    ])
+    expect(idsOf(hits).filter(id => id === 'hook-frida-scan')).toEqual([])
+  })
+
+  it('the sweep keeps a partial with exactly maxGap events still to come', () => {
+    // Sweeping on every push, with the stream six events past the anchor: five
+    // of them sit between the anchor and whatever arrives next, which is exactly
+    // maxGap, so the sweep must not retire it. The final event carries no module
+    // key, so it sweeps without touching the stream.
+    const m = new SequenceMatcher([seq, benign], 10, { sweepEvery: 1 })
+    m.push(ev(1, 'openat', '/proc/self/maps'))
+    for (let i = 0; i < 6; i++) m.push(ev(10 + i, 'openat', '/data/benign.so'))
+    m.push(ev(50, 'openat', '/data/benign.so', { backtrace: PLATFORM_ONLY }))
+    expect(m.sweepCount).toBe(8)
+    expect(state(m).live).toBe(1)
   })
 
   it('measures the gap key-locally, so filler on another key does not expire it', () => {
@@ -157,6 +211,34 @@ describe('SequenceMatcher', () => {
       m.push(ev(i, 'openat', '/proc/self/maps', { tid: 100 + i }))
     }
     expect(m.finish().dropped).toBe(3)
+  })
+
+  it('does not sweep on every push once the cap is saturated', () => {
+    // Reclaiming at the cap is O(live) and evicting is O(1), so a saturated cap
+    // must not pay a sweep per event - it was quadratic in the cap before.
+    const m = new SequenceMatcher([seq], 4, { sweepEvery: 1000, compactAbove: 1000 })
+    for (let i = 1; i <= 500; i++) {
+      m.push(ev(i, 'openat', '/proc/self/maps', { tid: 1000 + i }))
+    }
+    expect(m.sweepCount).toBe(0)
+    const s = state(m)
+    expect(s.live).toBe(4)
+    expect(s.held).toBe(4)
+    expect(m.finish().dropped).toBe(496)
+  })
+
+  it('compacts the age queue without losing a live partial', () => {
+    const m = new SequenceMatcher([seq], 4, { sweepEvery: 10, compactAbove: 8 })
+    for (let i = 1; i <= 120; i++) {
+      m.push(ev(i, 'openat', '/proc/self/maps', { tid: 1000 + i }))
+    }
+    expect(m.sweepCount).toBe(12)
+    const s = state(m)
+    expect(s.live).toBe(4)
+    expect(s.held).toBe(4)          // live is exactly what the map holds
+    expect(s.reachable).toBe(4)     // every live partial is still evictable
+    expect(s.ages).toBeLessThanOrEqual(20)  // compacted, not one slot per push
+    expect(m.finish().dropped).toBe(116)
   })
 
   it('keeps matching on other keys once the cap has been hit', () => {
