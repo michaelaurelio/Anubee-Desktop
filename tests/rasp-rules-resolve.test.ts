@@ -161,7 +161,7 @@ describe('rule schema v2', () => {
     expect(error).toMatch(/maxGap/)
   })
 
-  it('every built-in is a one-step rule', () => {
-    for (const r of BUILTIN_RULES) expect(r.steps).toHaveLength(1)
+  it('every built-in is a one-step rule, except the frida-scan sequence', () => {
+    for (const r of BUILTIN_RULES) expect(r.steps).toHaveLength(r.id === 'hook-frida-scan' ? 2 : 1)
   })
 })

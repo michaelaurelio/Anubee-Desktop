@@ -205,6 +205,40 @@ describe('heuristic suggestions', () => {
     await store.close()
   })
 
+  it('flags a maps-then-frida scan as a high-confidence hook check', async () => {
+    const store = new GraphStore()
+    const bt = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
+                { frame: 1, addr: '0x2100', symbol: 'libsentinel.so!scan+0x100' }]
+    await store.ingest(fixture([
+      { ...evA, id: 1, syscall: 'openat', string_args: { '1': '/proc/self/maps' }, backtrace: bt },
+      { ...evA, id: 2, syscall: 'openat', string_args: { '1': '/data/local/tmp/frida-agent-64.so' }, backtrace: bt },
+    ]))
+    const s = await store.suggest()
+    const hook = s.find(x => x.category === 'hook')!
+    expect(hook.confidence).toBe(0.95)
+    expect(hook.rationale).toContain('frida')
+    await store.close()
+  })
+
+  it('leaves a lone maps read at low confidence', async () => {
+    const store = new GraphStore()
+    await store.ingest(fixture([{ ...evA, id: 1, syscall: 'openat',
+      string_args: { '1': '/proc/self/maps' },
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
+                  { frame: 1, addr: '0x2100', symbol: 'libsentinel.so!scan+0x100' }] }]))
+    const s = await store.suggest()
+    expect(s.find(x => x.category === 'hook')!.confidence).toBe(0.4)
+    await store.close()
+  })
+
+  it('suggests nothing on a platform library across the whole fixture run', async () => {
+    const store = new GraphStore()
+    await store.ingest(REAL_FIXTURE)
+    const bad = (await store.suggest()).filter(s => /^nat:(libart|libc|libandroid_runtime|liblog|libbase)\.so/.test(s.target))
+    expect(bad).toEqual([])
+    await store.close()
+  })
+
   it('a match whose steps straddle a page boundary still completes', async () => {
     // suggestPage: 1 forces every event onto its own page, so this only passes
     // if the SequenceMatcher survives across suggest()'s paging loop instead of
@@ -249,19 +283,23 @@ describe('compiler lockstep (real DuckDB admits exactly what matchSequences scor
     { ...evA, id: 10, syscall: 'openat', string_args: { '1': '/data/app/benign.so' } }, // matches nothing
     { ...evA, id: 11, syscall: 'read', string_args: {}, fd_args: { '0': 'fd=122' },
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // unresolved: matches nothing
+    { ...evA, id: 12, syscall: 'openat', string_args: { '1': '/data/local/tmp/frida-agent-64.so' } },
   ]
 
-  it('for every built-in rule, DuckDB WHERE-admission matches matchSequences over all events', async () => {
+  it('for every built-in rule step, DuckDB WHERE-admission matches the JS predicate', async () => {
     const store = new GraphStore()
     const { runId } = await store.ingest(fixture(events))
     for (const rule of BUILTIN_RULES) {
-      const where = compileWhere([rule])
-      const admitted = new Set(
-        (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
-      )
-      for (const e of events) {
-        const jsMatches = matchSequences([rule], [e as any]).hits.length > 0
-        expect(admitted.has(e.id), `${rule.id} vs event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+      for (const [i, step] of rule.steps.entries()) {
+        const probe = { ...rule, id: `${rule.id}#${i}`, steps: [step] }
+        const where = compileWhere([probe])
+        const admitted = new Set(
+          (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
+        )
+        for (const e of events) {
+          const jsMatches = matchSequences([probe], [e as any]).hits.length > 0
+          expect(admitted.has(e.id), `${probe.id} vs event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+        }
       }
     }
     await store.close()
