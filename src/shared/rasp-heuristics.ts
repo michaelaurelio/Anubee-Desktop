@@ -1,3 +1,6 @@
+// Rules over syscall events -> suggested RASP tags. Never auto-applied; the
+// analyst confirms each, so a rule is a hint, never a verdict.
+//
 // Barrel for the RASP heuristic engine. The implementation lives in four focused
 // modules; this file exists so every consumer keeps one import path.
 //   rasp-rules       - types, validation, cross-scope resolution

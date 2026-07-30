@@ -4,6 +4,9 @@ import { coerceRules } from './rasp-rules'
 // Built-in rules as raw specs, validated at module load. A malformed built-in
 // throws here rather than disappearing quietly, and defaults (enabled, correlate,
 // maxGap, mode, minOccurrences) are supplied by validateRule.
+//
+// ptrace's request argument is NOT decoded to a name by the tracer - it is raw
+// args[0], matched here as hex. PTRACE_TRACEME === 0 and PTRACE_ATTACH === 0x10.
 export const BUILTIN_SPECS: unknown[] = [
   { id: 'dbg-ptrace-attach', category: 'debugger', confidence: 0.7,
     rationale: 'ptrace(PTRACE_ATTACH) attach-probe - anti-debug self/other attach',

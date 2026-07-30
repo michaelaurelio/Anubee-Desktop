@@ -338,6 +338,8 @@ function clauseOf(m: RuleStep): string {
   return `(${inSys} AND ${pred})`
 }
 
+// Path checks read string_args (an openat/access path argument) and fd_args (the
+// path the tracer resolved behind a file descriptor).
 function valuesOf(field: RuleField, e: SyscallEvent): string[] {
   switch (field) {
     case 'string_args': return Object.values(e.string_args)
