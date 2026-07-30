@@ -2,7 +2,7 @@
 // the rule contract is unit-testable without a store or a renderer.
 import type { RaspCategory } from './project-store'
 
-export type RuleField = 'string_args' | 'fd_args' | 'sock_addr' | 'args'
+export type RuleField = 'string_args' | 'fd_args' | 'sock_addr' | 'args' | 'decoded_args'
 export type RuleOp = 'path_matches' | 'equals' | 'arg_hex_eq'
 export type RuleSource = 'builtin' | 'global' | 'project'
 
@@ -56,7 +56,7 @@ export interface RuleScope {
 }
 
 const CATEGORIES: RaspCategory[] = ['root', 'debugger', 'emulator', 'integrity', 'hook', 'custom']
-const FIELDS: RuleField[] = ['string_args', 'fd_args', 'sock_addr', 'args']
+const FIELDS: RuleField[] = ['string_args', 'fd_args', 'sock_addr', 'args', 'decoded_args']
 const OPS: RuleOp[] = ['path_matches', 'equals', 'arg_hex_eq']
 const HEX = /^0x[0-9a-f]+$/i
 // Constructs valid in a JS RegExp but unsupported by DuckDB's RE2 engine

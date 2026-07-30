@@ -361,7 +361,7 @@ function clauseOf(m: RuleStep): string {
     pred = m.op === 'equals'
       ? `list_contains(${FD_NORM_SQL}, '${v}')`
       : `len(list_filter(${FD_NORM_SQL}, x -> regexp_matches(x, '${v}', 'i'))) > 0`
-  } else { // string_args is MAP(VARCHAR,VARCHAR)
+  } else { // string_args and decoded_args are both MAP(VARCHAR,VARCHAR)
     pred = m.op === 'equals'
       ? `list_contains(map_values(${f}), '${v}')`
       : `len(list_filter(map_values(${f}), x -> regexp_matches(x, '${v}', 'i'))) > 0`
@@ -379,6 +379,7 @@ function valuesOf(field: RuleField, e: SyscallEvent): string[] {
       .filter((v): v is string => v !== null)
     case 'args': return e.args
     case 'sock_addr': return e.sock_addr != null ? [e.sock_addr] : []
+    case 'decoded_args': return Object.values(e.decoded_args)
   }
 }
 
