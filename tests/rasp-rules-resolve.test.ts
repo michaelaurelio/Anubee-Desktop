@@ -24,13 +24,13 @@ describe('BUILTIN_RULES', () => {
     }
     // the corrected/added categories the redesign requires
     const byId = new Map(BUILTIN_RULES.map(r => [r.id, r]))
-    expect(byId.get('dbg-ptrace-attach')!.steps[0].value).toBe('0x10')
-    expect(byId.get('hook-frida-sock')!.steps[0].field).toBe('sock_addr')
+    expect(byId.get('dbg-ptrace-selftrace')!.steps[0].value).toContain('0x10')
+    expect(byId.get('hook-frida-port')!.steps[0].field).toBe('sock_addr')
     expect(byId.get('root-selinux')).toBeTruthy()
     expect(byId.get('root-ksu-prctl')!.steps[0].op).toBe('arg_hex_eq')
-    // emulator/integrity ship NO built-in rule (not syscall-detectable)
-    expect(BUILTIN_RULES.some(r => r.category === 'emulator')).toBe(false)
-    expect(BUILTIN_RULES.some(r => r.category === 'integrity')).toBe(false)
+    // the 30-rule library ships both categories (see Task 12)
+    expect(BUILTIN_RULES.some(r => r.category === 'emulator')).toBe(true)
+    expect(BUILTIN_RULES.some(r => r.category === 'integrity')).toBe(true)
   })
 })
 
@@ -161,8 +161,9 @@ describe('rule schema v2', () => {
     expect(error).toMatch(/maxGap/)
   })
 
-  it('every built-in is a one-step rule, except the frida-scan sequence', () => {
-    for (const r of BUILTIN_RULES) expect(r.steps).toHaveLength(r.id === 'hook-frida-scan' ? 2 : 1)
+  it('every built-in is a one-step rule, except the multi-step sequences', () => {
+    const multiStep: Record<string, number> = { 'hook-frida-scan': 2, 'hook-fd-enum': 2, 'dbg-tracer-fork': 3 }
+    for (const r of BUILTIN_RULES) expect(r.steps).toHaveLength(multiStep[r.id] ?? 1)
   })
 })
 

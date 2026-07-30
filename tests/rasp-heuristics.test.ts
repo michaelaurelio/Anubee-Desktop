@@ -54,16 +54,11 @@ describe('matchSequences over the built-in set', () => {
   it('flags openat /proc/self/status as debugger', () => {
     expect(cats({ ...base, syscall: 'openat', string_args: { '1': '/proc/self/status' } })).toContain('debugger')
   })
-  it('flags read of /proc/self/status as debugger (real fd_args shape)', () => {
-    expect(cats({ ...base, syscall: 'read', fd_args: { '0': 'fd=6 </proc/self/status>' },
-                  backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }))
-      .toContain('debugger')
-  })
   it('flags openat /proc/self/maps as hook', () => {
     expect(cats({ ...base, syscall: 'openat', string_args: { '1': '/proc/self/maps' } })).toContain('hook')
   })
-  it('flags a connect to a frida socket as hook', () => {
-    expect(cats({ ...base, syscall: 'connect', sock_addr: 'unix:@/frida-zymbiote-abc',
+  it('flags a bind on the frida default port as hook', () => {
+    expect(cats({ ...base, syscall: 'bind', sock_addr: '[::ffff:127.0.0.1]:27042',
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] })).toContain('hook')
   })
   it('returns nothing for a benign event', () => {
@@ -91,7 +86,7 @@ describe('compileWhere', () => {
     expect(w).toContain('regexp_matches')
   })
   it('emits a scalar clause for sock_addr', () => {
-    const r: Rule = BUILTIN_RULES.find(x => x.id === 'hook-frida-sock')!
+    const r: Rule = BUILTIN_RULES.find(x => x.id === 'hook-frida-port')!
     const w = compileWhere([r])
     expect(w).toContain('regexp_matches(sock_addr')
     expect(w).not.toContain('map_values(sock_addr)')

@@ -141,7 +141,7 @@ describe('heuristic suggestions', () => {
     const store = new GraphStore()
     await store.ingest(fixture([
       evA, // openat /system/bin/su -> root
-      { ...evA, id: 2, syscall: 'ptrace', args: ['0x10'], string_args: {}, backtrace: [] }, // ATTACH -> debugger
+      { ...evA, id: 2, syscall: 'ptrace', args: ['0x0'], string_args: {}, backtrace: [] }, // TRACEME -> debugger
       { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/proc/self/maps' },
         backtrace: [{ frame: 0, addr: '0x2', symbol: 'libhook.so!scan_maps+0x4' }] }, // -> hook (distinct target so it doesn't collapse into root's aggregate entry)
       { ...evA, id: 4, syscall: 'openat', string_args: { '1': '/data/app/ok.so' } }, // benign
@@ -157,9 +157,9 @@ describe('heuristic suggestions', () => {
 
   it('honors an explicit resolved rule set (a disabled built-in stops firing)', async () => {
     const store = new GraphStore()
-    await store.ingest(fixture([{ ...evA, syscall: 'ptrace', args: ['0x10'], string_args: {},
+    await store.ingest(fixture([{ ...evA, syscall: 'ptrace', args: ['0x0'], string_args: {},
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }]))
-    const disabled = resolveRules(BUILTIN_RULES, { rules: [], enabledOverrides: { 'dbg-ptrace-attach': false } }, { rules: [], enabledOverrides: {} })
+    const disabled = resolveRules(BUILTIN_RULES, { rules: [], enabledOverrides: { 'dbg-ptrace-traceme': false } }, { rules: [], enabledOverrides: {} })
       .filter(r => r.enabled)
     const s = await store.suggest(undefined, disabled)
     expect(s.some(x => x.category === 'debugger')).toBe(false)
@@ -365,6 +365,18 @@ describe('compiler lockstep (real DuckDB admits exactly what matchSequences scor
     { ...evA, id: 11, syscall: 'read', string_args: {}, fd_args: { '0': 'fd=122' },
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // unresolved: matches nothing
     { ...evA, id: 12, syscall: 'openat', string_args: { '1': '/data/local/tmp/frida-agent-64.so' } },
+    { ...evA, id: 13, syscall: 'process_vm_readv', string_args: {},
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+    { ...evA, id: 14, syscall: 'prctl', args: ['0x3'], string_args: {}, decoded_args: { '0': 'PR_GET_DUMPABLE' },
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+    { ...evA, id: 15, syscall: 'ptrace', args: ['0x7'], string_args: {},
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+    { ...evA, id: 16, syscall: 'bind', string_args: {}, sock_addr: '[::ffff:127.0.0.1]:27042', retval: -98,
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+    { ...evA, id: 17, syscall: 'faccessat', string_args: { '1': '/system/xbin/su' }, retval: 0 },
+    { ...evA, id: 18, syscall: 'faccessat', string_args: { '1': '/system/xbin' }, retval: 0 },
+    { ...evA, id: 19, syscall: 'openat', string_args: { '1': '/proc/8185/smaps' } },
+    { ...evA, id: 20, syscall: 'openat', string_args: { '1': '/dev/goldfish_sync' } },
   ]
 
   it('for every built-in rule step, DuckDB WHERE-admission matches the JS predicate', async () => {

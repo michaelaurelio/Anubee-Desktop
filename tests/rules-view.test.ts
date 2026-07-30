@@ -76,8 +76,8 @@ describe('rules-view helpers', () => {
   })
 
   it('setEnabled writes an override', () => {
-    expect(setEnabled({ rules: [], enabledOverrides: {} }, 'dbg-ptrace-attach', false).enabledOverrides)
-      .toEqual({ 'dbg-ptrace-attach': false })
+    expect(setEnabled({ rules: [], enabledOverrides: {} }, 'dbg-ptrace-traceme', false).enabledOverrides)
+      .toEqual({ 'dbg-ptrace-traceme': false })
   })
 })
 
