@@ -15,10 +15,10 @@ export type MatchMode = 'ordered' | 'unordered'
 
 export interface RuleStep {
   syscalls: string[]
-  field: RuleField
+  field?: RuleField
   op: RuleOp
   argIndex?: number
-  value: string
+  value?: string
   // An AND-modifier on the SAME event, not a field. Modelled as a field it would
   // need a second step, and in unordered mode two steps may be satisfied by two
   // different events - so an open(su) plus any later retval 0 would falsely
@@ -68,6 +68,17 @@ const FIELDS: RuleField[] = ['string_args', 'fd_args', 'sock_addr', 'args', 'dec
 const OPS: RuleOp[] = ['path_matches', 'equals', 'arg_hex_eq', 'arg_hex_in', 'any']
 const RETVAL_OPS: RetvalOp[] = ['eq', 'ne', 'lt', 'ge']
 const HEX = /^0x[0-9a-f]+$/i
+// op:'any' emits a bare `syscall IN (...)` prefilter, so a rule over a
+// high-frequency syscall drags every one of its rows onto the JS heap. In a
+// 572k-event production capture that is 181,161 rows for `close` alone, versus
+// 4,130 for `process_vm_readv`. Blunt but predictable; the alternative -
+// forbidding a single-step 'any' rule outright - would kill the best-attributed
+// rule in the library.
+export const ANY_DENYLIST = new Set<string>([
+  'close', 'read', 'write', 'openat', 'newfstatat', 'mmap', 'munmap', 'mprotect',
+  'ioctl', 'futex', 'lseek', 'fstat', 'fcntl', 'clock_gettime', 'ppoll',
+  'epoll_pwait', 'rt_sigprocmask', 'getuid',
+])
 // Constructs valid in a JS RegExp but unsupported by DuckDB's RE2 engine
 // (lookahead/lookbehind/backreference). A path_matches value using one would pass
 // JS validation and work in matchOne, but make compileWhere emit SQL that DuckDB
@@ -90,13 +101,22 @@ function validateStep(v: unknown, id: string): { step: RuleStep | null; error: s
   const m = v as Record<string, unknown>
   if (!Array.isArray(m.syscalls) || m.syscalls.length === 0 || !m.syscalls.every(s => typeof s === 'string'))
     return { step: null, error: `bad syscalls on ${id}` }
-  if (typeof m.field !== 'string' || !FIELDS.includes(m.field as RuleField)) return { step: null, error: `bad field on ${id}` }
   if (typeof m.op !== 'string' || !OPS.includes(m.op as RuleOp)) return { step: null, error: `bad op on ${id}` }
-  if (typeof m.value !== 'string') return { step: null, error: `missing value on ${id}` }
+  if (m.op === 'any') {
+    if (m.field !== undefined || m.value !== undefined)
+      return { step: null, error: `op 'any' takes no field or value on ${id}` }
+    for (const s of m.syscalls as string[]) {
+      if (ANY_DENYLIST.has(s))
+        return { step: null, error: `op 'any' is not allowed on the high-frequency syscall '${s}' on ${id}` }
+    }
+  } else {
+    if (typeof m.field !== 'string' || !FIELDS.includes(m.field as RuleField)) return { step: null, error: `bad field on ${id}` }
+    if (typeof m.value !== 'string') return { step: null, error: `missing value on ${id}` }
+  }
   if (m.op === 'arg_hex_eq') {
     if (typeof m.argIndex !== 'number' || m.argIndex < 0 || !Number.isInteger(m.argIndex))
       return { step: null, error: `arg_hex_eq needs argIndex on ${id}` }
-    if (!HEX.test(m.value)) return { step: null, error: `arg_hex_eq value must be hex on ${id}` }
+    if (!HEX.test(m.value as string)) return { step: null, error: `arg_hex_eq value must be hex on ${id}` }
   }
   if (m.op === 'arg_hex_in') {
     if (typeof m.argIndex !== 'number' || m.argIndex < 0 || !Number.isInteger(m.argIndex))
@@ -106,8 +126,8 @@ function validateStep(v: unknown, id: string): { step: RuleStep | null; error: s
       return { step: null, error: `arg_hex_in values must all be hex on ${id}` }
   }
   if (m.op === 'path_matches') {
-    try { new RegExp(m.value) } catch { return { step: null, error: `bad regex on ${id}` } }
-    if (RE2_INCOMPATIBLE.test(m.value))
+    try { new RegExp(m.value as string) } catch { return { step: null, error: `bad regex on ${id}` } }
+    if (RE2_INCOMPATIBLE.test(m.value as string))
       return { step: null, error: `regex uses an RE2-incompatible construct (lookaround/backreference) on ${id}` }
   }
   let retval: RetvalCond | undefined
@@ -122,7 +142,9 @@ function validateStep(v: unknown, id: string): { step: RuleStep | null; error: s
   }
 
   const value = m.op === 'arg_hex_eq' ? '0x' + argNum(m.value as string).toString(16) : (m.value as string)
-  const step: RuleStep = { syscalls: m.syscalls as string[], field: m.field as RuleField, op: m.op as RuleOp, value }
+  const step: RuleStep = m.op === 'any'
+    ? { syscalls: m.syscalls as string[], op: 'any' }
+    : { syscalls: m.syscalls as string[], field: m.field as RuleField, op: m.op as RuleOp, value }
   if (typeof m.argIndex === 'number') step.argIndex = m.argIndex
   if (retval) step.retval = retval
   return { step, error: null }

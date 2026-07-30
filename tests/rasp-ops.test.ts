@@ -132,3 +132,38 @@ describe('retval step modifier', () => {
         retval: { op: 'eq', value: 'zero' } }] }, 'global').error).toBe('retval value must be a number on w')
   })
 })
+
+describe("op: 'any'", () => {
+  const r = rule({ category: 'integrity', steps: [{ syscalls: ['process_vm_readv'], op: 'any' }] })
+
+  it('matches every event of the named syscall', () => {
+    expect(matchSequences([r], [ev({ syscall: 'process_vm_readv' })]).hits).toHaveLength(1)
+  })
+
+  it('matches nothing else', () => {
+    expect(matchSequences([r], [ev({ syscall: 'openat' })]).hits).toHaveLength(0)
+  })
+
+  it('compiles to a bare syscall IN clause', () => {
+    expect(compileWhere([r])).toBe("(syscall IN ('process_vm_readv'))")
+  })
+
+  it('still honours a retval modifier', () => {
+    const g = rule({ category: 'integrity',
+      steps: [{ syscalls: ['process_vm_readv'], op: 'any', retval: { op: 'ge', value: 1 } }] })
+    expect(matchSequences([g], [ev({ syscall: 'process_vm_readv', retval: 8 })]).hits).toHaveLength(1)
+    expect(matchSequences([g], [ev({ syscall: 'process_vm_readv', retval: -1 })]).hits).toHaveLength(0)
+  })
+
+  it('is rejected on a hot syscall', () => {
+    expect(validateRule({ id: 'hot', category: 'custom', confidence: 0.5, rationale: 'r',
+      steps: [{ syscalls: ['openat', 'close'], op: 'any' }] }, 'global').error)
+      .toBe("op 'any' is not allowed on the high-frequency syscall 'openat' on hot")
+  })
+
+  it('rejects a field or value alongside it', () => {
+    expect(validateRule({ id: 'f', category: 'custom', confidence: 0.5, rationale: 'r',
+      steps: [{ syscalls: ['process_vm_readv'], op: 'any', field: 'args', value: 'x' }] }, 'global').error)
+      .toBe("op 'any' takes no field or value on f")
+  })
+})

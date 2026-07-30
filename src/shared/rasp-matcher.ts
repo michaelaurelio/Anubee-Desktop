@@ -350,12 +350,13 @@ const RETVAL_SQL: Record<RetvalOp, string> = { eq: '=', ne: '<>', lt: '<', ge: '
 function clauseOf(m: RuleStep): string {
   const inSys = `syscall IN (${m.syscalls.map(s => `'${sqlLit(s)}'`).join(', ')})`
   const rv = m.retval ? ` AND retval ${RETVAL_SQL[m.retval.op]} ${m.retval.value}` : ''
-  const v = sqlLit(m.value)
-  const f = m.field
+  if (m.op === 'any') return `(${inSys}${rv})`
+  const v = sqlLit(m.value as string)
+  const f = m.field as RuleField
   let pred: string
   if (m.op === 'arg_hex_eq' || m.op === 'arg_hex_in') {
     const idx = (m.argIndex ?? 0) + 1 // DuckDB list is 1-indexed
-    const items = m.op === 'arg_hex_eq' ? [m.value] : hexList(m.value)
+    const items = m.op === 'arg_hex_eq' ? [m.value as string] : hexList(m.value as string)
     // Emit both spellings: the tracer renders an arg as hex or decimal.
     const lits = items.flatMap(x => [`'${sqlLit(x)}'`, `'${sqlLit(String(argNum(x)))}'`])
     pred = `args[${idx}] IN (${lits.join(', ')})`
@@ -410,19 +411,20 @@ function retvalOk(c: RetvalCond | undefined, retval: number | null): boolean {
 function matchOne(m: RuleStep, e: SyscallEvent): boolean {
   if (!m.syscalls.includes(e.syscall)) return false
   if (!retvalOk(m.retval, e.retval)) return false
+  if (m.op === 'any') return true
   if (m.op === 'arg_hex_eq') {
     const a = e.args[m.argIndex ?? 0]
-    return a !== undefined && argNum(a) === argNum(m.value)
+    return a !== undefined && argNum(a) === argNum(m.value as string)
   }
   if (m.op === 'arg_hex_in') {
     const a = e.args[m.argIndex ?? 0]
     if (a === undefined) return false
     const got = argNum(a)
-    return hexList(m.value).some(x => argNum(x) === got)
+    return hexList(m.value as string).some(x => argNum(x) === got)
   }
-  const vals = valuesOf(m.field, e)
+  const vals = valuesOf(m.field as RuleField, e)
   if (m.op === 'equals') return vals.some(v => v === m.value)
-  const re = new RegExp(m.value, 'i')
+  const re = new RegExp(m.value as string, 'i')
   return vals.some(v => re.test(v))
 }
 

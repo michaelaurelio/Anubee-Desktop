@@ -510,6 +510,49 @@ describe('retval step modifier integration', () => {
   })
 })
 
+describe("op: 'any' field integration", () => {
+  it('DuckDB WHERE clause for a bare any op agrees with JS matcher, including a retval modifier', async () => {
+    const store = new GraphStore()
+    const events = [
+      { ...evA, id: 1, syscall: 'process_vm_readv', args: [], string_args: {}, retval: 8,
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // any + retval >= 1: matches
+      { ...evA, id: 2, syscall: 'process_vm_readv', args: [], string_args: {}, retval: -1,
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // retval fails the modifier
+      { ...evA, id: 3, syscall: 'process_vm_readv', args: [], string_args: {}, retval: null,
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // enter-only record, no match
+      { ...evA, id: 4, syscall: 'openat', string_args: { '1': '/system/xbin/su' }, retval: 8,
+        decoded_args: {} }, // different syscall, should not match
+    ]
+    const { runId } = await store.ingest(fixture(events))
+
+    const { rule } = validateRule({
+      id: 'test-any-retval', category: 'integrity', confidence: 0.8, rationale: 'test',
+      source: 'project', enabled: true,
+      steps: [{ syscalls: ['process_vm_readv'], op: 'any', retval: { op: 'ge', value: 1 } }],
+    }, 'project')
+    expect(rule).not.toBeNull()
+
+    // Test DuckDB WHERE clause against real database
+    const where = compileWhere([rule!])
+    const admitted = new Set(
+      (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
+    )
+
+    // Verify DuckDB admits exactly the retval>=1 match: id 1
+    expect(admitted).toEqual(new Set([1]))
+
+    // Verify agreement: for each event, DuckDB and JS must agree - including the
+    // retval:null event (id 3), which neither side may admit.
+    for (const e of events) {
+      const jsMatches = matchSequences([rule!], [e as any]).hits.length > 0
+      expect(admitted.has(e.id), `event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+    }
+    expect(admitted.has(3)).toBe(false)
+
+    await store.close()
+  })
+})
+
 describe('run diffing', () => {
   it('diffTable surfaces per-node presence and delta across two runs', async () => {
     const store = new GraphStore()
