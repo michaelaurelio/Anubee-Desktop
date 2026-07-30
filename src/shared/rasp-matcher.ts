@@ -149,8 +149,9 @@ export class SequenceMatcher {
         // resolves its unattributable target to the synthetic id. Demanding a
         // key here is what used to lose the finding a second time, after
         // attribution had already declined to name a platform frame. A
-        // multi-step rule genuinely must correlate its steps, so with nothing to
-        // key on it can neither open nor advance a partial.
+        // one-step rule therefore ignores its correlate mode entirely for
+        // firing purposes. A multi-step rule genuinely must correlate its
+        // steps, so with nothing to key on it can neither open nor advance a partial.
         if (r.steps.length > 1) continue
         this.emitSingle(r, e)
         continue

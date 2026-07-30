@@ -208,3 +208,22 @@ describe('unattributedId', () => {
     expect(unattributedId('hook')).toBe('rasp:unattributed:hook')
   })
 })
+
+describe('invariant: non-null correlation key implies app-native attribution', () => {
+  it('a module key with app-native frame gives app-native attribution', () => {
+    const e = ev({ backtrace: [
+      { frame: 0, addr: '0x1', symbol: 'libc.so!__openat+0x8' },
+      { frame: 1, addr: '0x2', symbol: 'libsentinel.so!check_root+0x4c' },
+    ] })
+    const key = correlationKey('module', e, paths)
+    expect(key).not.toBeNull()
+    expect(attributionOf(e, paths).kind).toBe('app-native')
+  })
+
+  it('a platform-only backtrace gives no module key and unattributed', () => {
+    const e = ev({ backtrace: [{ frame: 0, addr: '0x1', symbol: 'libc.so!__openat+0x8' }] })
+    const key = correlationKey('module', e, paths)
+    expect(key).toBeNull()
+    expect(attributionOf(e, paths).kind).toBe('unattributed')
+  })
+})

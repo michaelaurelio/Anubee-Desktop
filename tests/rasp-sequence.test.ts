@@ -33,8 +33,9 @@ const benign: Rule = {
 const OTHER = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
                { frame: 1, addr: '0x9000', symbol: 'libother.so!f+0x4' }]
 
-// A backtrace with no app frame at all: it has no module key, so no rule with a
-// module correlate participates in it and no correlation stream is bumped.
+// A backtrace with no app frame at all: it has no module key. One-step rules
+// without a key now emit against the synthetic target; multi-step rules still
+// cannot participate and no correlation stream is bumped.
 const PLATFORM_ONLY = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' }]
 
 function idsOf(hits: { ruleId: string }[]): string[] {
@@ -114,8 +115,10 @@ describe('SequenceMatcher', () => {
     m.push(ev(1, 'openat', '/proc/self/maps'))
     for (let i = 0; i < 6; i++) m.push(ev(10 + i, 'openat', '/data/benign.so'))
     m.push(ev(50, 'openat', '/data/benign.so', { backtrace: PLATFORM_ONLY }))
+    expect(idsOf(m.finish().hits)).toEqual(['benign-probe', 'benign-probe', 'benign-probe', 'benign-probe', 'benign-probe', 'benign-probe', 'benign-probe'])
+    const state_after = state(m)
     expect(m.sweepCount).toBe(8)
-    expect(state(m).live).toBe(1)
+    expect(state_after.live).toBe(1)
   })
 
   it('measures the gap key-locally, so filler on another key does not expire it', () => {
