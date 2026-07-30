@@ -65,6 +65,12 @@ describe('project-store', () => {
     expect(orphanedTags([live, gone], new Set(['nat:libexample.so!removed']))).toEqual([gone])
     expect(orphanedTags([live, gone], new Set())).toEqual([])
   })
+
+  it('never reports a rasp: target as orphaned, even when absent from the node set', () => {
+    const synthetic = tag({ target: 'rasp:unattributed:root' })
+    expect(orphanedTags([synthetic], new Set())).toEqual([])
+    expect(orphanedTags([synthetic], new Set(['rasp:unattributed:root']))).toEqual([])
+  })
 })
 
 import { parseSidecar as _parseSidecar, serializeSidecar as _serializeSidecar } from '../src/shared/project-store'

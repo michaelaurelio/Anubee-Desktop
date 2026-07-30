@@ -1,5 +1,6 @@
 import type { Tag, RaspCategory } from '@shared/project-store'
 import { badgeText } from './tag-view'
+import { targetLabel } from './suggestions-view'
 
 // Panel listing tags whose target no longer matches any node/edge in the active
 // run (a re-ingest shifted ids). Hidden when there are none; each row offers a
@@ -30,7 +31,7 @@ export function renderOrphans(
   for (const t of orphans) {
     const row = document.createElement('div')
     row.style.marginTop = '4px'
-    row.textContent = `${badgeText([t])} ${t.target}${t.offset ? ' @ ' + t.offset : ''}${t.note ? ' - ' + t.note : ''}`
+    row.textContent = `${badgeText([t])} ${targetLabel(t.target)}${t.offset ? ' @ ' + t.offset : ''}${t.note ? ' - ' + t.note : ''}`
     const drop = document.createElement('button')
     drop.textContent = 'Drop'
     drop.style.marginLeft = '6px'

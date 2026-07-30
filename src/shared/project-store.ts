@@ -158,8 +158,12 @@ export function tagsByTarget(tags: Tag[], target: string): Tag[] {
 
 // Tags whose target no longer matches any node/edge in the active run - the
 // caller supplies the orphaned-target set (computed against the live run).
+// A rasp: target (e.g. rasp:unattributed:root) is excluded even if it is in
+// that set: it is a synthetic finding target that by design never has a graph
+// node, so it is orphaned-by-construction and must never surface as if a
+// re-ingest broke it.
 export function orphanedTags(tags: Tag[], orphanTargets: Set<string>): Tag[] {
-  return tags.filter(t => orphanTargets.has(t.target))
+  return tags.filter(t => !t.target.startsWith('rasp:') && orphanTargets.has(t.target))
 }
 
 // The Suggestions popup's read-path filter. A row drops off the list once it
