@@ -3,7 +3,7 @@ import type { RaspCategory } from './project-store'
 import type { CorrelateKey, Rule, RuleField, RuleStep } from './rasp-rules'
 import { argNum } from './rasp-rules'
 import type { Frame } from './rasp-attribution'
-import { anchorFrame, correlationKey, targetOf } from './rasp-attribution'
+import { anchorFrame, attributionOf, correlationKey, unattributedId } from './rasp-attribution'
 import type { ModulePaths } from './module-origin'
 
 export interface ResolvedHit {
@@ -51,7 +51,7 @@ interface PartialMatch {
   pk: string            // partialKey() of the list holding it
   maxGap: number        // its rule's maxGap, so a sweep needs no rule lookup
   dead: boolean         // already retired; its slot in the age queue is stale
-  target: string
+  target: string | null // null until emit() resolves it to the synthetic target
   frame: Frame | null
   pid: number
 }
@@ -125,7 +125,7 @@ export class SequenceMatcher {
     if (this.pushes - this.sweptAt >= this.sweepEvery) this.sweep()
     const keys = new Map<CorrelateKey, string | null>()
     const keyOf = (mode: CorrelateKey): string | null => {
-      if (!keys.has(mode)) keys.set(mode, correlationKey(mode, e))
+      if (!keys.has(mode)) keys.set(mode, correlationKey(mode, e, this.paths))
       return keys.get(mode)!
     }
 
@@ -183,9 +183,12 @@ export class SequenceMatcher {
 
       if (advanced) continue
       if (!matchOne(r.steps[0], e)) continue
-      const target = targetOf(e)
-      if (target === null) continue
-      if (r.steps.length === 1) { this.emit(r, target, anchorFrame(e), e.pid); continue }
+      // An event whose app-owned caller cannot be recovered is still a real
+      // detection, so it is never dropped here: emit() resolves the null target
+      // to the rule's synthetic `rasp:unattributed:<category>` id.
+      const a = attributionOf(e, this.paths)
+      const target = a.kind === 'unattributed' ? null : a.id
+      if (r.steps.length === 1) { this.emit(r, target, anchorFrame(e, this.paths), e.pid); continue }
       // Expiry is otherwise lazy (it needs another event on the same rule+key), so
       // a partial on a key that goes silent would hold its slot forever and the
       // cap would become a permanent block. `evictOldest` alone guarantees a free
@@ -199,7 +202,7 @@ export class SequenceMatcher {
       this.live++
       const p: PartialMatch = {
         nextStep: 1, atCount: n, stream: sk, pk, maxGap: r.maxGap, dead: false,
-        target, frame: anchorFrame(e), pid: e.pid,
+        target, frame: anchorFrame(e, this.paths), pid: e.pid,
       }
       const open = this.partials.get(pk) ?? []
       open.push(p)
@@ -257,9 +260,11 @@ export class SequenceMatcher {
     return false
   }
 
-  private emit(r: Rule, target: string, frame: Frame | null, pid: number): void {
+  // The single place a null target is resolved, so RawHit.target is always an
+  // id: the rule's category is only known here, not where the event was matched.
+  private emit(r: Rule, target: string | null, frame: Frame | null, pid: number): void {
     this.hits.push({
-      ruleId: r.id, target, frame, pid,
+      ruleId: r.id, target: target ?? unattributedId(r.category), frame, pid,
       category: r.category, confidence: r.confidence, rationale: r.rationale,
     })
   }
