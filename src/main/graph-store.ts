@@ -5,9 +5,9 @@ import { filterToSql, type Filter } from '@shared/filter'
 import { capSlice, labelForId, mergeGraphs, setsFromChain, type GraphNode, type GraphEdge, type GraphSlice, type HighlightSets } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
-import { compileWhere, scoreWith, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
+import { compileWhere, SequenceMatcher, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
 import { presenceOf, type DiffRow, type MergedSlice, type MergedNode } from '@shared/diff'
-import { parseHexAddr, moduleRelative, type OffsetRow } from '@shared/origins'
+import { parseHexAddr, moduleRelative, resolveHits, baseKey, type ModuleBases, type OffsetRow } from '@shared/origins'
 import { parseFrameSymbol } from '@shared/frame-symbol'
 import type { LibRow } from '@shared/native-lib'
 
@@ -164,6 +164,8 @@ export interface RunInfo {
 }
 
 export class GraphStore {
+  constructor(private opts: { suggestPage?: number } = {}) {}
+
   private instance?: DuckDBInstance
   private con?: DuckDBConnection
   private runsMap = new Map<number, RunInfo>()
@@ -176,12 +178,8 @@ export class GraphStore {
   // the quoted-hex `start` strings.
   private modmap = new Map<number, Map<string, bigint>>()
 
-  private static baseKey(pid: number, module: string): string {
-    return `${pid}|${module}`
-  }
-
   moduleBase(runId: number, pid: number, module: string): bigint | undefined {
-    return this.modmap.get(runId)?.get(GraphStore.baseKey(pid, module))
+    return this.modmap.get(runId)?.get(baseKey(pid, module))
   }
 
   private conn(): DuckDBConnection {
@@ -259,7 +257,7 @@ export class GraphStore {
       const start = parseHexAddr(String(r.start))
       if (start === null) continue
       const basename = String(r.library).split('/').pop() as string
-      const key = GraphStore.baseKey(num(r.pid)!, basename)
+      const key = baseKey(num(r.pid)!, basename)
       const prev = rmap.get(key)
       if (prev === undefined || start < prev) rmap.set(key, start)
     }
@@ -760,33 +758,52 @@ export class GraphStore {
     return [...acc.values()]
   }
 
+  // Page size for the candidate scan. The prefilter already bounds the set; paging
+  // keeps even a pathologically broad rule library off the JS heap in one lump.
+  private get suggestPage(): number { return this.opts.suggestPage ?? 20000 }
+
   // Score the run against a resolved rule set. Main resolves built-in + global +
   // project rules and passes them in; when omitted we default to the enabled
   // built-ins so single-arg callers (tests) keep working. compileWhere bounds the
-  // scan to real candidates (off-heap); scoreWith re-checks each and is the
-  // scoring authority.
+  // scan to real candidates; the matcher is the scoring authority and is driven
+  // page by page so match state survives a page boundary.
   async suggest(runId?: number, rules?: Rule[]): Promise<Suggestion[]> {
     const rid = this.resolveRun(runId)
     const effective = (rules ?? resolveRules(BUILTIN_RULES, EMPTY_SCOPE, EMPTY_SCOPE)).filter(r => r.enabled)
     if (effective.length === 0) return []
     const where = compileWhere(effective)
-    let rows
-    try {
-      rows = await this.rows(
-        `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`,
-      )
-    } catch (e) {
-      // Defense in depth: a compiled rule DuckDB rejects (e.g. an RE2-incompatible
-      // regex that bypassed validation) must not break the whole suggestions panel.
-      console.error(`suggest: rule query failed, returning no suggestions: ${(e as Error).message}`)
-      return []
+    const matcher = new SequenceMatcher(effective)
+    let offset = 0
+    for (;;) {
+      let rows
+      try {
+        rows = await this.rows(
+          `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})
+           ORDER BY id LIMIT ${this.suggestPage} OFFSET ${offset}`,
+        )
+      } catch (e) {
+        // Defense in depth: a compiled rule DuckDB rejects (e.g. an RE2-incompatible
+        // regex that bypassed validation) must not break the whole suggestions panel.
+        console.error(`suggest: rule query failed, returning no suggestions: ${(e as Error).message}`)
+        return []
+      }
+      for (const r of rows) {
+        const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
+        matcher.push(ev as SyscallEvent)
+      }
+      if (rows.length < this.suggestPage) break
+      offset += rows.length
     }
-    const all: Suggestion[] = []
-    for (const r of rows) {
-      const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
-      all.push(...scoreWith(effective, ev as SyscallEvent))
+    const { hits, dropped } = matcher.finish()
+    if (dropped > 0) {
+      console.warn(`suggest: ${dropped} in-flight sequence matches dropped at the cap; suggestions may be incomplete`)
     }
-    return aggregate(all)
+    return aggregate(resolveHits(hits, this.bases(rid)))
+  }
+
+  // The run's load-base table, as plain data for the pure resolver.
+  private bases(runId: number): ModuleBases {
+    return this.modmap.get(runId) ?? new Map<string, bigint>()
   }
 
   // Preview a single (draft) rule against a run without persisting it. Bounded by
@@ -797,20 +814,20 @@ export class GraphStore {
     const where = compileWhere([rule])
     let rows
     try {
-      rows = await this.rows(`SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where})`)
+      rows = await this.rows(
+        `SELECT to_json(ev) AS js FROM ev WHERE run_id = ${rid} AND type = 'syscall' AND span IS NULL AND (${where}) ORDER BY id`,
+      )
     } catch (e) {
       console.error(`previewRule: rule query failed: ${(e as Error).message}`)
       return { events: 0, targets: 0 }
     }
-    const all: Suggestion[] = []
-    let events = 0
+    const matcher = new SequenceMatcher([rule])
     for (const r of rows) {
       const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
-      const hits = scoreWith([rule], ev as SyscallEvent)
-      if (hits.length > 0) events++
-      all.push(...hits)
+      matcher.push(ev as SyscallEvent)
     }
-    return { events, targets: aggregate(all).length }
+    const { hits } = matcher.finish()
+    return { events: hits.length, targets: new Set(hits.map(h => h.target)).size }
   }
 
   // Test-only escape hatch: run a raw read query. Used by the lockstep test to

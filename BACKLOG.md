@@ -3,6 +3,147 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-23) - RASP sequence rules + call-site attribution
+
+The RASP heuristic engine (`src/shared/rasp-heuristics.ts`) moved from a
+stateless single-event predicate per rule to an ordered `steps` sequence
+matched by a stateful `SequenceMatcher`, correlated by `symbol` / `symbol+tid`
+/ `module` / `module+tid` / `java` and bounded by a `maxGap` event window.
+`compileWhere` widened to a per-step SQL prefilter (still the sole thing that
+reaches DuckDB); the matcher remains the scoring authority. Hits resolve to a
+module-relative call-site offset (`src/shared/origins.ts`) and aggregate to
+`(target, category)` suggestion rows with per-offset children, so a rejection
+or confirmation can act at either the row or the individual call-site level.
+The rule-authoring UI (`src/renderer/rules-view.ts`) gained a repeating step
+block (Add step / Remove step) plus `correlate`/`maxGap` controls, and a new
+built-in, `hook-frida-scan`, ships as the first two-step sequence rule (a maps
+walk followed by a frida-artefact probe). See `DOCUMENTATION.md`'s "Heuristic
+pre-tagging" and "RASP rule-authoring UI" sections.
+
+### Known drawbacks / follow-ups
+- **`suggest`'s candidate scan is paged, and a wide rule library widens it.**
+  `GraphStore.suggest` reads its DuckDB candidate set in pages (default 20000
+  rows, injectable per store instance via the constructor's `suggestPage`
+  option), and the `compileWhere` prefilter is an OR across every rule's every
+  step - so a larger built-in or user rule library admits more rows per page
+  and does more DuckDB work per page fetched. Re-measure the page size if the
+  built-in rule set grows substantially.
+- **`maxGap` counts rule-relevant events, not elapsed time**, because Anubee
+  syscall records carry no timestamp for the matcher to measure against - a
+  time-based window is not something the tracer's output can support. A rule
+  tuned to fire reliably on one workload's event rate may need its `maxGap`
+  retuned for a workload where the same real-world gap spans a different
+  number of rule-relevant events.
+- **Cross-step value binding (a step referencing a value an earlier step
+  captured) is not implemented.** Adding it would defeat the SQL prefilter:
+  matching "the same value across two steps" cannot be expressed as a bounded
+  per-row `WHERE` clause, so it would force the whole run's event set onto the
+  JS heap to check in JS instead - exactly what `compileWhere` exists to avoid.
+  The concrete residual gap this leaves: an `fd_args` value whose `readlink`
+  failed carries no path at all (`fd=<n>` with nothing to unwrap) and so
+  cannot be linked back to the `openat` that produced that fd - 168 of 4367
+  fd-referencing events (3.8%) in `tests/fixtures/detector_snap.jsonl`.
+- **A rule step matches exactly one `field`.** "This path was either opened or
+  read" needs two rules, or two steps in one rule (one per field) - a step
+  cannot itself say "match in `string_args` OR `fd_args`". Widening `field` to
+  accept a list was considered and rejected: it would multiply the number of
+  clauses `compileWhere` emits per step (one per field in the list), for a
+  case union types can already express with an extra step or rule.
+- **`SequenceMatcher` reports at most one occurrence per event per rule per
+  correlation key.** It advances only the oldest in-flight partial on a match
+  and consumes (retires) a partial the instant its last step completes, so two
+  independently-interleaved sequences sharing one correlation key (e.g. the
+  same thread running the same check twice, back to back, before either
+  finishes) report as one occurrence, not two. Accepted: the alternative -
+  advancing every eligible partial per event - multiplies matcher work by the
+  number of live partials per key per event, for a case (self-interleaved
+  identical sequences on one thread) that is rare in practice.
+- **`SequenceMatcher.counts` is never pruned.** Unlike `partials` (bounded by
+  `cap` plus a periodic sweep) and `ages` (periodically compacted), `counts`
+  keeps one entry per distinct correlation-key stream ever seen, for the life
+  of a `suggest()` run, and is never trimmed. This is bounded per-key metadata
+  (a single number) over an already-DuckDB-prefiltered candidate set, judged
+  an acceptable cost - but it is the only structure in the class with no cap
+  and no reclaim path. Revisit if a run with an extreme number of distinct
+  correlation keys (e.g. `symbol+tid` on a very high-thread-churn capture)
+  makes it measurably large.
+  Record alongside it that **`SequenceMatcher.hits` is unbounded too**: it grows
+  O(matched candidates) for the life of a `suggest()` run, and at peak three
+  same-length arrays are live at once (`finish()`'s defensive copy, the
+  `ResolvedHit[]` `resolveHits` maps out of it, and `aggregate`'s input). Judged
+  acceptable because it is bounded by how much a run *matches*, not by run size -
+  a capture with millions of events but few RASP behaviours costs nothing here.
+  Revisit together with `counts` if a broad user rule library ever matches a
+  large fraction of a big capture; the fix is to aggregate incrementally instead
+  of retaining every hit.
+- **`SequenceMatcher.sweep`'s keep-predicate runs one stream-event behind the
+  advance path's expiry check**, so a partial can linger one event past its
+  rule's `maxGap` before the sweep reclaims it. Harmless today: `push` re-checks
+  expiry on the advance path before it ever attempts a match, so a lingering
+  partial cannot produce a hit it should not have - the lag costs at most one
+  extra live slot for one sweep interval. Worth aligning the two predicates if
+  the sweep is ever made the sole expiry authority.
+- **`dropped` is incremented on the refusal path for a partial that was never
+  opened.** `push` bumps it both when eviction frees a slot and when eviction
+  reports failure. The second branch is unreachable while `cap > 0`, because
+  `evictOldest` always finds a victim once the cap is reached, so the counter is
+  accurate in practice - but the two branches mean different things and a
+  `cap: 0` matcher would report drops for partials it never held.
+- **No test asserts a RESOLVED call-site offset end to end.** The integration
+  test asserts `offsets.length > 0`, which also passes when resolution falls back
+  to `[unmapped]`, so the byte-identity between a heuristic offset and the node
+  inspector's offset popup - the thing tag identity `(target, offset, category)`
+  depends on - is unguarded. Closing it needs a `lib`-bearing fixture and an
+  assertion that `suggest().offsets[0].offset === nodeOffsets()[0].offset` for
+  the same target.
+- **`previewRule` is an unpaged full scan of its rule's candidate set, and it
+  compiles only that one rule.** Both differ from `suggest`: the scan is
+  unbounded in rows (acceptable while a draft rule's prefilter is narrow, not if
+  someone previews a rule matching most of a capture), and matching the draft in
+  isolation means its counts can disagree with what `suggest` produces once
+  other rules are enabled, since a sequence rule's `maxGap` window is consumed
+  by any enabled rule's candidates on the same correlation key. See the
+  live-preview caveat in `DOCUMENTATION.md`.
+- **`.rf-step { margin: 8px -8px }` bleeds its border into the modal gutter.**
+  The negative inline margin only looks right because `.modal-body`'s padding is
+  wider than it - the rule form is coupled to the one container it is ever
+  rendered into. It cannot clip today (the form has no other mount point), but
+  the coupling is undocumented and untested; a second host, or a narrower
+  `.modal-body` padding, would cut the step border off.
+- **The fixture-wide "no platform library target" test's regex covers only five
+  of roughly 28 modules in `SYSTEM_NATIVE`,** so it would not catch a suggestion
+  attributed to `libbinder.so` or `libnativehelper.so`. Deriving the assertion
+  from `SYSTEM_NATIVE` directly (rather than restating a hand-picked subset)
+  would be a strictly stronger guard and would not drift when the list grows.
+- **`suggest()` runs a full rescan two to three times per user action.** The
+  suggestions list and the graph recolour each call it, and every Confirm or
+  Reject triggers another round. Pre-existing, but sequence matching made each
+  scan materially more expensive (per-event, per-rule partial bookkeeping on top
+  of the DuckDB paging), so on a large capture this is seconds of latency per
+  click. Fix approach: cache the suggestion set per run and invalidate it on a
+  rule or sidecar change, rather than rescanning on every read.
+- **The findings export sets a finding's occurrence count to the *target's*
+  total event count,** not the count of events the confirmed behaviour actually
+  explains. With per-`(target, category)` suggestion rows this is now the normal
+  case, not an edge case: confirming root, debugger and hook on one symbol
+  exports three lines each claiming the same total. Fix needs the export to
+  carry the suggestion's own `occurrences` (or the offset child's) through to
+  the `Finding` instead of counting representative events.
+- **On a capture with no `lib` records every suggestion's only call-site child
+  is `[unmapped]`,** which duplicates its parent row exactly and whose Confirm
+  writes a literal `offset: "[unmapped]"` into the sidecar - a tag identity that
+  refines nothing but is not equal to the symbol-level one. Consider suppressing
+  the children when `[unmapped]` is the only offset, so such a run shows the
+  plain row it used to.
+- **Pre-existing UI glitch, unrelated to this work but worth recording:** the
+  `root-paths` built-in's rule-list meta line (confidence + syscalls, e.g.
+  `85% · openat,access,newfstatat,faccessat`) wraps awkwardly onto its own
+  line under the id/category chips instead of staying right-aligned on the
+  first line, because `.rule-line1 { flex-wrap: wrap }` lets the row's items
+  wrap while `.rule-meta { margin-left: auto }` (both `src/renderer/index.html`)
+  only pushes the meta span right *within whichever wrapped line it lands on* -
+  a long comma-joined syscall list is wide enough to force the wrap. Cosmetic.
+
 ## Shipped (2026-07-23) - Capture run-lifecycle fix wave
 
 Pre-merge review of the tracer-control branch found four issues, all fixed:

@@ -441,9 +441,14 @@ behavior it implements. A tag (`src/shared/project-store.ts`, type `Tag`) has:
 
 - `target` - a graph node id: `nat:<mod>!<sym>` (native symbol), `java:<method>`,
   `sys:<name>` (syscall), or `edge:<src>=><target>`.
-- `offset` (optional) - a block-level refinement, e.g. `libexample.so+0x1234`,
+- `offset` (optional) - a block-level refinement: a bare module-relative offset,
+  e.g. `0x1234` (or `[unmapped]` when the call site could not be resolved),
   chosen from a concrete backtrace frame in the node inspector when a symbol
-  covers more than one basic block.
+  covers more than one basic block. It is deliberately *not* module-qualified,
+  so a heuristic-confirmed offset and one authored from the offset popup are
+  byte-identical and share one tag identity. Anything rendering an offset for a
+  human (the findings export) has to pair it with the target to name the
+  library and symbol.
 - `category` - one of `root | debugger | emulator | integrity | hook | custom`.
 - `source` - `manual` (analyst-authored) or `heuristic` (confirmed from a
   suggestion, see below), plus `confidence`/`rationale` when heuristic-sourced.
@@ -453,8 +458,13 @@ Tags persist to a sidecar file next to the loaded run, `<run>.anubee-desktop.jso
 the trace itself. `project-store.ts` is pure (parse/validate/serialize/upsert -
 no filesystem access); main reads and writes the file. A malformed sidecar
 entry is dropped with a reported error rather than failing the whole load.
-Identity for upsert/remove is `(target, offset)` - retagging the same target at
-the same offset replaces, not duplicates. The renderer exposes a tag editor in
+Identity for upsert/remove is `(target, offset, category)` - retagging the
+same target at the same offset with the same category replaces, not
+duplicates. `category` is part of identity because a single node can
+implement several RASP behaviours at once (e.g. one obfuscated block that both
+checks for a debugger and scans for hooks), and the same symbol can implement
+different behaviours at different call sites - so a target/offset pair alone
+is not enough to say which behaviour a tag is naming. The renderer exposes a tag editor in
 the node inspector and shows tag badges on graph nodes plus a tag column in the
 master table (`src/renderer/tag-view.ts`, `inspector.ts`).
 
@@ -475,42 +485,95 @@ scorer. A `Rule` is data:
 
 ```
 { id, category, confidence, rationale, enabled,
-  match: { syscalls, field, op, argIndex?, value }, source }
+  steps: [{ syscalls, field, op, argIndex?, value }, ...],  // >= 1
+  correlate, maxGap, source }
 ```
+
+A rule is a list of ordered **steps**, not a single predicate: a length-1
+`steps` array is today's single-event predicate (unchanged from before), and a
+longer array requires each step to match, in order, before the rule fires. A
+two-step rule like `hook-frida-scan` (below) reads as "a maps walk, later
+followed by a frida-artefact probe" - either step alone is weak evidence, the
+sequence is what makes it a strong one.
 
 `field` is one of the event's own shapes (`args`, `string_args`, `fd_args`,
 `sock_addr`); `op` is a **fixed** operator vocabulary - `path_matches` (regex
 against a path-like field), `equals`, `arg_hex_eq` (hex-normalized arg
-comparison) - so a rule is pure declarative matching, never user SQL or code.
+comparison) - so a step is pure declarative matching, never user SQL or code.
 That fixed vocabulary is the safety boundary: anyone (a project, a user
-library) can add a rule, but no rule can execute arbitrary logic.
+library) can add a rule, but no rule can execute arbitrary logic. In both
+compilers (below), an `fd_args` value is normalised from the tracer's raw
+`fd=<n> <path>` shape down to the bare path before matching - `normalizeFdValue`
+in JS, the equivalent `regexp_extract` in SQL - so a rule author writes a path
+pattern, never the fd-wrapped form. An fd whose `readlink` failed carries no
+path (`fd=<n>` with nothing to unwrap) and contributes no value at all, rather
+than matching the literal string.
+
+**`correlate` and `maxGap`.** A multi-step rule needs to know which events
+belong to the *same* occurrence - `correlate` picks the key: `symbol` /
+`symbol+tid` key on the resolved graph target (the RASP call site, optionally
+scoped to the thread), `module` / `module+tid` key on the native module the
+call site lives in, and `java` keys on the innermost Java frame for a
+managed-code check with no native anchor. `maxGap` bounds how far apart two
+consecutive steps may land: it counts **rule-relevant events** - events that
+match *some* step of *some* rule, i.e. exactly what the DuckDB prefilter below
+admits onto the JS heap - sharing that correlation key, allowed between one
+step matching and the next. An event that matches no rule step never reaches
+the matcher and so never counts against any gap, no matter how much unrelated
+work a thread does in between. Distance is measured in events at all, rather
+than wall-clock time, because Anubee's syscall records carry no timestamp - a
+time-based window is not something the tracer's output can support.
 
 Two compilers consume the same rule set and are kept in lockstep by a
-real-DuckDB integration test:
+real-DuckDB integration test that checks them **per step**:
 
-- `compileWhere(rules)` -> a bounded SQL `WHERE` clause, used as a candidate
-  pre-filter so `GraphStore.suggest(runId?)` only reconstructs genuine
-  candidates onto the JS heap.
-- `scoreWith(rules, ev)` -> the per-event JS predicate and **scoring
-  authority**; the SQL pre-filter is purely a bounded narrowing, never the
-  source of truth for what matches.
+- `compileWhere(rules)` -> a bounded SQL `WHERE` clause (an OR of every rule's
+  every step), used as a candidate pre-filter so `GraphStore.suggest(runId?)`
+  only reconstructs genuine candidates onto the JS heap.
+- `SequenceMatcher` -> a stateful JS class that walks the id-ordered candidate
+  stream and is the **scoring authority**: it tracks in-flight partial matches
+  per rule per correlation key, advances or expires them per event, and emits
+  a `RawHit` when a rule's full step sequence completes. The SQL pre-filter is
+  purely a bounded narrowing, never the source of truth for what matches.
 
-Every suggestion is attributed to the innermost **non-system** native frame
-(`nativeTargetOf`) - the app's own RASP block (e.g.
+Every hit is attributed to the innermost **non-system** native frame
+(`targetOf`) - the app's own RASP block (e.g.
 `base.apk -> libsentinel.so!sentinel_check_root`), skipping the bionic / ART /
-framework wrappers; it falls back to the innermost native frame (the libc
-syscall wrapper) only when the whole native path is system libs (a pure-Java
-check). Matching events are aggregated per target (`aggregate()`: sums
-occurrences, keeps the highest-confidence rationale) into `Suggestion` rows
-(target, category, confidence, rationale, occurrence count) and surfaced in a
-**Suggestions popup** opened from the rail's Suggestions button
-(`src/renderer/suggestions-view.ts`); the right side panel stays details-only. A
-suggestion is never turned into a tag automatically - the analyst clicks
-**Confirm** (mints a `source: 'heuristic'` tag through the tag editor path) or
-**Reject** (persists a dismissal in the sidecar `dismissed` list so it never
-returns); either removes the row.
+framework wrappers; it falls back to the innermost **Java** frame when the
+whole native path is system libs (a managed-code check with no custom native
+lib to anchor on), and yields nothing at all for a stack that is entirely
+platform code (no `Suggestion` row is produced for it). Resolved hits
+(`resolveHits` in `src/shared/origins.ts`) are aggregated per **(target,
+category)** pair (`aggregate()`: sums occurrences, keeps the highest-confidence
+rationale, and folds each distinct call-site offset into a per-offset count)
+into `Suggestion` rows and surfaced in a **Suggestions popup** opened from the
+rail's Suggestions button (`src/renderer/suggestions-view.ts`); the right side
+panel stays details-only. Each row is `(target, category)` with its call-site
+offsets listed as expandable children. A suggestion is never turned into a tag
+automatically:
 
-**Built-in rules** (`BUILTIN_RULES`):
+- **row-level** Confirm/Reject acts on the whole `(target, category)` row -
+  Confirm mints a `source: 'heuristic'` tag with no offset (covers every call
+  site), Reject persists a row-level dismissal in the sidecar `dismissed` list.
+- **call-site-level** Confirm/Reject acts on one offset child - Confirm mints a
+  tag carrying that exact offset, Reject dismisses just that offset - so an
+  analyst can accept one call site's finding while leaving siblings open.
+
+Either action removes the acted-on row/child from the popup.
+
+```mermaid
+flowchart LR
+  A[DuckDB candidates<br/>compileWhere prefilter<br/>paged by id] --> B[SequenceMatcher<br/>pure, stateful]
+  B -->|RawHit| C[resolveHits<br/>pure, origins.ts]
+  D[(modmap<br/>load bases)] --> C
+  C -->|ResolvedHit| E[aggregate]
+  E -->|Suggestion| F[Suggestions popup]
+```
+
+**Built-in rules** (`BUILTIN_RULES`). Every row below is a single step unless
+noted; `hook-frida-scan` is the one built-in **sequence** rule (two steps,
+matched in order on the same `module+tid`, up to 200 rule-relevant events
+apart):
 
 | id | syscalls | field / op / value | category | conf |
 |---|---|---|---|---|
@@ -518,8 +581,9 @@ returns); either removes the row.
 | `dbg-ptrace-traceme` | ptrace | args / arg_hex_eq[0] / `0x0` | debugger | 0.9 |
 | `dbg-status-open` | openat, newfstatat | string_args / path_matches / `/proc/self/status$` | debugger | 0.6 |
 | `dbg-status-read` | read | fd_args / equals / `/proc/self/status` | debugger | 0.6 |
-| `hook-maps` | openat, newfstatat | string_args / path_matches / `/proc/self/maps$` | hook | 0.5 |
+| `hook-maps` | openat, newfstatat | string_args / path_matches / `/proc/self/maps$` | hook | 0.4 |
 | `hook-frida-sock` | connect | sock_addr / path_matches / `frida` | hook | 0.9 |
+| `hook-frida-scan` | step 1: openat / string_args / path_matches / `/proc/self/maps$`; step 2: openat, newfstatat, faccessat, access, readlinkat / string_args / path_matches / `frida\|gum-js-loop\|re\.frida\|linjector` | hook | 0.95 |
 | `root-paths` | openat, access, newfstatat, faccessat | string_args / path_matches / `su`, `magisk`, `busybox`, `/system/xbin`, `/sbin`, `/data/adb` | root | 0.85 |
 | `root-selinux` | openat, newfstatat, faccessat | string_args / path_matches / `/sys/fs/selinux/enforce$` | root | 0.8 |
 | `root-ksu-prctl` | prctl | args / arg_hex_eq[0] / `0xdeadbeef` | root | 0.9 |
@@ -544,17 +608,24 @@ globally disabled.
 A `#rules` floating panel (`src/renderer/rules-view.ts`, opened by the rail's
 "Rules" button) lists `resolveRules`' effective set as **card rows** (aligned with
 the Suggestions modal visual language), each displaying a category chip, source
-`[builtin|global|project]` badge, rule id, confidence + syscalls count, and the
-predicate line (field / op / value). Each card row has an aligned trailing
-enabled/disabled toggle, Edit / Delete (writable scopes) / Reset (builtins)
-actions; every action reads the raw stored global/project scope (not the merged
-effective list), mutates a copy, and calls `rasp:rules:save`.
+`[builtin|global|project]` badge, rule id, a meta line (confidence + the first
+step's syscalls), and a predicate line summarising the whole sequence (below).
+Each card row has an aligned trailing enabled/disabled toggle, Edit / Delete
+(writable scopes) / Reset (builtins) actions; every action reads the raw
+stored global/project scope (not the merged effective list), mutates a copy,
+and calls `rasp:rules:save`.
 
-The editor is a single-stacked predicate-builder form (`id`, `category`,
-`confidence`, `rationale`, `syscalls`, `field`, `op`, `argIndex` - shown only
-when `op` is `arg_hex_eq` - `value`) plus an explicit scope radio (Global |
-Project) that is independent of the row being edited. `draftFromForm`/
-`validateRule` reject an invalid draft inline before anything reaches IPC.
+The editor is `id`, `category`, `confidence`, `rationale`, `correlate`,
+`maxGap`, a **repeating step block** (one block per `RuleStep`: `syscalls`,
+`field`, `op`, `argIndex` - shown only when `op` is `arg_hex_eq` - `value`,
+with its own Remove step button, disabled while only one step remains) plus
+Add step to append another, and an explicit scope radio (Global | Project)
+independent of the row being edited. `draftFromForm`/`validateRule` reject an
+invalid draft inline before anything reaches IPC. In the rule list, a card
+row's predicate line is `sequenceSummary(r)` - each step's predicate, in the
+order the steps must match, joined by `→` - so a two-step rule like
+`hook-frida-scan` shows both steps on one line at a glance; a single-step rule
+renders exactly as before.
 
 **Editing a builtin forks it.** Builtins are read-only in `BUILTIN_RULES`;
 saving an edit to a builtin row writes a same-`id` rule into whichever scope
@@ -569,13 +640,22 @@ the project (run-local) scope, which `resolveRules` applies at read time.
 **Live preview.** While the form is open, every field edit (debounced ~250ms)
 revalidates the draft and, if valid, calls `rasp:rules:preview` ->
 `GraphStore.previewRule(runId, rule)`: a bounded DuckDB scan that runs
-`compileWhere([rule])` as the candidate pre-filter, scores each candidate with
-`scoreWith`, and reports `{ events, targets }` - the count of events with a
-hit and the count of distinct native targets those hits resolve to - rendered
-as `matches N events → M targets`. An invalid rule or no loaded run returns
+`compileWhere([rule])` as the candidate pre-filter, then drives a fresh
+`SequenceMatcher` seeded with just that one draft rule over the candidates, and
+reports `{ events, targets }` - the count of completed sequence matches (one
+per occurrence, so a multi-step rule's number reflects full sequences, not raw
+candidate events) and the count of distinct native targets those matches
+resolve to - rendered as `matches N events → M targets`. An invalid rule or no loaded run returns
 `{ error }`, shown in place of the counts. The preview never writes anything;
 it exists purely so an analyst can gauge a draft rule's blast radius against
 the current run before saving it into global or project scope.
+
+*Caveat: the preview matches the draft rule **alone**, while `suggest()` runs
+every enabled rule through one matcher. Gap distance is counted in events that
+match some step of some enabled rule on the same correlation key, so another
+enabled rule's candidates can consume a sequence rule's `maxGap` window. A
+multi-step rule can therefore preview as matching and then produce no
+suggestion. The preview is an upper bound, not a promise.*
 
 ### Findings export
 
@@ -1475,7 +1555,7 @@ The right-panel node/record inspector (`src/renderer/inspector.ts` +
   `string_args` for the master table's arg-column preview.
 - **Backtrace** (`appFrameIndex`, `inspector.ts`) - highlights the innermost
   **non-system** frame (the app's own lib, per the same system-lib skip list
-  `nativeTargetOf` uses for suggestion attribution) against the bionic/ART/
+  `targetOf` uses for suggestion attribution) against the bionic/ART/
   framework scaffolding: that row gets `.f.app` (tinted background, bold
   category-red symbol text) while every other row gets the muted `.f.sys`.
   An all-system backtrace (`appFrameIndex` returns `-1`) renders with no

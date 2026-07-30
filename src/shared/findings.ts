@@ -42,9 +42,13 @@ export function buildFindings(tags: Tag[], reps: Record<string, SyscallEvent[]>)
 }
 
 // Human-readable block label: the tag target minus its "nat:"/"java:"/"sys:"
-// prefix, plus an offset refinement when present.
+// prefix, plus an offset refinement when present. The offset is module-relative
+// and bare ("0x88c", or "[unmapped]" when the call site could not be resolved),
+// so it never names its library or symbol on its own - the target has to carry
+// them or the exported report loses them.
 function blockLabel(f: Finding): string {
-  return f.offset ? f.offset : f.target.replace(/^(nat:|java:|sys:|edge:)/, '')
+  const target = f.target.replace(/^(nat:|java:|sys:|edge:)/, '')
+  return f.offset ? `${target} + ${f.offset}` : target
 }
 
 export function renderMarkdown(findings: Finding[]): string {

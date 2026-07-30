@@ -17,7 +17,7 @@ import { renderSuggestions } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
 import { raspNodeStates } from './rasp-node-state'
-import { upsertTag, removeTag, tagsByTarget, orphanedTags, isDismissed, addDismissed, type Tag, type Dismissed } from '@shared/project-store'
+import { upsertTag, removeTag, tagsByTarget, orphanedTags, isDismissed, addDismissed, openSuggestions, type Tag, type Dismissed, type RaspCategory } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
 import { nativeNodeId } from '@shared/graph-shape'
 import { renderDiffTable, mergedToElements, filterDiffRows, type DiffMode } from './diff-view'
@@ -322,15 +322,15 @@ function wireColGrips(scroll: HTMLElement): void {
   })
 }
 
-// Populate the suggestions list into a given host. A suggestion drops off the
-// list once it is confirmed (already a tag of that category) or rejected
-// (dismissed) - both persisted, so it never returns.
+// Populate the suggestions list into a given host. openSuggestions drops a
+// row off the list once it is confirmed (already a tag of that category) or
+// rejected (dismissed) - both persisted, so it never returns - and prunes
+// each surviving row's call sites the same way, so an actioned child does not
+// reappear under a row that is still open.
 async function renderSuggestionsInto(host: HTMLElement): Promise<void> {
   if (activeRunId === undefined) return
   const all = await window.anubee.suggest(activeRunId)
-  const open = all.filter(s =>
-    !isDismissed(dismissed, s.target, s.category) &&
-    !tags.some(t => t.target === s.target && t.category === s.category))
+  const open = openSuggestions(all, tags, dismissed)
   renderSuggestions(host, open,
     async tag => {
       tags = upsertTag(tags, tag)
@@ -339,8 +339,8 @@ async function renderSuggestionsInto(host: HTMLElement): Promise<void> {
       redrawBadges()
       void recolorRasp()
     },
-    async s => {
-      dismissed = addDismissed(dismissed, s.target, s.category)
+    async (s, offset) => {
+      dismissed = addDismissed(dismissed, s.target, s.category, offset)
       await window.anubee.dismissedSave(activeRunId!, dismissed)
       dirty = true
       void recolorRasp()
@@ -376,8 +376,8 @@ async function refreshOrphans(): Promise<void> {
   // Orphan warnings live in the (now selection-gated) side panel; reveal it when
   // there are any, so they aren't silently hidden until a row/node is clicked.
   if (orphanedTags(tags, orphanSet).length) showSide(true)
-  const drop = async (target: string, off?: string) => {
-    tags = removeTag(tags, target, off)
+  const drop = async (target: string, off: string | undefined, cat: RaspCategory) => {
+    tags = removeTag(tags, target, off, cat)
     await persistTags()
     void refreshTable()
     redrawBadges()
@@ -385,7 +385,7 @@ async function refreshOrphans(): Promise<void> {
     void refreshOrphans()
   }
   renderOrphans(host, orphanedTags(tags, orphanSet), drop, async () => {
-    for (const o of orphanedTags(tags, orphanSet)) tags = removeTag(tags, o.target, o.offset)
+    for (const o of orphanedTags(tags, orphanSet)) tags = removeTag(tags, o.target, o.offset, o.category)
     await persistTags()
     void refreshTable()
     redrawBadges()
@@ -557,7 +557,7 @@ cy.on('cxttap', 'node', evt => {
       anchor,
       tagHost: h => renderTagEditor(h, nodeId, undefined, tagsByTarget(tags, nodeId),
         async tag => { tags = upsertTag(tags, tag); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() },
-        async (t, off) => { tags = removeTag(tags, t, off); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() }),
+        async (t, off, cat) => { tags = removeTag(tags, t, off, cat); await persistTags(); void refreshTable(); redrawBadges(); void recolorRasp() }),
     }),
   })
 })

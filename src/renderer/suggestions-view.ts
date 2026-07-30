@@ -2,12 +2,15 @@ import type { Tag } from '@shared/project-store'
 import type { Suggestion } from '@shared/rasp-heuristics'
 
 // A confirmed suggestion becomes a heuristic-sourced tag (keeps its confidence
-// + rationale so the export can cite why it was flagged).
-export function suggestionToTag(s: Suggestion, now: string): Tag {
-  return {
+// + rationale so the export can cite why it was flagged). An offset narrows the
+// tag to one call site; omitting it tags the whole symbol.
+export function suggestionToTag(s: Suggestion, now: string, offset?: string): Tag {
+  const t: Tag = {
     target: s.target, category: s.category, source: 'heuristic',
     confidence: s.confidence, rationale: s.rationale, createdAt: now,
   }
+  if (offset !== undefined) t.offset = offset
+  return t
 }
 
 // Render the suggestions list into the popup. Each row: category chip, target,
@@ -17,7 +20,7 @@ export function renderSuggestions(
   host: HTMLElement,
   suggestions: Suggestion[],
   onConfirm: (tag: Tag) => void,
-  onReject: (s: Suggestion) => void,
+  onReject: (s: Suggestion, offset?: string) => void,
 ): void {
   host.innerHTML = ''
   const head = document.createElement('div')
@@ -70,6 +73,33 @@ export function renderSuggestions(
     btns.append(confirm, reject)
 
     row.append(info, btns)
+
+    // Call sites for this behaviour. Confirming a child tags that block only;
+    // confirming the row above tags the whole symbol.
+    for (const o of s.offsets) {
+      const child = document.createElement('div')
+      child.className = 'sug-offset'
+      const label = document.createElement('span')
+      label.className = 'sug-offset-label'
+      label.textContent = `${o.offset} · ${o.occurrences}x`
+      const cbtns = document.createElement('div')
+      cbtns.className = 'sug-btns'
+      const cconfirm = document.createElement('button')
+      cconfirm.className = 'btn sug-confirm'
+      cconfirm.textContent = 'Confirm'
+      cconfirm.onclick = () => {
+        onConfirm(suggestionToTag(s, new Date().toISOString(), o.offset))
+        child.remove()
+      }
+      const creject = document.createElement('button')
+      creject.className = 'btn sug-reject'
+      creject.textContent = 'Reject'
+      creject.onclick = () => { onReject(s, o.offset); child.remove() }
+      cbtns.append(cconfirm, creject)
+      child.append(label, cbtns)
+      row.appendChild(child)
+    }
+
     host.appendChild(row)
   }
   setCount()

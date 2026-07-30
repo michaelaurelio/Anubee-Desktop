@@ -7,7 +7,8 @@ import { parseJsonl, isSyscall } from '@shared/anubee-parse'
 import { foldEvents, foldFuncEvents, mergeGraphs } from '@shared/graph-shape'
 import { presenceOf } from '../src/shared/diff'
 import type { StackRollup } from '../src/shared/flame-shape'
-import { compileWhere, scoreWith, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
+import { compileWhere, matchSequences, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
+import type { Rule } from '../src/shared/rasp-heuristics'
 import type { SyscallEvent, FuncEvent } from '@shared/events'
 
 // oracle.jsonl is the tiny deterministic fixture these exact-value assertions pin
@@ -156,7 +157,8 @@ describe('heuristic suggestions', () => {
 
   it('honors an explicit resolved rule set (a disabled built-in stops firing)', async () => {
     const store = new GraphStore()
-    await store.ingest(fixture([{ ...evA, syscall: 'ptrace', args: ['0x10'], string_args: {}, backtrace: [] }]))
+    await store.ingest(fixture([{ ...evA, syscall: 'ptrace', args: ['0x10'], string_args: {},
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }]))
     const disabled = resolveRules(BUILTIN_RULES, { rules: [], enabledOverrides: { 'dbg-ptrace-attach': false } }, { rules: [], enabledOverrides: {} })
       .filter(r => r.enabled)
     const s = await store.suggest(undefined, disabled)
@@ -170,34 +172,134 @@ describe('heuristic suggestions', () => {
     expect(await store.suggest(undefined, [])).toEqual([])
     await store.close()
   })
+
+  it('reports one row per category on a multi-behaviour library', async () => {
+    const store = new GraphStore()
+    const bt = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
+                { frame: 1, addr: '0x2100', symbol: 'libsentinel.so!chk+0x100' }]
+    await store.ingest(fixture([
+      { ...evA, id: 1, syscall: 'openat', string_args: { '1': '/system/xbin/su' }, backtrace: bt },
+      { ...evA, id: 2, syscall: 'openat', string_args: { '1': '/proc/self/status' }, backtrace: bt },
+      { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/proc/self/maps' }, backtrace: bt },
+    ]))
+    const s = await store.suggest()
+    const forNode = s.filter(x => x.target === 'nat:libsentinel.so!chk')
+    expect(forNode.map(x => x.category).sort()).toEqual(['debugger', 'hook', 'root'])
+    expect(forNode.every(x => x.offsets.length > 0)).toBe(true)
+    await store.close()
+  })
+
+  it('yields no suggestion targeting a platform library', async () => {
+    const store = new GraphStore()
+    // evA's java_stack is cleared here: a platform-only native chain with a java
+    // fallback attributes to the java frame by design (see rasp-heuristics'
+    // "falls back to the innermost java frame for a pure-java check"); this test
+    // isolates the platform-only-stack-with-no-app-owner case, which must yield
+    // no target at all (mirrors "does not attribute a platform-only stack to a
+    // platform library" in tests/rasp-heuristics.test.ts).
+    await store.ingest(fixture([{ ...evA, id: 1, syscall: 'openat',
+      string_args: { '1': '/proc/self/maps' }, java_stack: [],
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
+                  { frame: 1, addr: '0x2000', symbol: 'libart.so!ReadMaps+0x40' }] }]))
+    expect(await store.suggest()).toEqual([])
+    await store.close()
+  })
+
+  it('flags a maps-then-frida scan as a high-confidence hook check', async () => {
+    const store = new GraphStore()
+    const bt = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
+                { frame: 1, addr: '0x2100', symbol: 'libsentinel.so!scan+0x100' }]
+    await store.ingest(fixture([
+      { ...evA, id: 1, syscall: 'openat', string_args: { '1': '/proc/self/maps' }, backtrace: bt },
+      { ...evA, id: 2, syscall: 'openat', string_args: { '1': '/data/local/tmp/frida-agent-64.so' }, backtrace: bt },
+    ]))
+    const s = await store.suggest()
+    const hook = s.find(x => x.category === 'hook')!
+    expect(hook.confidence).toBe(0.95)
+    expect(hook.rationale).toContain('frida')
+    await store.close()
+  })
+
+  it('leaves a lone maps read at low confidence', async () => {
+    const store = new GraphStore()
+    await store.ingest(fixture([{ ...evA, id: 1, syscall: 'openat',
+      string_args: { '1': '/proc/self/maps' },
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
+                  { frame: 1, addr: '0x2100', symbol: 'libsentinel.so!scan+0x100' }] }]))
+    const s = await store.suggest()
+    expect(s.find(x => x.category === 'hook')!.confidence).toBe(0.4)
+    await store.close()
+  })
+
+  it('suggests nothing on a platform library across the whole fixture run', async () => {
+    const store = new GraphStore()
+    await store.ingest(REAL_FIXTURE)
+    const bad = (await store.suggest()).filter(s => /^nat:(libart|libc|libandroid_runtime|liblog|libbase)\.so/.test(s.target))
+    expect(bad).toEqual([])
+    await store.close()
+  })
+
+  it('a match whose steps straddle a page boundary still completes', async () => {
+    // suggestPage: 1 forces every event onto its own page, so this only passes
+    // if the SequenceMatcher survives across suggest()'s paging loop instead of
+    // being recreated per page.
+    const store = new GraphStore({ suggestPage: 1 })
+    const bt = [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!scan+0x100' }]
+    const straddleRule: Rule = {
+      id: 'test-straddle', category: 'hook', confidence: 0.9, rationale: 'straddle test',
+      enabled: true, source: 'project', correlate: 'symbol+tid', maxGap: 50,
+      steps: [
+        { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' },
+        { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'frida-agent-64\\.so$' },
+      ],
+    }
+    await store.ingest(fixture([
+      { ...evA, id: 1, syscall: 'openat', string_args: { '1': '/proc/self/maps' }, backtrace: bt },
+      { ...evA, id: 2, syscall: 'openat', string_args: { '1': '/data/local/tmp/frida-agent-64.so' }, backtrace: bt },
+    ]))
+    const s = await store.suggest(undefined, [straddleRule])
+    expect(s).toHaveLength(1)
+    await store.close()
+  })
 })
 
-describe('compiler lockstep (real DuckDB admits exactly what scoreWith scores)', () => {
+describe('compiler lockstep (real DuckDB admits exactly what matchSequences scores)', () => {
   // Synthetic events modeled on the real record shapes, one per built-in signal.
   const events = [
-    { ...evA, id: 1, syscall: 'ptrace', args: ['0x10'], string_args: {}, backtrace: [] },
-    { ...evA, id: 2, syscall: 'ptrace', args: ['0x0'], string_args: {}, backtrace: [] },
+    { ...evA, id: 1, syscall: 'ptrace', args: ['0x10'], string_args: {},
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+    { ...evA, id: 2, syscall: 'ptrace', args: ['0x0'], string_args: {},
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
     { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/proc/self/status' } },
-    { ...evA, id: 4, syscall: 'read', string_args: {}, fd_args: { '0': '/proc/self/status' }, backtrace: [] },
+    { ...evA, id: 4, syscall: 'read', string_args: {}, fd_args: { '0': 'fd=6 </proc/self/status>' },
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
     { ...evA, id: 5, syscall: 'openat', string_args: { '1': '/proc/self/maps' } },
-    { ...evA, id: 6, syscall: 'connect', string_args: {}, sock_addr: 'unix:@/frida-zymbiote-abc', backtrace: [] },
+    { ...evA, id: 6, syscall: 'connect', string_args: {}, sock_addr: 'unix:@/frida-zymbiote-abc',
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
     { ...evA, id: 7, syscall: 'access', string_args: { '1': '/system/xbin/busybox' } },
     { ...evA, id: 8, syscall: 'openat', string_args: { '1': '/sys/fs/selinux/enforce' } },
-    { ...evA, id: 9, syscall: 'prctl', args: ['0xdeadbeef'], string_args: {}, backtrace: [] },
+    { ...evA, id: 9, syscall: 'prctl', args: ['0xdeadbeef'], string_args: {},
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
     { ...evA, id: 10, syscall: 'openat', string_args: { '1': '/data/app/benign.so' } }, // matches nothing
+    { ...evA, id: 11, syscall: 'read', string_args: {}, fd_args: { '0': 'fd=122' },
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // unresolved: matches nothing
+    { ...evA, id: 12, syscall: 'openat', string_args: { '1': '/data/local/tmp/frida-agent-64.so' } },
   ]
 
-  it('for every built-in rule, DuckDB WHERE-admission matches scoreWith over all events', async () => {
+  it('for every built-in rule step, DuckDB WHERE-admission matches the JS predicate', async () => {
     const store = new GraphStore()
     const { runId } = await store.ingest(fixture(events))
     for (const rule of BUILTIN_RULES) {
-      const where = compileWhere([rule])
-      const admitted = new Set(
-        (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
-      )
-      for (const e of events) {
-        const jsMatches = scoreWith([rule], e as any).length > 0
-        expect(admitted.has(e.id), `${rule.id} vs event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+      for (const [i, step] of rule.steps.entries()) {
+        const probe = { ...rule, id: `${rule.id}#${i}`, steps: [step] }
+        const where = compileWhere([probe])
+        const admitted = new Set(
+          (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
+        )
+        for (const e of events) {
+          const jsMatches = matchSequences([probe], [e as any]).hits.length > 0
+          expect(admitted.has(e.id), `${probe.id} vs event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+        }
       }
     }
     await store.close()
@@ -210,7 +312,7 @@ describe('suggest fail-safe', () => {
     await store.ingest(fixture([evA]))
     // A rule that bypassed validation with an RE2-incompatible regex -> DuckDB rejects the WHERE.
     const badRule = { id: 'bad', category: 'custom', confidence: 0.5, rationale: 'x', enabled: true, source: 'global',
-      match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo(?=bar)' } } as any
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo(?=bar)' }] } as any
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const out = await store.suggest(undefined, [badRule])
     expect(out).toEqual([])

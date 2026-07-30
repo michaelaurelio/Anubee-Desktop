@@ -8,7 +8,8 @@ const EMPTY: RuleScope = { rules: [], enabledOverrides: {} }
 
 const userRule = (over: Partial<Rule> = {}): Rule => ({
   id: 'u-1', category: 'custom', confidence: 0.5, rationale: 'user rule', enabled: true,
-  match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo' },
+  steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo' }],
+  correlate: 'symbol+tid', maxGap: 50,
   source: 'global', ...over,
 })
 
@@ -23,10 +24,10 @@ describe('BUILTIN_RULES', () => {
     }
     // the corrected/added categories the redesign requires
     const byId = new Map(BUILTIN_RULES.map(r => [r.id, r]))
-    expect(byId.get('dbg-ptrace-attach')!.match.value).toBe('0x10')
-    expect(byId.get('hook-frida-sock')!.match.field).toBe('sock_addr')
+    expect(byId.get('dbg-ptrace-attach')!.steps[0].value).toBe('0x10')
+    expect(byId.get('hook-frida-sock')!.steps[0].field).toBe('sock_addr')
     expect(byId.get('root-selinux')).toBeTruthy()
-    expect(byId.get('root-ksu-prctl')!.match.op).toBe('arg_hex_eq')
+    expect(byId.get('root-ksu-prctl')!.steps[0].op).toBe('arg_hex_eq')
     // emulator/integrity ship NO built-in rule (not syscall-detectable)
     expect(BUILTIN_RULES.some(r => r.category === 'emulator')).toBe(false)
     expect(BUILTIN_RULES.some(r => r.category === 'integrity')).toBe(false)
@@ -38,19 +39,19 @@ describe('validateRule', () => {
     expect(validateRule(userRule({ id: '' }), 'global').rule).toBeNull()
   })
   it('rejects an empty syscalls set', () => {
-    expect(validateRule(userRule({ match: { syscalls: [], field: 'args', op: 'equals', value: 'x' } }), 'global').rule).toBeNull()
+    expect(validateRule(userRule({ steps: [{ syscalls: [], field: 'args', op: 'equals', value: 'x' }] }), 'global').rule).toBeNull()
   })
   it('rejects confidence out of [0,1]', () => {
     expect(validateRule(userRule({ confidence: 1.5 }), 'global').rule).toBeNull()
   })
   it('rejects arg_hex_eq without argIndex', () => {
-    expect(validateRule(userRule({ match: { syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', value: '0x10' } }), 'global').rule).toBeNull()
+    expect(validateRule(userRule({ steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', value: '0x10' }] }), 'global').rule).toBeNull()
   })
   it('rejects arg_hex_eq with a non-hex value', () => {
-    expect(validateRule(userRule({ match: { syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: 'nope' } }), 'global').rule).toBeNull()
+    expect(validateRule(userRule({ steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: 'nope' }] }), 'global').rule).toBeNull()
   })
   it('rejects a path_matches value that is not a valid regex', () => {
-    expect(validateRule(userRule({ match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '(' } }), 'global').rule).toBeNull()
+    expect(validateRule(userRule({ steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '(' }] }), 'global').rule).toBeNull()
   })
   it('stamps the source and defaults missing enabled to true', () => {
     const raw = { ...userRule() } as Record<string, unknown>
@@ -61,19 +62,19 @@ describe('validateRule', () => {
     expect(r!.source).toBe('project')
   })
   it('rejects a path_matches value using an RE2-incompatible lookahead', () => {
-    expect(validateRule(userRule({ match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo(?=bar)' } }), 'global').rule).toBeNull()
+    expect(validateRule(userRule({ steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo(?=bar)' }] }), 'global').rule).toBeNull()
   })
   it('rejects a path_matches value using a backreference', () => {
-    expect(validateRule(userRule({ match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '(a)\\1' } }), 'global').rule).toBeNull()
+    expect(validateRule(userRule({ steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '(a)\\1' }] }), 'global').rule).toBeNull()
   })
   it('accepts a normal path_matches regex (alternation, anchors, char classes)', () => {
-    expect(validateRule(userRule({ match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '(^|/)su$|/data/adb' } }), 'global').rule).not.toBeNull()
+    expect(validateRule(userRule({ steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '(^|/)su$|/data/adb' }] }), 'global').rule).not.toBeNull()
   })
   it('canonicalizes an arg_hex_eq value to lowercase minimal hex', () => {
-    const upper = validateRule(userRule({ match: { syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0xDEADBEEF' } }), 'global').rule
-    expect(upper!.match.value).toBe('0xdeadbeef')
-    const padded = validateRule(userRule({ match: { syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x0010' } }), 'global').rule
-    expect(padded!.match.value).toBe('0x10')
+    const upper = validateRule(userRule({ steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0xDEADBEEF' }] }), 'global').rule
+    expect(upper!.steps[0].value).toBe('0xdeadbeef')
+    const padded = validateRule(userRule({ steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x0010' }] }), 'global').rule
+    expect(padded!.steps[0].value).toBe('0x10')
   })
 })
 
@@ -116,5 +117,51 @@ describe('resolveRules', () => {
     const p: RuleScope = { rules: [], enabledOverrides: { 'dbg-ptrace-traceme': true } }
     const out = resolveRules(BUILTIN_RULES, g, p)
     expect(out.find(r => r.id === 'dbg-ptrace-traceme')!.enabled).toBe(true)
+  })
+})
+
+describe('rule schema v2', () => {
+  const step = { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' }
+
+  it('reads a legacy single-predicate rule as a one-step sequence', () => {
+    const { rule, error } = validateRule(
+      { id: 'legacy', category: 'root', confidence: 0.5, rationale: 'r', match: step }, 'project')
+    expect(error).toBeNull()
+    expect(rule!.steps).toEqual([{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' }])
+    expect(rule!.correlate).toBe('symbol+tid')
+    expect(rule!.maxGap).toBe(50)
+  })
+
+  it('accepts an explicit multi-step rule', () => {
+    const { rule, error } = validateRule({
+      id: 'seq', category: 'hook', confidence: 0.9, rationale: 'r',
+      steps: [step, { ...step, value: 'frida' }], correlate: 'module+tid', maxGap: 10,
+    }, 'project')
+    expect(error).toBeNull()
+    expect(rule!.steps).toHaveLength(2)
+    expect(rule!.correlate).toBe('module+tid')
+    expect(rule!.maxGap).toBe(10)
+  })
+
+  it('rejects an empty step list', () => {
+    const { error } = validateRule(
+      { id: 'x', category: 'root', confidence: 0.5, rationale: 'r', steps: [] }, 'project')
+    expect(error).toMatch(/steps/)
+  })
+
+  it('rejects an unknown correlate mode', () => {
+    const { error } = validateRule(
+      { id: 'x', category: 'root', confidence: 0.5, rationale: 'r', steps: [step], correlate: 'thread' }, 'project')
+    expect(error).toMatch(/correlate/)
+  })
+
+  it('rejects a non-positive maxGap', () => {
+    const { error } = validateRule(
+      { id: 'x', category: 'root', confidence: 0.5, rationale: 'r', steps: [step], maxGap: 0 }, 'project')
+    expect(error).toMatch(/maxGap/)
+  })
+
+  it('every built-in is a one-step rule, except the frida-scan sequence', () => {
+    for (const r of BUILTIN_RULES) expect(r.steps).toHaveLength(r.id === 'hook-frida-scan' ? 2 : 1)
   })
 })

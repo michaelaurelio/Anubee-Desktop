@@ -34,7 +34,7 @@ export function renderTagEditor(
   offset: string | undefined,
   current: Tag[],
   onSave: (tag: Tag) => void,
-  onRemove: (target: string, offset?: string) => void,
+  onRemove: (target: string, offset: string | undefined, category: RaspCategory) => void,
 ): void {
   const box = document.createElement('div')
   box.className = 'tag-editor'
@@ -78,7 +78,7 @@ export function renderTagEditor(
       const del = document.createElement('button')
       del.textContent = 'x'
       del.style.marginLeft = '6px'
-      del.onclick = () => onRemove(t.target, t.offset)
+      del.onclick = () => onRemove(t.target, t.offset, t.category)
       row.appendChild(del)
       existing.appendChild(row)
     }

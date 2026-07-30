@@ -35,10 +35,25 @@ describe('findings', () => {
     expect(md).toContain('/system/bin/su')
   })
 
-  it('markdown uses the offset as the block label when a tag has an offset', () => {
+  it('markdown cites the offset alongside the target when a tag has an offset', () => {
     const offsetTag: Tag = { ...tag, offset: 'libexample.so+0x1234' }
     const md = renderMarkdown(buildFindings([offsetTag], { 'nat:libexample.so!check_su': [ev] }))
     expect(md).toContain('libexample.so+0x1234')
+  })
+
+  // Offsets are stored bare (module-relative), so the target is the only thing
+  // naming the library and symbol - the report must keep both.
+  it('markdown keeps library and symbol for a bare module-relative offset', () => {
+    const offsetTag: Tag = { ...tag, offset: '0x88c' }
+    const md = renderMarkdown(buildFindings([offsetTag], { 'nat:libexample.so!check_su': [ev] }))
+    expect(md).toContain('`libexample.so!check_su + 0x88c`')
+    expect(md).not.toContain('`0x88c`')
+  })
+
+  it('markdown keeps library and symbol for an unresolved call site', () => {
+    const offsetTag: Tag = { ...tag, offset: '[unmapped]' }
+    const md = renderMarkdown(buildFindings([offsetTag], { 'nat:libexample.so!check_su': [ev] }))
+    expect(md).toContain('`libexample.so!check_su + [unmapped]`')
   })
 
   it('renders valid JSON', () => {

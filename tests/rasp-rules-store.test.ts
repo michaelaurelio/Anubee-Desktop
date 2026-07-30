@@ -7,7 +7,7 @@ import type { Rule } from '../src/shared/rasp-heuristics'
 
 const dir = () => mkdtempSync(join(tmpdir(), 'anubee-rules-'))
 const rule: Rule = { id: 'u-1', category: 'custom', confidence: 0.5, rationale: 'r', enabled: true, source: 'global',
-  match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo' } }
+  steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo' }], correlate: 'symbol+tid', maxGap: 50 }
 
 describe('rasp-rules-store', () => {
   it('returns an empty scope when the file is absent', () => {
@@ -34,6 +34,31 @@ describe('rasp-rules-store', () => {
   it('tolerates invalid JSON', () => {
     const d = dir()
     writeFileSync(join(d, 'rasp-rules.json'), '{ not json')
+    expect(loadRules(d)).toEqual({ rules: [], enabledOverrides: {} })
+  })
+  it('reads a v1 file and upgrades its rule to a one-step sequence', () => {
+    const d = dir()
+    writeFileSync(join(d, 'rasp-rules.json'), JSON.stringify({
+      schemaVersion: 1,
+      rules: [{ id: 'old', category: 'root', confidence: 0.5, rationale: 'r', enabled: true,
+                match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' } }],
+      enabledOverrides: {},
+    }))
+    const back = loadRules(d)
+    expect(back.rules).toHaveLength(1)
+    expect(back.rules[0].steps).toHaveLength(1)
+    expect(back.rules[0].correlate).toBe('symbol+tid')
+  })
+
+  it('writes schemaVersion 2', () => {
+    const d = dir()
+    saveRules(d, { rules: [], enabledOverrides: {} })
+    expect(JSON.parse(readFileSync(join(d, 'rasp-rules.json'), 'utf8')).schemaVersion).toBe(2)
+  })
+
+  it('rejects an unknown future schema version', () => {
+    const d = dir()
+    writeFileSync(join(d, 'rasp-rules.json'), JSON.stringify({ schemaVersion: 3, rules: [], enabledOverrides: {} }))
     expect(loadRules(d)).toEqual({ rules: [], enabledOverrides: {} })
   })
 })
