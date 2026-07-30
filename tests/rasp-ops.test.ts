@@ -35,4 +35,30 @@ describe('decoded_args field', () => {
   it('compiles to a map_values clause over decoded_args', () => {
     expect(compileWhere([r])).toContain('map_values(decoded_args)')
   })
+
+  it('path_matches compiles to regexp_matches in SQL', () => {
+    const sqlClause = compileWhere([r])
+    expect(sqlClause).toContain('regexp_matches')
+    expect(sqlClause).toContain('map_values(decoded_args)')
+  })
+
+  it('equals operator matches exact decoded argument values', () => {
+    const eqRule = rule({ steps: [{ syscalls: ['mprotect'], field: 'decoded_args', op: 'equals',
+      value: 'PROT_READ|PROT_WRITE' }] })
+    expect(matchSequences([eqRule], [ev({ syscall: 'mprotect', decoded_args: { '0': 'PROT_READ|PROT_WRITE' } })]).hits).toHaveLength(1)
+  })
+
+  it('equals operator does not match partial decoded argument values', () => {
+    const eqRule = rule({ steps: [{ syscalls: ['mprotect'], field: 'decoded_args', op: 'equals',
+      value: 'PROT_READ|PROT_WRITE' }] })
+    expect(matchSequences([eqRule], [ev({ syscall: 'mprotect', decoded_args: { '0': 'PROT_READ' } })]).hits).toHaveLength(0)
+  })
+
+  it('equals operator compiles to list_contains in SQL', () => {
+    const eqRule = rule({ steps: [{ syscalls: ['mprotect'], field: 'decoded_args', op: 'equals',
+      value: 'PROT_READ|PROT_WRITE' }] })
+    const sqlClause = compileWhere([eqRule])
+    expect(sqlClause).toContain('list_contains')
+    expect(sqlClause).toContain('map_values(decoded_args)')
+  })
 })

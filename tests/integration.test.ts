@@ -7,7 +7,7 @@ import { parseJsonl, isSyscall } from '@shared/anubee-parse'
 import { foldEvents, foldFuncEvents, mergeGraphs } from '@shared/graph-shape'
 import { presenceOf } from '../src/shared/diff'
 import type { StackRollup } from '../src/shared/flame-shape'
-import { compileWhere, matchSequences, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
+import { compileWhere, matchSequences, resolveRules, BUILTIN_RULES, validateRule } from '../src/shared/rasp-heuristics'
 import type { Rule } from '../src/shared/rasp-heuristics'
 import type { SyscallEvent, FuncEvent } from '@shared/events'
 
@@ -320,6 +320,106 @@ describe('suggest fail-safe', () => {
     const out = await store.suggest(undefined, [badRule])
     expect(out).toEqual([])
     spy.mockRestore()
+    await store.close()
+  })
+})
+
+describe('decoded_args field integration', () => {
+  it('DuckDB WHERE clause for decoded_args path_matches agrees with JS matcher', async () => {
+    const store = new GraphStore()
+    // Test events with decoded_args field populated
+    const events = [
+      { ...evA, id: 1, syscall: 'prctl', args: ['0x1'], string_args: {},
+        decoded_args: { '0': 'PR_GET_DUMPABLE' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 2, syscall: 'prctl', args: ['0x2'], string_args: {},
+        decoded_args: { '0': 'PR_SET_DUMPABLE' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 3, syscall: 'prctl', args: ['0x3'], string_args: {},
+        decoded_args: { '0': 'PR_SET_NAME' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 4, syscall: 'prctl', args: ['0x4'], string_args: {},
+        decoded_args: { '0': 'PROT_READ|PROT_WRITE' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 5, syscall: 'openat', string_args: { '1': '/data/app/ok.so' },
+        decoded_args: {} }, // different syscall, should not match
+    ]
+    const { runId } = await store.ingest(fixture(events))
+
+    // Rule with path_matches operator
+    const { rule: pathRule } = validateRule({
+      id: 'test-decoded-path', category: 'hook', confidence: 0.8, rationale: 'test',
+      source: 'project', enabled: true,
+      steps: [{ syscalls: ['prctl'], field: 'decoded_args', op: 'path_matches', value: 'PR_(SET|GET)_DUMPABLE' }],
+    }, 'project')
+    expect(pathRule).not.toBeNull()
+
+    // Test DuckDB WHERE clause against real database
+    const where = compileWhere([pathRule!])
+    const admitted = new Set(
+      (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
+    )
+
+    // Test JS matcher for comparison
+    const jsResult = matchSequences([pathRule!], events as any)
+    const jsMatched = new Set(jsResult.hits.map((h) => {
+      const evt = events.find((e: any) => e.backtrace === evA.backtrace)
+      return events.findIndex((e: any) => e === evt || (e.syscall === 'prctl' && e.decoded_args['0']?.match(/PR_(SET|GET)_DUMPABLE/)))
+    }))
+
+    // Verify DuckDB admits exactly the events that path_matches events: ids 1 and 2
+    expect(admitted).toEqual(new Set([1, 2]))
+
+    // Verify agreement: for each event, DuckDB and JS must agree
+    for (const e of events) {
+      const jsMatches = matchSequences([pathRule!], [e as any]).hits.length > 0
+      expect(admitted.has(e.id), `event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+    }
+
+    await store.close()
+  })
+
+  it('DuckDB WHERE clause for decoded_args equals agrees with JS matcher', async () => {
+    const store = new GraphStore()
+    // Test events with decoded_args as complete composites
+    const events = [
+      { ...evA, id: 1, syscall: 'mprotect', args: ['0x1'], string_args: {},
+        decoded_args: { '0': 'PROT_READ|PROT_WRITE' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 2, syscall: 'mprotect', args: ['0x2'], string_args: {},
+        decoded_args: { '0': 'PROT_READ' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 3, syscall: 'mprotect', args: ['0x3'], string_args: {},
+        decoded_args: { '0': 'PROT_EXEC' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 4, syscall: 'openat', string_args: { '1': '/ok' },
+        decoded_args: {} }, // different syscall
+    ]
+    const { runId } = await store.ingest(fixture(events))
+
+    // Rule with equals operator, matching a composite value
+    const { rule: eqRule } = validateRule({
+      id: 'test-decoded-equals', category: 'hook', confidence: 0.8, rationale: 'test',
+      source: 'project', enabled: true,
+      steps: [{ syscalls: ['mprotect'], field: 'decoded_args', op: 'equals', value: 'PROT_READ|PROT_WRITE' }],
+    }, 'project')
+    expect(eqRule).not.toBeNull()
+
+    // Test DuckDB WHERE clause
+    const where = compileWhere([eqRule!])
+    const admitted = new Set(
+      (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
+    )
+
+    // Verify DuckDB admits exactly event id 1 (the one with exact composite match)
+    expect(admitted).toEqual(new Set([1]))
+
+    // Verify agreement: for each event, DuckDB and JS must agree
+    for (const e of events) {
+      const jsMatches = matchSequences([eqRule!], [e as any]).hits.length > 0
+      expect(admitted.has(e.id), `event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+    }
+
     await store.close()
   })
 })
