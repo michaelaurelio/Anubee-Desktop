@@ -377,12 +377,40 @@ describe('compiler lockstep (real DuckDB admits exactly what matchSequences scor
     { ...evA, id: 18, syscall: 'faccessat', string_args: { '1': '/system/xbin' }, retval: 0 },
     { ...evA, id: 19, syscall: 'openat', string_args: { '1': '/proc/8185/smaps' } },
     { ...evA, id: 20, syscall: 'openat', string_args: { '1': '/dev/goldfish_sync' } },
+    // hook-maps-scan's fd_args step has no other positive-admitting event above:
+    // ids 4/11 exercise FD_NORM_SQL/normalizeFdValue only negatively (they belong
+    // to other built-ins' syscalls or are unresolved). This fd carries a resolved
+    // smaps path, so the unwrapper must be exercised in the matching direction too.
+    { ...evA, id: 21, syscall: 'read', string_args: {}, fd_args: { '0': 'fd=7 </proc/8185/smaps>' },
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
   ]
+
+  // Deleting dbg-status-read (the only built-in using field:'fd_args', op:'equals')
+  // left no built-in exercising op:'equals' through real DuckDB at all, so the
+  // list_contains(...) branches of clauseOf had zero coverage. These are not
+  // built-ins - they are synthetic probes, built through validateRule like any
+  // other rule, run through the same lockstep loop below purely to keep 'equals'
+  // honest on both compilers.
+  const PROBE_RULES: Rule[] = (() => {
+    const specs = [
+      { id: 'probe-fd-equals', category: 'debugger', confidence: 0.5,
+        rationale: 'probe: equals on fd_args, exercised through the resolved-fd unwrapper',
+        steps: [{ syscalls: ['read'], field: 'fd_args', op: 'equals', value: '/proc/self/status' }] },
+      { id: 'probe-string-equals', category: 'debugger', confidence: 0.5,
+        rationale: 'probe: equals on string_args',
+        steps: [{ syscalls: ['openat'], field: 'string_args', op: 'equals', value: '/proc/self/status' }] },
+    ]
+    return specs.map(s => {
+      const { rule, error } = validateRule(s, 'project')
+      if (!rule) throw new Error(error ?? 'invalid probe rule')
+      return rule
+    })
+  })()
 
   it('for every built-in rule step, DuckDB WHERE-admission matches the JS predicate', async () => {
     const store = new GraphStore()
     const { runId } = await store.ingest(fixture(events))
-    for (const rule of BUILTIN_RULES) {
+    for (const rule of [...BUILTIN_RULES, ...PROBE_RULES]) {
       for (const [i, step] of rule.steps.entries()) {
         const probe = { ...rule, id: `${rule.id}#${i}`, steps: [step] }
         const where = compileWhere([probe])

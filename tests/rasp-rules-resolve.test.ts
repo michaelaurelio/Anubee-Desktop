@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  BUILTIN_RULES, validateRule, coerceRules, resolveRules,
+  BUILTIN_RULES, validateRule, coerceRules, resolveRules, hexList,
   type Rule, type RuleScope,
 } from '../src/shared/rasp-heuristics'
 
@@ -24,7 +24,7 @@ describe('BUILTIN_RULES', () => {
     }
     // the corrected/added categories the redesign requires
     const byId = new Map(BUILTIN_RULES.map(r => [r.id, r]))
-    expect(byId.get('dbg-ptrace-selftrace')!.steps[0].value).toContain('0x10')
+    expect(hexList(byId.get('dbg-ptrace-selftrace')!.steps[0].value as string)).toContain('0x10')
     expect(byId.get('hook-frida-port')!.steps[0].field).toBe('sock_addr')
     expect(byId.get('root-selinux')).toBeTruthy()
     expect(byId.get('root-ksu-prctl')!.steps[0].op).toBe('arg_hex_eq')

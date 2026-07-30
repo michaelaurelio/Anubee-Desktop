@@ -9,8 +9,8 @@ import { coerceRules } from './rasp-rules'
 // args[0], matched here as hex. PTRACE_TRACEME === 0 and PTRACE_ATTACH === 0x10.
 //
 // Every regex and threshold here was measured against two real captures: the
-// maintainer's reference detector app and a production Android banking app held
-// outside the repository. A rule marked "unfired" scored zero on both because the
+// maintainer's reference detector app and a production Android app held outside
+// the repository. A rule marked "unfired" scored zero on both because the
 // capture device is clean and unrooted - it is correctly silent, not validated.
 export const BUILTIN_SPECS: unknown[] = [
   // ------------------------------------------------------------------ root ---
