@@ -259,6 +259,50 @@ describe('SequenceMatcher', () => {
   })
 })
 
+describe('unattributable events', () => {
+  // The case the attribution work exists for: ART's JNI trampoline is the only
+  // native frame above libc and every java frame is platform code, so no
+  // app-owned caller is recoverable and there is nothing to correlate on.
+  const UNATTRIBUTABLE: Partial<SyscallEvent> = {
+    backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
+                { frame: 1, addr: '0x2000', symbol: 'boot.oat!art_jni_trampoline+0x80' }],
+    java_stack: ['libcore.io.BlockGuardOs.access', 'java.io.File.exists', '...'],
+  }
+  const paths = new Map([
+    ['libc.so', '/apex/com.android.runtime/lib64/bionic/libc.so'],
+    ['boot.oat', '/apex/com.android.art/javalib/arm64/boot.oat'],
+    ['libsentinel.so', '/data/app/~~a==/dev.anubee.detector-b==/lib/arm64/libsentinel.so'],
+  ])
+  const one: Rule = { ...seq, id: 'maps-only', steps: [seq.steps[0]], correlate: 'symbol+tid' }
+
+  it('emits a one-step rule against the synthetic target', () => {
+    // A one-step rule has no sequence, so a missing correlation key must not
+    // cost the detection - it is attributed to rasp:unattributed:<category>.
+    const { hits } = matchSequences([one], [ev(1, 'openat', '/proc/self/maps', UNATTRIBUTABLE)],
+                                    undefined, { paths })
+    expect(hits).toHaveLength(1)
+    expect(hits[0].target).toBe('rasp:unattributed:hook')
+    expect(hits[0].frame).toBeNull()
+  })
+
+  it('still requires a correlation key for a multi-step rule', () => {
+    // A sequence genuinely must correlate its steps and there is nothing to key
+    // on, so it matches nothing. Drop the one-step condition on the key guard
+    // and this rule would emit on its first step alone.
+    const { hits } = matchSequences([seq], [
+      ev(1, 'openat', '/proc/self/maps', UNATTRIBUTABLE),
+      ev(2, 'openat', '/data/frida-agent.so', UNATTRIBUTABLE),
+    ], undefined, { paths })
+    expect(hits).toEqual([])
+  })
+
+  it('does not reach for the synthetic target when the app is in the stack', () => {
+    const { hits } = matchSequences([one], [ev(1, 'openat', '/proc/self/maps')], undefined, { paths })
+    expect(hits).toHaveLength(1)
+    expect(hits[0].target).toBe('nat:libsentinel.so!scan')
+  })
+})
+
 describe('one-step rules', () => {
   const single: Rule = {
     id: 'maps', category: 'hook', confidence: 0.5, rationale: 'maps read',

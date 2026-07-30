@@ -143,7 +143,18 @@ export class SequenceMatcher {
 
     for (const r of this.rules) {
       const k = keyOf(r.correlate)
-      if (k === null) continue
+      if (k === null) {
+        // A one-step rule has no sequence to correlate, so it needs no
+        // correlation key: it matches and emits on the event alone, and emit()
+        // resolves its unattributable target to the synthetic id. Demanding a
+        // key here is what used to lose the finding a second time, after
+        // attribution had already declined to name a platform frame. A
+        // multi-step rule genuinely must correlate its steps, so with nothing to
+        // key on it can neither open nor advance a partial.
+        if (r.steps.length > 1) continue
+        this.emitSingle(r, e)
+        continue
+      }
       const sk = streamKey(r.correlate, k)
       const n = this.counts.get(sk)!
       const pk = partialKey(r.id, k)
@@ -182,13 +193,13 @@ export class SequenceMatcher {
       }
 
       if (advanced) continue
+      if (r.steps.length === 1) { this.emitSingle(r, e); continue }
       if (!matchOne(r.steps[0], e)) continue
       // An event whose app-owned caller cannot be recovered is still a real
       // detection, so it is never dropped here: emit() resolves the null target
       // to the rule's synthetic `rasp:unattributed:<category>` id.
       const a = attributionOf(e, this.paths)
       const target = a.kind === 'unattributed' ? null : a.id
-      if (r.steps.length === 1) { this.emit(r, target, anchorFrame(e, this.paths), e.pid); continue }
       // Expiry is otherwise lazy (it needs another event on the same rule+key), so
       // a partial on a key that goes silent would hold its slot forever and the
       // cap would become a permanent block. `evictOldest` alone guarantees a free
@@ -209,6 +220,14 @@ export class SequenceMatcher {
       this.partials.set(pk, open)
       this.ages.push(p)
     }
+  }
+
+  // A one-step rule is an immediate match: no correlation, no partial, no gap.
+  // Both the keyed and the unkeyed path route here so the two cannot drift.
+  private emitSingle(r: Rule, e: SyscallEvent): void {
+    if (!matchOne(r.steps[0], e)) return
+    const a = attributionOf(e, this.paths)
+    this.emit(r, a.kind === 'unattributed' ? null : a.id, anchorFrame(e, this.paths), e.pid)
   }
 
   // Remove a partial from the live accounting. Its caller drops it from its list;

@@ -113,9 +113,13 @@ describe('target attribution', () => {
     { frame: 1, addr: '0x2000', symbol: 'libart.so!ReadMaps+0x40' },
   ]
   it('does not attribute a platform-only stack to a platform library', () => {
+    // Neither libc.so nor libart.so may be named, and the detection must not be
+    // lost for want of an app-owned caller: it goes to the synthetic target.
     const { hits } = matchSequences(rules, [{ ...base, syscall: 'openat',
       string_args: { '1': '/proc/self/maps' }, backtrace: platform }])
-    expect(hits).toEqual([])
+    expect(hits).toHaveLength(1)
+    expect(hits[0].target).toBe('rasp:unattributed:hook')
+    expect(hits[0].frame).toBeNull()
   })
   it('attributes to the app library when one is present', () => {
     const { hits } = matchSequences(rules, [{ ...base, syscall: 'openat',

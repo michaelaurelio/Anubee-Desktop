@@ -194,14 +194,17 @@ describe('heuristic suggestions', () => {
     // evA's java_stack is cleared here: a platform-only native chain with a java
     // fallback attributes to the java frame by design (see rasp-heuristics'
     // "falls back to the innermost java frame for a pure-java check"); this test
-    // isolates the platform-only-stack-with-no-app-owner case, which must yield
-    // no target at all (mirrors "does not attribute a platform-only stack to a
-    // platform library" in tests/rasp-heuristics.test.ts).
+    // isolates the platform-only-stack-with-no-app-owner case, which keeps the
+    // detection but names the synthetic target rather than libc or libart
+    // (mirrors "does not attribute a platform-only stack to a platform library"
+    // in tests/rasp-heuristics.test.ts).
     await store.ingest(fixture([{ ...evA, id: 1, syscall: 'openat',
       string_args: { '1': '/proc/self/maps' }, java_stack: [],
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
                   { frame: 1, addr: '0x2000', symbol: 'libart.so!ReadMaps+0x40' }] }]))
-    expect(await store.suggest()).toEqual([])
+    const s = await store.suggest()
+    expect(s.map(x => x.target)).toEqual(['rasp:unattributed:hook'])
+    expect(s.some(x => x.target.includes('libc.so') || x.target.includes('libart.so'))).toBe(false)
     await store.close()
   })
 
