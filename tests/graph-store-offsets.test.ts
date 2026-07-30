@@ -37,6 +37,32 @@ describe('GraphStore module map', () => {
     expect(eventCount).toBe(3) // 3 syscalls; 2 lib records are not events
     expect(store.moduleBase(runId, 100, 'libexample.so')).toBe(0x1000n)
   })
+
+  it('retains each lib record full load path, keyed by basename', async () => {
+    // Note: this file's fixture() takes no args (fixed LINES const), which
+    // collides with the array-taking fixture() used elsewhere in the repo -
+    // so this test builds its jsonl inline via the module-level dir/store vars
+    // (same pattern the [unmapped]-row test above already uses).
+    const lines = [
+      { type: 'lib', pid: 100, tid: 100, library: '/data/app/~~a==/dev.anubee.detector-b==/lib/arm64/libsentinel.so',
+        start: '0x7000000000', end: '0x7000100000', pgoff: 0 },
+      { type: 'lib', pid: 100, tid: 100, library: '/system/lib64/libhwui.so',
+        start: '0x7100000000', end: '0x7100100000', pgoff: 0 },
+      { type: 'syscall', id: 1, pid: 100, tid: 101, syscall_nr: 56, syscall: 'openat',
+        args: ['0xffffff9c', '0x0'], retval: 7, string_args: { '1': '/system/bin/su' },
+        fd_args: {}, decoded_args: {}, java_stack: ['com.example.app.RootCheck.run'],
+        backtrace: [{ frame: 0, addr: '0x1', symbol: 'libexample.so!check_su+0x10' }] },
+    ]
+    dir = mkdtempSync(join(tmpdir(), 'anubee-offsets-libmap-'))
+    const p = join(dir, 'run.jsonl')
+    writeFileSync(p, lines.map(l => JSON.stringify(l)).join('\n'))
+
+    store = new GraphStore()
+    const { runId } = await store.ingest(p)
+    const paths = store.modulePaths(runId)
+    expect(paths.get('libsentinel.so')).toBe('/data/app/~~a==/dev.anubee.detector-b==/lib/arm64/libsentinel.so')
+    expect(paths.get('libhwui.so')).toBe('/system/lib64/libhwui.so')
+  })
 })
 
 describe('GraphStore.nodeOffsets', () => {

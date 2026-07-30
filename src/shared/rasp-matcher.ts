@@ -4,6 +4,7 @@ import type { CorrelateKey, Rule, RuleField, RuleStep } from './rasp-rules'
 import { argNum } from './rasp-rules'
 import type { Frame } from './rasp-attribution'
 import { anchorFrame, correlationKey, targetOf } from './rasp-attribution'
+import type { ModulePaths } from './module-origin'
 
 export interface ResolvedHit {
   target: string
@@ -66,6 +67,9 @@ const COMPACT_ABOVE = 4096
 export interface SequenceMatcherOptions {
   sweepEvery?: number
   compactAbove?: number
+  // Module basename -> load path, for attribution. An empty map falls back to
+  // the basename denylist in module-origin.
+  paths?: ModulePaths
 }
 
 // Ordered-sequence matcher over an id-ordered event stream. Stateful so it can be
@@ -104,10 +108,12 @@ export class SequenceMatcher {
   private agesHead = 0                                  // first not-yet-considered slot
   private sweepEvery: number
   private compactAbove: number
+  private paths: ModulePaths
 
   constructor(private rules: Rule[], private cap = 10000, opts: SequenceMatcherOptions = {}) {
     this.sweepEvery = Math.max(1, opts.sweepEvery ?? SWEEP_EVERY)
     this.compactAbove = opts.compactAbove ?? COMPACT_ABOVE
+    this.paths = opts.paths ?? new Map<string, string>()
   }
 
   // Sweeps performed so far. Exposed so a test can pin the reclaim work done at
@@ -267,9 +273,9 @@ export class SequenceMatcher {
 
 // One-shot wrapper. The store drives SequenceMatcher page by page instead.
 export function matchSequences(
-  rules: Rule[], events: Iterable<SyscallEvent>, cap?: number,
+  rules: Rule[], events: Iterable<SyscallEvent>, cap?: number, opts: SequenceMatcherOptions = {},
 ): { hits: RawHit[]; dropped: number } {
-  const m = new SequenceMatcher(rules, cap)
+  const m = new SequenceMatcher(rules, cap, opts)
   for (const e of events) m.push(e)
   return m.finish()
 }

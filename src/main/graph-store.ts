@@ -10,6 +10,7 @@ import { presenceOf, type DiffRow, type MergedSlice, type MergedNode } from '@sh
 import { parseHexAddr, moduleRelative, resolveHits, baseKey, type ModuleBases, type OffsetRow } from '@shared/origins'
 import { parseFrameSymbol } from '@shared/frame-symbol'
 import type { LibRow } from '@shared/native-lib'
+import type { ModulePaths } from '@shared/module-origin'
 
 export type { TableRow }
 
@@ -178,6 +179,10 @@ export class GraphStore {
   // the quoted-hex `start` strings.
   private modmap = new Map<number, Map<string, bigint>>()
 
+  // runId -> (module basename -> full load path). Feeds module-origin's
+  // three-way classification; first write wins on a basename collision.
+  private libmap = new Map<number, Map<string, string>>()
+
   moduleBase(runId: number, pid: number, module: string): bigint | undefined {
     return this.modmap.get(runId)?.get(baseKey(pid, module))
   }
@@ -253,6 +258,7 @@ export class GraphStore {
        WHERE run_id = ${runId} AND type = 'lib' AND library IS NOT NULL AND start IS NOT NULL`,
     )
     const rmap = new Map<string, bigint>()
+    const lpaths = new Map<string, string>()
     for (const r of libRows) {
       const start = parseHexAddr(String(r.start))
       if (start === null) continue
@@ -260,8 +266,10 @@ export class GraphStore {
       const key = baseKey(num(r.pid)!, basename)
       const prev = rmap.get(key)
       if (prev === undefined || start < prev) rmap.set(key, start)
+      if (!lpaths.has(basename)) lpaths.set(basename, String(r.library))
     }
     this.modmap.set(runId, rmap)
+    this.libmap.set(runId, lpaths)
 
     // EPIC A: only drop malformed lines now - every other engine's records
     // (func/call/return/coverage/...) are retained, partitioned by `type` for
@@ -772,7 +780,7 @@ export class GraphStore {
     const effective = (rules ?? resolveRules(BUILTIN_RULES, EMPTY_SCOPE, EMPTY_SCOPE)).filter(r => r.enabled)
     if (effective.length === 0) return []
     const where = compileWhere(effective)
-    const matcher = new SequenceMatcher(effective)
+    const matcher = new SequenceMatcher(effective, undefined, { paths: this.modulePaths(rid) })
     let offset = 0
     for (;;) {
       let rows
@@ -806,6 +814,11 @@ export class GraphStore {
     return this.modmap.get(runId) ?? new Map<string, bigint>()
   }
 
+  // The run's module load-path table, as plain data for the pure classifier.
+  modulePaths(runId: number): ModulePaths {
+    return this.libmap.get(runId) ?? new Map<string, string>()
+  }
+
   // Preview a single (draft) rule against a run without persisting it. Bounded by
   // compileWhere like suggest; returns how many events fire and how many distinct
   // native targets result. Query failure yields zeros (mirrors suggest's guard).
@@ -821,7 +834,7 @@ export class GraphStore {
       console.error(`previewRule: rule query failed: ${(e as Error).message}`)
       return { events: 0, targets: 0 }
     }
-    const matcher = new SequenceMatcher([rule])
+    const matcher = new SequenceMatcher([rule], undefined, { paths: this.modulePaths(rid) })
     for (const r of rows) {
       const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
       matcher.push(ev as SyscallEvent)
@@ -924,6 +937,7 @@ export class GraphStore {
     this.instance = undefined
     this.runsMap.clear()
     this.modmap.clear()
+    this.libmap.clear()
     this.activeRunId = undefined
     this.nextRunId = 1
   }
