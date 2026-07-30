@@ -683,7 +683,7 @@ describe('GraphStore.previewRule', () => {
       id: 'preview-root', category: 'root', confidence: 0.8, rationale: 'root path',
       enabled: true, source: 'project',
       steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su$|magisk' }],
-      correlate: 'symbol+tid', maxGap: 50,
+      correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
     }
     const out = await store.previewRule(r.runId, rule)
     expect(out.events).toBe(2)  // both openat events match
@@ -697,7 +697,7 @@ describe('GraphStore.previewRule', () => {
       id: 'preview-none', category: 'root', confidence: 0.8, rationale: 'x',
       enabled: true, source: 'project',
       steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x10' }],
-      correlate: 'symbol+tid', maxGap: 50,
+      correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
     }
     expect(await store.previewRule(r.runId, rule)).toEqual({ events: 0, targets: 0 })
   })

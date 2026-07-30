@@ -9,7 +9,7 @@ const EMPTY: RuleScope = { rules: [], enabledOverrides: {} }
 const userRule = (over: Partial<Rule> = {}): Rule => ({
   id: 'u-1', category: 'custom', confidence: 0.5, rationale: 'user rule', enabled: true,
   steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo' }],
-  correlate: 'symbol+tid', maxGap: 50,
+  correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
   source: 'global', ...over,
 })
 
@@ -163,5 +163,55 @@ describe('rule schema v2', () => {
 
   it('every built-in is a one-step rule, except the frida-scan sequence', () => {
     for (const r of BUILTIN_RULES) expect(r.steps).toHaveLength(r.id === 'hook-frida-scan' ? 2 : 1)
+  })
+})
+
+describe('rule schema v3', () => {
+  it('defaults mode to ordered and minOccurrences to 1 when absent (v1/v2 rules)', () => {
+    const { rule, error } = validateRule({
+      id: 'legacy', category: 'root', confidence: 0.5, rationale: 'r',
+      match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' },
+    }, 'global')
+    expect(error).toBeNull()
+    expect(rule!.mode).toBe('ordered')
+    expect(rule!.minOccurrences).toBe(1)
+  })
+
+  it('accepts an explicit unordered mode and minOccurrences', () => {
+    const { rule } = validateRule({
+      id: 'u', category: 'hook', confidence: 0.9, rationale: 'r', mode: 'unordered', minOccurrences: 20,
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'a' }],
+    }, 'global')
+    expect(rule!.mode).toBe('unordered')
+    expect(rule!.minOccurrences).toBe(20)
+  })
+
+  it('rejects an unknown mode', () => {
+    const { rule, error } = validateRule({
+      id: 'bad', category: 'hook', confidence: 0.9, rationale: 'r', mode: 'sideways',
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'a' }],
+    }, 'global')
+    expect(rule).toBeNull()
+    expect(error).toBe('bad mode on bad')
+  })
+
+  it('rejects a non-positive or fractional minOccurrences', () => {
+    for (const bad of [0, -1, 2.5]) {
+      const { rule, error } = validateRule({
+        id: 'm', category: 'hook', confidence: 0.9, rationale: 'r', minOccurrences: bad,
+        steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'a' }],
+      }, 'global')
+      expect(rule).toBeNull()
+      expect(error).toBe('minOccurrences must be a positive integer on m')
+    }
+  })
+
+  it('every built-in spec passes validation', () => {
+    expect(BUILTIN_RULES.length).toBeGreaterThan(0)
+    for (const r of BUILTIN_RULES) {
+      expect(r.mode).toBeDefined()
+      expect(r.minOccurrences).toBeGreaterThanOrEqual(1)
+      expect(r.source).toBe('builtin')
+    }
   })
 })

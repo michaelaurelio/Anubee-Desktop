@@ -98,7 +98,8 @@ describe('compileWhere', () => {
   })
   it('escapes single quotes in a value', () => {
     const r: Rule = { id: 'q', category: 'custom', confidence: 0.5, rationale: '', enabled: true, source: 'global',
-      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'equals', value: "a'b" }], correlate: 'symbol+tid', maxGap: 50 }
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'equals', value: "a'b" }], correlate: 'symbol+tid', maxGap: 50,
+      mode: 'ordered', minOccurrences: 1 }
     expect(compileWhere([r])).toContain("'a''b'")
   })
   it('returns false for an empty rule list (matches nothing)', () => {

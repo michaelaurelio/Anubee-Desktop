@@ -7,7 +7,7 @@ import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 const R: Rule = {
   id: 'a', category: 'root', confidence: 0.8, rationale: 'r', enabled: true, source: 'global',
   steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' }],
-  correlate: 'symbol+tid', maxGap: 50,
+  correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
 }
 
 describe('rules-view helpers', () => {
@@ -46,7 +46,7 @@ describe('rules-view helpers', () => {
   it('summarises a sequence as its steps joined by an arrow', () => {
     expect(sequenceSummary({
       id: 'x', category: 'hook', confidence: 0.9, rationale: 'r', enabled: true, source: 'project',
-      correlate: 'module+tid', maxGap: 10,
+      correlate: 'module+tid', maxGap: 10, mode: 'ordered', minOccurrences: 1,
       steps: [
         { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'maps' },
         { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'frida' },
@@ -85,7 +85,7 @@ describe('rules-view helpers', () => {
 
 const twoStepRule: Rule = {
   id: 'seq2', category: 'hook', confidence: 0.9, rationale: 'r', enabled: true, source: 'project',
-  correlate: 'module+tid', maxGap: 20,
+  correlate: 'module+tid', maxGap: 20, mode: 'ordered', minOccurrences: 1,
   steps: [
     { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'maps' },
     { syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 2, value: '0x10' },
@@ -94,7 +94,7 @@ const twoStepRule: Rule = {
 
 const threeStepRule: Rule = {
   id: 'seq3', category: 'hook', confidence: 0.9, rationale: 'r', enabled: true, source: 'project',
-  correlate: 'module+tid', maxGap: 10,
+  correlate: 'module+tid', maxGap: 10, mode: 'ordered', minOccurrences: 1,
   steps: [
     { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'alpha' },
     { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'beta' },

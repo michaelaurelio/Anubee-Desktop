@@ -247,7 +247,7 @@ describe('heuristic suggestions', () => {
     const bt = [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!scan+0x100' }]
     const straddleRule: Rule = {
       id: 'test-straddle', category: 'hook', confidence: 0.9, rationale: 'straddle test',
-      enabled: true, source: 'project', correlate: 'symbol+tid', maxGap: 50,
+      enabled: true, source: 'project', correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
       steps: [
         { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' },
         { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'frida-agent-64\\.so$' },

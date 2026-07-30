@@ -15,7 +15,7 @@ function ev(id: number, syscall: string, path: string, over: Partial<SyscallEven
 
 const seq: Rule = {
   id: 'hook-frida-scan', category: 'hook', confidence: 0.95, rationale: 'maps scan then frida probe',
-  enabled: true, source: 'builtin', correlate: 'module+tid', maxGap: 5,
+  enabled: true, source: 'builtin', correlate: 'module+tid', maxGap: 5, mode: 'ordered', minOccurrences: 1,
   steps: [
     { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' },
     { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'frida' },
@@ -26,7 +26,7 @@ const seq: Rule = {
 // they count against a gap, but they never open a partial of their own.
 const benign: Rule = {
   id: 'benign-probe', category: 'custom', confidence: 0.1, rationale: 'benign lib open',
-  enabled: true, source: 'builtin', correlate: 'module+tid', maxGap: 5,
+  enabled: true, source: 'builtin', correlate: 'module+tid', maxGap: 5, mode: 'ordered', minOccurrences: 1,
   steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/data/benign' }],
 }
 
@@ -262,7 +262,7 @@ describe('SequenceMatcher', () => {
 describe('one-step rules', () => {
   const single: Rule = {
     id: 'maps', category: 'hook', confidence: 0.5, rationale: 'maps read',
-    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
+    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
     steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' }],
   }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadRules, saveRules } from '../src/main/rasp-rules-store'
@@ -7,7 +7,8 @@ import type { Rule } from '../src/shared/rasp-heuristics'
 
 const dir = () => mkdtempSync(join(tmpdir(), 'anubee-rules-'))
 const rule: Rule = { id: 'u-1', category: 'custom', confidence: 0.5, rationale: 'r', enabled: true, source: 'global',
-  steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo' }], correlate: 'symbol+tid', maxGap: 50 }
+  steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo' }], correlate: 'symbol+tid', maxGap: 50,
+  mode: 'ordered', minOccurrences: 1 }
 
 describe('rasp-rules-store', () => {
   it('returns an empty scope when the file is absent', () => {
@@ -50,15 +51,35 @@ describe('rasp-rules-store', () => {
     expect(back.rules[0].correlate).toBe('symbol+tid')
   })
 
-  it('writes schemaVersion 2', () => {
+  it('writes schemaVersion 3', () => {
     const d = dir()
     saveRules(d, { rules: [], enabledOverrides: {} })
-    expect(JSON.parse(readFileSync(join(d, 'rasp-rules.json'), 'utf8')).schemaVersion).toBe(2)
+    expect(JSON.parse(readFileSync(join(d, 'rasp-rules.json'), 'utf8')).schemaVersion).toBe(3)
   })
 
   it('rejects an unknown future schema version', () => {
     const d = dir()
     writeFileSync(join(d, 'rasp-rules.json'), JSON.stringify({ schemaVersion: 3, rules: [], enabledOverrides: {} }))
     expect(loadRules(d)).toEqual({ rules: [], enabledOverrides: {} })
+  })
+
+  it('writes schemaVersion 3 and still reads 1 and 2', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rasp-v3-'))
+    saveRules(dir, { rules: [], enabledOverrides: { 'root-paths': false } })
+    const written = JSON.parse(readFileSync(join(dir, 'rasp-rules.json'), 'utf8'))
+    expect(written.schemaVersion).toBe(3)
+
+    for (const v of [1, 2, 3]) {
+      writeFileSync(join(dir, 'rasp-rules.json'), JSON.stringify({
+        schemaVersion: v, rules: [], enabledOverrides: { x: true },
+      }))
+      expect(loadRules(dir).enabledOverrides).toEqual({ x: true })
+    }
+
+    writeFileSync(join(dir, 'rasp-rules.json'), JSON.stringify({
+      schemaVersion: 4, rules: [], enabledOverrides: { x: true },
+    }))
+    expect(loadRules(dir).enabledOverrides).toEqual({})
+    rmSync(dir, { recursive: true, force: true })
   })
 })

@@ -6,8 +6,8 @@ import { join } from 'node:path'
 import { coerceRules, type RuleScope } from '@shared/rasp-heuristics'
 
 const FILE = 'rasp-rules.json'
-const SCHEMA_VERSION = 2
-const READABLE = new Set([1, 2]) // v1 stored a single `match`; validateRule upgrades it
+const SCHEMA_VERSION = 3
+const READABLE = new Set([1, 2, 3]) // v1 stored a single `match`; v2 lacked mode/minOccurrences. validateRule upgrades both.
 
 function coerceOverrides(v: unknown): Record<string, boolean> {
   if (typeof v !== 'object' || v === null) return {}

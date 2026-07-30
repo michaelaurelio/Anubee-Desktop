@@ -15,7 +15,7 @@ const RULE: Rule = {
   id: 'proj-1', category: 'root', confidence: 0.8, rationale: 'test',
   enabled: true, source: 'project',
   steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'magisk' }],
-  correlate: 'symbol+tid', maxGap: 50,
+  correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
 }
 
 describe('sidecar fs', () => {

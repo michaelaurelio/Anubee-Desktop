@@ -33,7 +33,7 @@ export interface Dismissed {
 }
 
 export interface Sidecar {
-  schemaVersion: 1 | 2
+  schemaVersion: 1 | 2 | 3
   run: { file: string; ingestedAt: string }
   tags: Tag[]
   rules?: Rule[]
@@ -117,7 +117,7 @@ export function serializeSidecar(
   enabledOverrides: Record<string, boolean> = {},
   dismissed: Dismissed[] = [],
 ): string {
-  const sidecar: Sidecar = { schemaVersion: 2, run, tags, rules, enabledOverrides, dismissed }
+  const sidecar: Sidecar = { schemaVersion: 3, run, tags, rules, enabledOverrides, dismissed }
   return JSON.stringify(sidecar, null, 2)
 }
 

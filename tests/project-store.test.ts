@@ -72,7 +72,8 @@ import type { Rule as _Rule } from '../src/shared/rasp-heuristics'
 
 describe('sidecar rules', () => {
   const projRule: _Rule = { id: 'p-1', category: 'custom', confidence: 0.4, rationale: 'proj', enabled: true, source: 'project',
-    steps: [{ syscalls: ['openat'], field: 'string_args', op: 'equals', value: '/x' }], correlate: 'symbol+tid', maxGap: 50 }
+    steps: [{ syscalls: ['openat'], field: 'string_args', op: 'equals', value: '/x' }], correlate: 'symbol+tid', maxGap: 50,
+    mode: 'ordered', minOccurrences: 1 }
 
   it('round-trips rules and enabledOverrides through serialize/parse', () => {
     const text = _serializeSidecar({ file: 'run.jsonl', ingestedAt: 'now' }, [], [projRule], { 'root-paths': false })
@@ -107,13 +108,13 @@ describe('dismissed suggestions', () => {
 })
 
 describe('sidecar schemaVersion', () => {
-  it('reads a v1 sidecar and writes v2', () => {
+  it('reads a v1 sidecar and writes v3', () => {
     const v1 = JSON.stringify({
       schemaVersion: 1, run: { file: 'r.jsonl', ingestedAt: 'now' }, tags: [], rules: [], enabledOverrides: {},
     })
     expect(parseSidecar(v1).errors).toEqual([])
     const out = JSON.parse(serializeSidecar({ file: 'r.jsonl', ingestedAt: 'now' }, []))
-    expect(out.schemaVersion).toBe(2)
+    expect(out.schemaVersion).toBe(3)
   })
 })
 

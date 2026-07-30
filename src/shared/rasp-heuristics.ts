@@ -15,6 +15,8 @@ export type RuleSource = 'builtin' | 'global' | 'project'
 
 export type CorrelateKey = 'symbol' | 'symbol+tid' | 'module' | 'module+tid' | 'java'
 
+export type MatchMode = 'ordered' | 'unordered'
+
 export interface RuleStep {
   syscalls: string[]
   field: RuleField
@@ -39,12 +41,21 @@ export interface Rule {
   // prefilter admits) sharing this correlation key, allowed between consecutive
   // steps. See the SequenceMatcher comment.
   maxGap: number
+  // 'ordered': steps must match in sequence. 'unordered': all steps must match
+  // within the same window on the same correlation key, in any order.
+  mode: MatchMode
+  // A rule yields a suggestion only after this many COMPLETED matches for one
+  // target - N events for a one-step rule, N completed sequences otherwise.
+  minOccurrences: number
   source: RuleSource
 }
 
 export const DEFAULT_CORRELATE: CorrelateKey = 'symbol+tid'
 export const DEFAULT_MAX_GAP = 50
+export const DEFAULT_MODE: MatchMode = 'ordered'
+export const DEFAULT_MIN_OCCURRENCES = 1
 const CORRELATES: CorrelateKey[] = ['symbol', 'symbol+tid', 'module', 'module+tid', 'java']
+const MODES: MatchMode[] = ['ordered', 'unordered']
 
 export interface RuleScope {
   rules: Rule[]
@@ -60,58 +71,6 @@ const HEX = /^0x[0-9a-f]+$/i
 // JS validation and work in matchOne, but make compileWhere emit SQL that DuckDB
 // rejects at runtime - reject it at authoring time so the two compilers stay in lockstep.
 const RE2_INCOMPATIBLE = /\(\?<?[=!]|\\[1-9]/
-
-// Built-in rules expressed in the same schema as user rules. Corrected + extended
-// against a real 245,760-event RASP capture (see the session spec): the shipped
-// debugger rules under-fired; hook is genuinely detectable; emulator/integrity
-// have no syscall signal and ship no rule.
-export const BUILTIN_RULES: Rule[] = [
-  { id: 'dbg-ptrace-attach', category: 'debugger', confidence: 0.7,
-    rationale: 'ptrace(PTRACE_ATTACH) attach-probe - anti-debug self/other attach',
-    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
-    steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x10' }] },
-  { id: 'dbg-ptrace-traceme', category: 'debugger', confidence: 0.9,
-    rationale: 'ptrace(PTRACE_TRACEME) - classic anti-debug self-attach',
-    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
-    steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x0' }] },
-  { id: 'dbg-status-open', category: 'debugger', confidence: 0.6,
-    rationale: 'open of /proc/self/status - likely TracerPid debugger check',
-    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
-    steps: [{ syscalls: ['openat', 'newfstatat'], field: 'string_args', op: 'path_matches', value: '/proc/self/status$' }] },
-  { id: 'dbg-status-read', category: 'debugger', confidence: 0.6,
-    rationale: 'read of /proc/self/status - likely TracerPid debugger check',
-    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
-    steps: [{ syscalls: ['read'], field: 'fd_args', op: 'equals', value: '/proc/self/status' }] },
-  { id: 'hook-maps', category: 'hook', confidence: 0.4,
-    rationale: 'read of /proc/self/maps - hook/injection scan; weak on its own, see hook-frida-scan',
-    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
-    steps: [{ syscalls: ['openat', 'newfstatat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' }] },
-  { id: 'hook-frida-sock', category: 'hook', confidence: 0.9,
-    rationale: 'connect to a frida control socket - dynamic-instrumentation probe',
-    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
-    steps: [{ syscalls: ['connect'], field: 'sock_addr', op: 'path_matches', value: 'frida' }] },
-  { id: 'hook-frida-scan', category: 'hook', confidence: 0.95,
-    rationale: 'maps walk followed by a frida artefact probe - dynamic-instrumentation scan',
-    enabled: true, source: 'builtin', correlate: 'module+tid', maxGap: 200,
-    steps: [
-      { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' },
-      { syscalls: ['openat', 'newfstatat', 'faccessat', 'access', 'readlinkat'], field: 'string_args',
-        op: 'path_matches', value: 'frida|gum-js-loop|re\\.frida|linjector' },
-    ] },
-  { id: 'root-paths', category: 'root', confidence: 0.85,
-    rationale: 'access of a root-indicator path (su/magisk/busybox/xbin/sbin/adb)',
-    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
-    steps: [{ syscalls: ['openat', 'access', 'newfstatat', 'faccessat'], field: 'string_args', op: 'path_matches',
-      value: '(^|/)su$|magisk|busybox|/system/xbin|/sbin(/|$)|/data/adb' }] },
-  { id: 'root-selinux', category: 'root', confidence: 0.8,
-    rationale: 'read of /sys/fs/selinux/enforce - SELinux-posture / root tell',
-    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
-    steps: [{ syscalls: ['openat', 'newfstatat', 'faccessat'], field: 'string_args', op: 'path_matches', value: '/sys/fs/selinux/enforce$' }] },
-  { id: 'root-ksu-prctl', category: 'root', confidence: 0.9,
-    rationale: 'prctl(0xdeadbeef) - KernelSU magic prctl probe',
-    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
-    steps: [{ syscalls: ['prctl'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0xdeadbeef' }] },
-]
 
 function validateStep(v: unknown, id: string): { step: RuleStep | null; error: string | null } {
   if (typeof v !== 'object' || v === null) return { step: null, error: `bad step on ${id}` }
@@ -162,11 +121,18 @@ export function validateRule(v: unknown, source: RuleSource): { rule: Rule | nul
   const maxGap = o.maxGap === undefined ? DEFAULT_MAX_GAP : o.maxGap
   if (typeof maxGap !== 'number' || !Number.isInteger(maxGap) || maxGap < 1)
     return { rule: null, error: `maxGap must be a positive integer on ${o.id}` }
+  const mode = o.mode === undefined ? DEFAULT_MODE : o.mode
+  if (typeof mode !== 'string' || !MODES.includes(mode as MatchMode))
+    return { rule: null, error: `bad mode on ${o.id}` }
+  const minOccurrences = o.minOccurrences === undefined ? DEFAULT_MIN_OCCURRENCES : o.minOccurrences
+  if (typeof minOccurrences !== 'number' || !Number.isInteger(minOccurrences) || minOccurrences < 1)
+    return { rule: null, error: `minOccurrences must be a positive integer on ${o.id}` }
 
   const rule: Rule = {
     id: o.id, category: o.category as RaspCategory, confidence: o.confidence, rationale: o.rationale,
     enabled: typeof o.enabled === 'boolean' ? o.enabled : true,
-    steps, correlate: correlate as CorrelateKey, maxGap, source,
+    steps, correlate: correlate as CorrelateKey, maxGap,
+    mode: mode as MatchMode, minOccurrences, source,
   }
   return { rule, error: null }
 }
@@ -181,6 +147,54 @@ export function coerceRules(arr: unknown[], source: RuleSource): { rules: Rule[]
   })
   return { rules, errors }
 }
+
+// Built-in rules as raw specs, validated at module load. A malformed built-in
+// throws here rather than disappearing quietly, and defaults (enabled, correlate,
+// maxGap, mode, minOccurrences) are supplied by validateRule.
+export const BUILTIN_SPECS: unknown[] = [
+  { id: 'dbg-ptrace-attach', category: 'debugger', confidence: 0.7,
+    rationale: 'ptrace(PTRACE_ATTACH) attach-probe - anti-debug self/other attach',
+    steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x10' }] },
+  { id: 'dbg-ptrace-traceme', category: 'debugger', confidence: 0.9,
+    rationale: 'ptrace(PTRACE_TRACEME) - classic anti-debug self-attach',
+    steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x0' }] },
+  { id: 'dbg-status-open', category: 'debugger', confidence: 0.6,
+    rationale: 'open of /proc/self/status - likely TracerPid debugger check',
+    steps: [{ syscalls: ['openat', 'newfstatat'], field: 'string_args', op: 'path_matches', value: '/proc/self/status$' }] },
+  { id: 'dbg-status-read', category: 'debugger', confidence: 0.6,
+    rationale: 'read of /proc/self/status - likely TracerPid debugger check',
+    steps: [{ syscalls: ['read'], field: 'fd_args', op: 'equals', value: '/proc/self/status' }] },
+  { id: 'hook-maps', category: 'hook', confidence: 0.4,
+    rationale: 'read of /proc/self/maps - hook/injection scan; weak on its own, see hook-frida-scan',
+    steps: [{ syscalls: ['openat', 'newfstatat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' }] },
+  { id: 'hook-frida-sock', category: 'hook', confidence: 0.9,
+    rationale: 'connect to a frida control socket - dynamic-instrumentation probe',
+    steps: [{ syscalls: ['connect'], field: 'sock_addr', op: 'path_matches', value: 'frida' }] },
+  { id: 'hook-frida-scan', category: 'hook', confidence: 0.95,
+    rationale: 'maps walk followed by a frida artefact probe - dynamic-instrumentation scan',
+    correlate: 'module+tid', maxGap: 200,
+    steps: [
+      { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' },
+      { syscalls: ['openat', 'newfstatat', 'faccessat', 'access', 'readlinkat'], field: 'string_args',
+        op: 'path_matches', value: 'frida|gum-js-loop|re\\.frida|linjector' },
+    ] },
+  { id: 'root-paths', category: 'root', confidence: 0.85,
+    rationale: 'access of a root-indicator path (su/magisk/busybox/xbin/sbin/adb)',
+    steps: [{ syscalls: ['openat', 'access', 'newfstatat', 'faccessat'], field: 'string_args', op: 'path_matches',
+      value: '(^|/)su$|magisk|busybox|/system/xbin|/sbin(/|$)|/data/adb' }] },
+  { id: 'root-selinux', category: 'root', confidence: 0.8,
+    rationale: 'read of /sys/fs/selinux/enforce - SELinux-posture / root tell',
+    steps: [{ syscalls: ['openat', 'newfstatat', 'faccessat'], field: 'string_args', op: 'path_matches', value: '/sys/fs/selinux/enforce$' }] },
+  { id: 'root-ksu-prctl', category: 'root', confidence: 0.9,
+    rationale: 'prctl(0xdeadbeef) - KernelSU magic prctl probe',
+    steps: [{ syscalls: ['prctl'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0xdeadbeef' }] },
+]
+
+export const BUILTIN_RULES: Rule[] = (() => {
+  const { rules, errors } = coerceRules(BUILTIN_SPECS, 'builtin')
+  if (errors.length > 0) throw new Error(`malformed built-in rule: ${errors.join('; ')}`)
+  return rules
+})()
 
 // Merge across scopes. Later scope wins on id collision (project > global >
 // builtin) for both the rule body and the enabled flag; a scope's
