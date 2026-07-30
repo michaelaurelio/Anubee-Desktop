@@ -266,6 +266,84 @@ describe('heuristic suggestions', () => {
   })
 })
 
+describe('suggest honours minOccurrences', () => {
+  it('suppresses a target below the rule threshold and keeps one at it', async () => {
+    const bt = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!__openat+0x8' },
+                { frame: 1, addr: '0x2100', symbol: 'libsentinel.so!scan+0x10' }]
+    const events = [1, 2, 3].map(id => ({ ...evA, id, syscall: 'openat', string_args: { '1': '/proc/self/task/9/comm' }, backtrace: bt }))
+    const r = { id: 'thr', category: 'hook', confidence: 0.7, rationale: 'r', enabled: true, source: 'global',
+      minOccurrences: 3, correlate: 'symbol+tid', maxGap: 50, mode: 'ordered',
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/comm$' }] } as any
+
+    const store = new GraphStore()
+    await store.ingest(fixture(events))
+    expect(await store.suggest(undefined, [r])).toHaveLength(1)
+    expect(await store.suggest(undefined, [{ ...r, minOccurrences: 4 }])).toHaveLength(0)
+    await store.close()
+  })
+
+  it('drops a below-floor target whole, contributing to neither another row\'s occurrences nor its offsets', async () => {
+    const btA = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!__openat+0x8' },
+                 { frame: 1, addr: '0x2100', symbol: 'libalpha.so!scanA+0x10' }]
+    const btB = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!__openat+0x8' },
+                 { frame: 1, addr: '0x2100', symbol: 'libbeta.so!scanB+0x10' }]
+    const r: Rule = { id: 'thr', category: 'hook', confidence: 0.7, rationale: 'r', enabled: true, source: 'global',
+      minOccurrences: 3, correlate: 'symbol+tid', maxGap: 50, mode: 'ordered',
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/comm$' }] }
+
+    const events = [
+      // target a: 2 completed hits, below the floor of 3 - must vanish entirely.
+      { ...evA, id: 1, syscall: 'openat', string_args: { '1': '/proc/self/task/9/comm' }, backtrace: btA },
+      { ...evA, id: 2, syscall: 'openat', string_args: { '1': '/proc/self/task/9/comm' }, backtrace: btA },
+      // target b: 3 completed hits, exactly at the floor - must survive intact.
+      { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/proc/self/task/9/comm' }, backtrace: btB },
+      { ...evA, id: 4, syscall: 'openat', string_args: { '1': '/proc/self/task/9/comm' }, backtrace: btB },
+      { ...evA, id: 5, syscall: 'openat', string_args: { '1': '/proc/self/task/9/comm' }, backtrace: btB },
+    ]
+
+    const store = new GraphStore()
+    await store.ingest(fixture(events))
+    const s = await store.suggest(undefined, [r])
+    expect(s).toHaveLength(1)
+    expect(s[0].target).toBe('nat:libbeta.so!scanB')
+    expect(s[0].occurrences).toBe(3)
+    expect(s[0].offsets.reduce((n, o) => n + o.occurrences, 0)).toBe(3)
+    expect(s.some(x => x.target === 'nat:libalpha.so!scanA')).toBe(false)
+    await store.close()
+  })
+
+  it('counts completed sequences, not matched steps, for a multi-step rule', async () => {
+    const bt = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!__openat+0x8' },
+                { frame: 1, addr: '0x2100', symbol: 'libsentinel.so!scan+0x10' }]
+    // Ordered 2-step rule, minOccurrences: 2. Three step-0 events each open their
+    // own partial on the shared correlation key (an in-flight partial that is
+    // waiting on step 1 cannot itself be advanced by another step-0 event); one
+    // step-1 event can then advance only the oldest, so exactly one sequence
+    // completes even though four events matched some step of the rule. An
+    // implementation that counted matched steps instead of completed sequences
+    // would see 4 >= 2 and wrongly keep the hit; counting sequences correctly
+    // sees 1 < 2 and drops it, so suggest must return nothing.
+    const r: Rule = { id: 'seq', category: 'hook', confidence: 0.7, rationale: 'r', enabled: true, source: 'global',
+      minOccurrences: 2, correlate: 'symbol+tid', maxGap: 50, mode: 'ordered',
+      steps: [
+        { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/a$' },
+        { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/b$' },
+      ] }
+
+    const events = [
+      { ...evA, id: 1, syscall: 'openat', string_args: { '1': '/proc/self/a' }, backtrace: bt },
+      { ...evA, id: 2, syscall: 'openat', string_args: { '1': '/proc/self/a' }, backtrace: bt },
+      { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/proc/self/a' }, backtrace: bt },
+      { ...evA, id: 4, syscall: 'openat', string_args: { '1': '/proc/self/b' }, backtrace: bt },
+    ]
+
+    const store = new GraphStore()
+    await store.ingest(fixture(events))
+    expect(await store.suggest(undefined, [r])).toHaveLength(0)
+    await store.close()
+  })
+})
+
 describe('compiler lockstep (real DuckDB admits exactly what matchSequences scores)', () => {
   // Synthetic events modeled on the real record shapes, one per built-in signal.
   const events = [

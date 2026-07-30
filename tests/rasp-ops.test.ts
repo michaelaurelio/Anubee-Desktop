@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { matchSequences, compileWhere, validateRule, type Rule } from '../src/shared/rasp-heuristics'
+import { matchSequences, compileWhere, validateRule, applyMinOccurrences, type Rule } from '../src/shared/rasp-heuristics'
 import type { SyscallEvent } from '../src/shared/events'
 
 const APP = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!prctl+0x8' },
@@ -165,5 +165,32 @@ describe("op: 'any'", () => {
     expect(validateRule({ id: 'f', category: 'custom', confidence: 0.5, rationale: 'r',
       steps: [{ syscalls: ['process_vm_readv'], op: 'any', field: 'args', value: 'x' }] }, 'global').error)
       .toBe("op 'any' takes no field or value on f")
+  })
+})
+
+describe('applyMinOccurrences', () => {
+  const r = rule({ id: 'noisy', category: 'hook', minOccurrences: 3,
+    steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'x' }] })
+  const hit = (target: string) => ({
+    ruleId: 'noisy', target, frame: null, pid: 1,
+    category: 'hook' as const, confidence: 0.5, rationale: 'r',
+  })
+
+  it('drops a target below the threshold and keeps one at it', () => {
+    const hits = [hit('a'), hit('a'), hit('b'), hit('b'), hit('b')]
+    expect(applyMinOccurrences(hits, [r]).map(h => h.target)).toEqual(['b', 'b', 'b'])
+  })
+
+  it('counts per (ruleId, target), not per target', () => {
+    const other = rule({ id: 'quiet', category: 'hook', minOccurrences: 1,
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'y' }] })
+    const hits = [hit('a'), { ...hit('a'), ruleId: 'quiet' }]
+    expect(applyMinOccurrences(hits, [r, other])).toEqual([{ ...hit('a'), ruleId: 'quiet' }])
+  })
+
+  it('is a no-op when every rule has the default threshold of 1', () => {
+    const d = rule({ id: 'plain', steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'x' }] })
+    const hits = [{ ...hit('a'), ruleId: 'plain' }]
+    expect(applyMinOccurrences(hits, [d])).toEqual(hits)
   })
 })

@@ -477,6 +477,23 @@ function matchOne(m: RuleStep, e: SyscallEvent): boolean {
   return vals.some(v => re.test(v))
 }
 
+// Drop every hit whose (rule, target) pair did not reach the rule's noise floor.
+// Keyed on the pair, not on the target alone: the question is "did THIS call site
+// do it repeatedly", not "did the run contain N in total". Hits are dropped whole,
+// so they reach neither `occurrences` nor a row's per-offset children.
+export function applyMinOccurrences(hits: RawHit[], rules: Rule[]): RawHit[] {
+  const floor = new Map<string, number>()
+  for (const r of rules) floor.set(r.id, r.minOccurrences)
+  if ([...floor.values()].every(n => n <= 1)) return hits
+
+  const seen = new Map<string, number>()
+  for (const h of hits) {
+    const k = partialKey(h.ruleId, h.target)
+    seen.set(k, (seen.get(k) ?? 0) + 1)
+  }
+  return hits.filter(h => (seen.get(partialKey(h.ruleId, h.target)) ?? 0) >= (floor.get(h.ruleId) ?? 1))
+}
+
 // Fold resolved hits into one row per (target, category). Identity includes the
 // category so a library that performs several RASP checks yields one row each,
 // instead of collapsing to the highest-confidence one and losing the others.

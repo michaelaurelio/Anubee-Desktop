@@ -5,7 +5,7 @@ import { filterToSql, type Filter } from '@shared/filter'
 import { capSlice, labelForId, mergeGraphs, setsFromChain, type GraphNode, type GraphEdge, type GraphSlice, type HighlightSets } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
-import { compileWhere, SequenceMatcher, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
+import { compileWhere, SequenceMatcher, aggregate, applyMinOccurrences, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
 import { presenceOf, type DiffRow, type MergedSlice, type MergedNode } from '@shared/diff'
 import { parseHexAddr, moduleRelative, resolveHits, baseKey, type ModuleBases, type OffsetRow } from '@shared/origins'
 import { parseFrameSymbol } from '@shared/frame-symbol'
@@ -770,6 +770,11 @@ export class GraphStore {
   // keeps even a pathologically broad rule library off the JS heap in one lump.
   private get suggestPage(): number { return this.opts.suggestPage ?? 20000 }
 
+  // Warn once when one run's candidate set gets large enough that an over-broad
+  // rule (typically an op:'any' step) is the likely cause. Advisory only: the
+  // scan still completes, it is just no longer silent.
+  private static readonly SUGGEST_ROW_BUDGET = 250_000
+
   // Score the run against a resolved rule set. Main resolves built-in + global +
   // project rules and passes them in; when omitted we default to the enabled
   // built-ins so single-arg callers (tests) keep working. compileWhere bounds the
@@ -782,6 +787,7 @@ export class GraphStore {
     const where = compileWhere(effective)
     const matcher = new SequenceMatcher(effective, undefined, { paths: this.modulePaths(rid) })
     let offset = 0
+    let admitted = 0
     for (;;) {
       let rows
       try {
@@ -799,14 +805,21 @@ export class GraphStore {
         const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
         matcher.push(ev as SyscallEvent)
       }
+      admitted += rows.length
       if (rows.length < this.suggestPage) break
       offset += rows.length
+    }
+    if (admitted > GraphStore.SUGGEST_ROW_BUDGET) {
+      console.warn(
+        `suggest: ${admitted} candidate rows admitted (budget ${GraphStore.SUGGEST_ROW_BUDGET}) - ` +
+        `a rule is likely over-broad; check any op:'any' steps`,
+      )
     }
     const { hits, dropped } = matcher.finish()
     if (dropped > 0) {
       console.warn(`suggest: ${dropped} in-flight sequence matches dropped at the cap; suggestions may be incomplete`)
     }
-    return aggregate(resolveHits(hits, this.bases(rid)))
+    return aggregate(resolveHits(applyMinOccurrences(hits, effective), this.bases(rid)))
   }
 
   // The run's load-base table, as plain data for the pure resolver.
