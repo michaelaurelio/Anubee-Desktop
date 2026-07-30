@@ -32,4 +32,12 @@ describe('raspNodeStates', () => {
     const m = raspNodeStates([s('hook', 0.4), s('root', 0.85)], [])
     expect(m.get('n')).toEqual({ category: 'root', state: 'suggested' })
   })
+  it('never seeds the graph-colouring map with a synthetic target', () => {
+    const m = raspNodeStates([
+      { target: 'rasp:unattributed:root', category: 'root', confidence: 0.9, rationale: 'r', occurrences: 3, offsets: [] },
+      { target: 'nat:libsentinel.so!chk', category: 'hook', confidence: 0.8, rationale: 'r', occurrences: 1, offsets: [] },
+    ], [])
+    expect(m.has('rasp:unattributed:root')).toBe(false)
+    expect(m.get('nat:libsentinel.so!chk')).toEqual({ category: 'hook', state: 'suggested' })
+  })
 })

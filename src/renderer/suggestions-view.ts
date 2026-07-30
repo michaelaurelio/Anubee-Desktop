@@ -13,6 +13,16 @@ export function suggestionToTag(s: Suggestion, now: string, offset?: string): Ta
   return t
 }
 
+// A rasp:unattributed:<category> target is a real, taggable finding with no graph
+// node - it exists because Anubee truncates java_stack, so the app's own caller is
+// not recoverable. Print it as prose; the raw id means nothing to an analyst.
+const UNATTRIBUTED = /^rasp:unattributed:(.+)$/
+
+export function targetLabel(target: string): string {
+  const m = UNATTRIBUTED.exec(target)
+  return m ? `unattributed ${m[1]} checks (caller truncated)` : target
+}
+
 // Render the suggestions list into the popup. Each row: category chip, target,
 // confidence + rationale, and Confirm / Reject buttons. Confirm persists a tag,
 // Reject records a dismissal; either removes the row and updates the count.
@@ -50,7 +60,7 @@ export function renderSuggestions(
     cat.textContent = s.category.toUpperCase()
     const tgt = document.createElement('span')
     tgt.className = 'sug-target'
-    tgt.textContent = s.target
+    tgt.textContent = targetLabel(s.target)
     const conf = document.createElement('span')
     conf.className = 'sug-conf'
     conf.textContent = `${(s.confidence * 100).toFixed(0)}% · ${s.occurrences}x`

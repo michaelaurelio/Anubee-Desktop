@@ -11,6 +11,9 @@ export function raspNodeStates(suggestions: Suggestion[], tags: Tag[]): Map<stri
   const m = new Map<string, NodeRasp>()
   const best = new Map<string, number>()
   for (const s of suggestions) {
+    // A synthetic target has no graph node; seeding it would be dead weight in a
+    // map the graph reads on every repaint.
+    if (s.target.startsWith('rasp:')) continue
     if ((best.get(s.target) ?? -1) >= s.confidence) continue
     best.set(s.target, s.confidence)
     m.set(s.target, { category: s.category, state: 'suggested' })

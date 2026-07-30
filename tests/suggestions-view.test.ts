@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
-import { suggestionToTag, renderSuggestions } from '../src/renderer/suggestions-view'
+import { suggestionToTag, renderSuggestions, targetLabel } from '../src/renderer/suggestions-view'
 import type { Tag } from '@shared/project-store'
 
 describe('suggestions-view', () => {
@@ -44,5 +44,17 @@ describe('suggestions-view', () => {
     }], t => tags.push(t), () => {})
     ;(host.querySelector('.sug-row > .sug-btns .sug-confirm') as HTMLButtonElement).click()
     expect(tags[0].offset).toBeUndefined()
+  })
+})
+
+describe('targetLabel', () => {
+  it('renders a synthetic target as prose', () => {
+    expect(targetLabel('rasp:unattributed:root')).toBe('unattributed root checks (caller truncated)')
+    expect(targetLabel('rasp:unattributed:hook')).toBe('unattributed hook checks (caller truncated)')
+  })
+
+  it('leaves a real node id untouched', () => {
+    expect(targetLabel('nat:libsentinel.so!check_root')).toBe('nat:libsentinel.so!check_root')
+    expect(targetLabel('java:dev.anubee.detector.RootCheck.run')).toBe('java:dev.anubee.detector.RootCheck.run')
   })
 })
