@@ -424,6 +424,48 @@ describe('decoded_args field integration', () => {
   })
 })
 
+describe('arg_hex_in field integration', () => {
+  it('DuckDB WHERE clause for arg_hex_in agrees with JS matcher, including the decimal spelling', async () => {
+    const store = new GraphStore()
+    // The tracer renders an arg either hex or decimal; a value the list carries
+    // as '0x10' must also match the decimal spelling '16'.
+    const events = [
+      { ...evA, id: 1, syscall: 'ptrace', args: ['0x7'], string_args: {},
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // hex-spelled match
+      { ...evA, id: 2, syscall: 'ptrace', args: ['16'], string_args: {},
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // decimal-spelled match (0x10)
+      { ...evA, id: 3, syscall: 'ptrace', args: ['0x0'], string_args: {},
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // non-match
+    ]
+    const { runId } = await store.ingest(fixture(events))
+
+    const { rule } = validateRule({
+      id: 'test-arg-hex-in', category: 'debugger', confidence: 0.8, rationale: 'test',
+      source: 'project', enabled: true,
+      steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_in', argIndex: 0, value: '0x10 0x7 0x11' }],
+    }, 'project')
+    expect(rule).not.toBeNull()
+
+    // Test DuckDB WHERE clause against real database
+    const where = compileWhere([rule!])
+    const admitted = new Set(
+      (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
+    )
+
+    // Verify DuckDB admits exactly the hex-spelled and decimal-spelled matches: ids 1 and 2
+    expect(admitted).toEqual(new Set([1, 2]))
+
+    // Verify agreement: for each event, DuckDB and JS must agree - this is the
+    // property the string-only compiler assertions cannot reach.
+    for (const e of events) {
+      const jsMatches = matchSequences([rule!], [e as any]).hits.length > 0
+      expect(admitted.has(e.id), `event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+    }
+
+    await store.close()
+  })
+})
+
 describe('run diffing', () => {
   it('diffTable surfaces per-node presence and delta across two runs', async () => {
     const store = new GraphStore()
