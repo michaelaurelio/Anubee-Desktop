@@ -3,8 +3,10 @@ import { validateRule, type RuleField, type RuleOp } from '@shared/rasp-heuristi
 import type { RaspCategory } from '@shared/project-store'
 
 const CATEGORIES: RaspCategory[] = ['root', 'debugger', 'emulator', 'integrity', 'hook', 'custom']
-const FIELDS: RuleField[] = ['string_args', 'fd_args', 'sock_addr', 'args']
-const OPS: RuleOp[] = ['path_matches', 'equals', 'arg_hex_eq']
+const FIELDS: RuleField[] = ['string_args', 'fd_args', 'sock_addr', 'args', 'decoded_args']
+const OPS: RuleOp[] = ['path_matches', 'equals', 'arg_hex_eq', 'arg_hex_in', 'any']
+const MODES = ['ordered', 'unordered']
+const RETVAL_OPS = ['', 'eq', 'ne', 'lt', 'ge']
 const CORRELATES = ['symbol', 'symbol+tid', 'module', 'module+tid', 'java']
 
 export interface StepFormValues {
@@ -13,6 +15,8 @@ export interface StepFormValues {
   op: string
   argIndex?: number
   value: string
+  retvalOp?: string      // '' means no condition
+  retvalValue?: number
 }
 
 export interface RuleFormValues {
@@ -23,34 +27,43 @@ export interface RuleFormValues {
   enabled: boolean
   correlate: string
   maxGap: number
+  mode: string
+  minOccurrences: number
   steps: StepFormValues[]
 }
 
-// The raw rule object to hand to validateRule. argIndex only for arg_hex_eq.
+// The raw rule object to hand to validateRule. argIndex only for the hex ops;
+// field/value omitted for op:'any'; retval only when an operator is chosen.
 export function draftFromForm(v: RuleFormValues): Record<string, unknown> {
   const steps = v.steps.map(s => {
-    const step: Record<string, unknown> = { syscalls: s.syscalls, field: s.field, op: s.op, value: s.value }
-    if (s.op === 'arg_hex_eq') step.argIndex = s.argIndex ?? 0
+    const step: Record<string, unknown> = s.op === 'any'
+      ? { syscalls: s.syscalls, op: s.op }
+      : { syscalls: s.syscalls, field: s.field, op: s.op, value: s.value }
+    if (s.op === 'arg_hex_eq' || s.op === 'arg_hex_in') step.argIndex = s.argIndex ?? 0
+    if (s.retvalOp) step.retval = { op: s.retvalOp, value: s.retvalValue ?? 0 }
     return step
   })
   return {
     id: v.id, category: v.category, confidence: v.confidence,
     rationale: v.rationale, enabled: v.enabled,
-    correlate: v.correlate, maxGap: v.maxGap, steps,
+    correlate: v.correlate, maxGap: v.maxGap,
+    mode: v.mode, minOccurrences: v.minOccurrences, steps,
   }
 }
 
-// Compact predicate for a list row: "args[0] arg_hex_eq 0x10" or
-// "string_args path_matches /su/" or "fd_args equals /proc/self/status".
+// Compact predicate for a list row: "any process_vm_readv",
+// "args[0] arg_hex_in 0x7 0x10", "string_args path_matches /su/ (retval = 0)".
 export function predicateSummary(m: RuleMatch): string {
-  if (m.op === 'arg_hex_eq') return `args[${m.argIndex ?? 0}] arg_hex_eq ${m.value}`
+  const rv = m.retval ? ` (retval ${m.retval.op} ${m.retval.value})` : ''
+  if (m.op === 'any') return `any ${m.syscalls.join(',')}${rv}`
+  if (m.op === 'arg_hex_eq' || m.op === 'arg_hex_in') return `args[${m.argIndex ?? 0}] ${m.op} ${m.value}${rv}`
   const val = m.op === 'path_matches' ? `/${m.value}/` : m.value
-  return `${m.field} ${m.op} ${val}`
+  return `${m.field} ${m.op} ${val}${rv}`
 }
 
-// One line for a list row: each step's predicate, in order.
+// One line for a list row. Ordered steps read as a sequence, unordered as a set.
 export function sequenceSummary(r: Rule): string {
-  return r.steps.map(predicateSummary).join(' → ')
+  return r.steps.map(predicateSummary).join(r.mode === 'unordered' ? ' + ' : ' → ')
 }
 
 export function upsertRule(scope: RuleScope, rule: Rule): RuleScope {
@@ -192,12 +205,19 @@ export async function renderRules(
     const correlateSel = select(CORRELATES, existing?.correlate ?? 'symbol+tid')
     const gapIn = document.createElement('input')
     gapIn.type = 'number'; gapIn.min = '1'; gapIn.value = String(existing?.maxGap ?? 50)
+    const modeSel = select(MODES, existing?.mode ?? 'ordered')
+    const minOccIn = document.createElement('input')
+    minOccIn.type = 'number'; minOccIn.min = '1'; minOccIn.value = String(existing?.minOccurrences ?? 1)
     const scopeSel = select(['project', 'global'], existing?.source === 'global' ? 'global' : 'project')
     const preview = document.createElement('div')
 
     const stepsHost = document.createElement('div')
     stepsHost.className = 'rf-steps'
-    interface StepControls { sysIn: HTMLInputElement; fieldSel: HTMLSelectElement; opSel: HTMLSelectElement; argIn: HTMLInputElement; valIn: HTMLInputElement }
+    interface StepControls {
+      sysIn: HTMLInputElement; fieldSel: HTMLSelectElement; opSel: HTMLSelectElement
+      argIn: HTMLInputElement; valIn: HTMLInputElement
+      rvOpSel: HTMLSelectElement; rvValIn: HTMLInputElement
+    }
     const stepControls: StepControls[] = []
 
     function addStepBlock(init?: RuleStep): void {
@@ -210,7 +230,10 @@ export async function renderRules(
       const opSel = select(OPS, init?.op ?? 'path_matches')
       const argIn = document.createElement('input'); argIn.type = 'number'; argIn.min = '0'; argIn.value = String(init?.argIndex ?? 0)
       const valIn = document.createElement('input'); valIn.value = init?.value ?? ''
-      const ctl: StepControls = { sysIn, fieldSel, opSel, argIn, valIn }
+      const rvOpSel = select(RETVAL_OPS, init?.retval?.op ?? '')
+      const rvValIn = document.createElement('input')
+      rvValIn.type = 'number'; rvValIn.value = String(init?.retval?.value ?? 0)
+      const ctl: StepControls = { sysIn, fieldSel, opSel, argIn, valIn, rvOpSel, rvValIn }
 
       const del = document.createElement('button')
       del.className = 'btn rf-step-del'
@@ -225,16 +248,24 @@ export async function renderRules(
       }
       heading.append(document.createElement('span'), del)
       block.append(heading)
-      for (const [label, el] of [['syscalls', sysIn], ['field', fieldSel], ['op', opSel], ['argIndex', argIn], ['value', valIn]] as const) {
+      for (const [label, el] of [['syscalls', sysIn], ['field', fieldSel], ['op', opSel], ['argIndex', argIn],
+                                 ['value', valIn], ['retval op', rvOpSel], ['retval value', rvValIn]] as const) {
         const wrapRow = document.createElement('label')
         wrapRow.className = 'rf-row'
         const lab = document.createElement('span'); lab.className = 'rf-label'; lab.textContent = label
         wrapRow.append(lab, el)
         block.append(wrapRow)
-        if (label === 'argIndex') {
-          const sync = () => { wrapRow.style.display = opSel.value === 'arg_hex_eq' ? '' : 'none' }
+        if (label === 'argIndex' || label === 'field' || label === 'value' || label === 'retval value') {
+          const sync = (): void => {
+            const op = opSel.value
+            const show = label === 'argIndex' ? (op === 'arg_hex_eq' || op === 'arg_hex_in')
+              : label === 'retval value' ? rvOpSel.value !== ''
+              : op !== 'any'
+            wrapRow.style.display = show ? '' : 'none'
+          }
           sync()
           opSel.addEventListener('change', () => { sync(); refreshPreview() })
+          rvOpSel.addEventListener('change', () => { sync(); refreshPreview() })
         }
         el.addEventListener('input', refreshPreview)
         el.addEventListener('change', refreshPreview)
@@ -246,8 +277,9 @@ export async function renderRules(
     }
 
     function renumber(): void {
+      const sep = modeSel.value === 'unordered' ? '+' : '→'
       stepsHost.querySelectorAll('.rf-step-head > span:first-child').forEach((el, i) => {
-        el.textContent = `step ${i + 1}`
+        el.textContent = i === 0 ? 'step 1' : `${sep} step ${i + 1}`
       })
     }
 
@@ -266,7 +298,7 @@ export async function renderRules(
     for (const s of existing?.steps ?? [undefined]) addStepBlock(s)
 
     mk('id', idIn); mk('category', catSel); mk('confidence', confIn); mk('rationale', ratIn)
-    mk('correlate', correlateSel); mk('maxGap', gapIn)
+    mk('correlate', correlateSel); mk('maxGap', gapIn); mk('mode', modeSel); mk('minOccurrences', minOccIn)
     wrap.append(stepsHost, addStep)
     mk('scope', scopeSel)
     preview.className = 'rf-preview'; wrap.appendChild(preview)
@@ -276,10 +308,12 @@ export async function renderRules(
         id: idIn.value.trim(), category: catSel.value, confidence: Number(confIn.value),
         rationale: ratIn.value, enabled: existing?.enabled ?? true,
         correlate: correlateSel.value, maxGap: Number(gapIn.value),
+        mode: modeSel.value, minOccurrences: Number(minOccIn.value),
         steps: stepControls.map(c => ({
           syscalls: c.sysIn.value.split(',').map(s => s.trim()).filter(Boolean),
           field: c.fieldSel.value, op: c.opSel.value,
           argIndex: Number(c.argIn.value), value: c.valIn.value,
+          retvalOp: c.rvOpSel.value, retvalValue: Number(c.rvValIn.value),
         })),
       }
     }
@@ -297,10 +331,11 @@ export async function renderRules(
         })
       }, 250)
     }
-    for (const el of [idIn, catSel, confIn, ratIn, correlateSel, gapIn, scopeSel]) {
+    for (const el of [idIn, catSel, confIn, ratIn, correlateSel, gapIn, modeSel, minOccIn, scopeSel]) {
       el.addEventListener('input', refreshPreview)
       el.addEventListener('change', refreshPreview)
     }
+    modeSel.addEventListener('change', () => { renumber(); refreshPreview() })
     refreshPreview()
 
     const save = document.createElement('button'); save.textContent = 'Save'

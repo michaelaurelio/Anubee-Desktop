@@ -400,12 +400,13 @@ function clauseOf(m: RuleStep): string {
   const inSys = `syscall IN (${m.syscalls.map(s => `'${sqlLit(s)}'`).join(', ')})`
   const rv = m.retval ? ` AND retval ${RETVAL_SQL[m.retval.op]} ${m.retval.value}` : ''
   if (m.op === 'any') return `(${inSys}${rv})`
-  const v = sqlLit(m.value as string)
-  const f = m.field as RuleField
+  if (!hasPredicate(m)) return `(${inSys}${rv})`
+  const v = sqlLit(m.value)
+  const f = m.field
   let pred: string
   if (m.op === 'arg_hex_eq' || m.op === 'arg_hex_in') {
     const idx = (m.argIndex ?? 0) + 1 // DuckDB list is 1-indexed
-    const items = m.op === 'arg_hex_eq' ? [m.value as string] : hexList(m.value as string)
+    const items = m.op === 'arg_hex_eq' ? [m.value] : hexList(m.value)
     // Emit both spellings: the tracer renders an arg as hex or decimal.
     const lits = items.flatMap(x => [`'${sqlLit(x)}'`, `'${sqlLit(String(argNum(x)))}'`])
     pred = `args[${idx}] IN (${lits.join(', ')})`
@@ -454,6 +455,14 @@ function retvalOk(c: RetvalCond | undefined, retval: number | null): boolean {
   }
 }
 
+// Every op but 'any' carries a field/value predicate; validateStep enforces
+// that invariant at authoring time. A local narrowing helper because RuleStep
+// is a flat interface - TypeScript cannot otherwise correlate `op` with the
+// optional `field`/`value` it implies.
+function hasPredicate(m: RuleStep): m is RuleStep & { field: RuleField; value: string } {
+  return m.op !== 'any'
+}
+
 // A step matches only within the syscalls it is scoped to - the JS twin of
 // clauseOf's `syscall IN (...) AND pred`. Gated here rather than at each call
 // site so every consumer of matchOne (SequenceMatcher) inherits it.
@@ -461,19 +470,20 @@ function matchOne(m: RuleStep, e: SyscallEvent): boolean {
   if (!m.syscalls.includes(e.syscall)) return false
   if (!retvalOk(m.retval, e.retval)) return false
   if (m.op === 'any') return true
+  if (!hasPredicate(m)) return false
   if (m.op === 'arg_hex_eq') {
     const a = e.args[m.argIndex ?? 0]
-    return a !== undefined && argNum(a) === argNum(m.value as string)
+    return a !== undefined && argNum(a) === argNum(m.value)
   }
   if (m.op === 'arg_hex_in') {
     const a = e.args[m.argIndex ?? 0]
     if (a === undefined) return false
     const got = argNum(a)
-    return hexList(m.value as string).some(x => argNum(x) === got)
+    return hexList(m.value).some(x => argNum(x) === got)
   }
-  const vals = valuesOf(m.field as RuleField, e)
+  const vals = valuesOf(m.field, e)
   if (m.op === 'equals') return vals.some(v => v === m.value)
-  const re = new RegExp(m.value as string, 'i')
+  const re = new RegExp(m.value, 'i')
   return vals.some(v => re.test(v))
 }
 
