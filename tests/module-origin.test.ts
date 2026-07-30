@@ -19,6 +19,10 @@ describe('classifyModule', () => {
 
   it('calls an APK-embedded library app-native without needing a lib record', () => {
     expect(classifyModule('base.apk -> libsentinel.so', new Map())).toBe('app-native')
+    // Discriminating case: the composite string ends in a managed suffix, so if the
+    // " -> " check ran after the map lookup, the fallback would wrongly call this
+    // 'managed' instead of 'app-native'.
+    expect(classifyModule('base.apk -> classes.odex', new Map())).toBe('app-native')
   })
 
   it('calls ART AOT artefacts managed even under /data/app', () => {
@@ -49,5 +53,30 @@ describe('classifyModule', () => {
     // Erring toward app-native keeps a real finding attributable; erring toward
     // platform would silently drop it.
     expect(classifyModule('libmystery.so', new Map())).toBe('app-native')
+  })
+
+  it('classifies every platform root as platform', () => {
+    const roots: [string, string][] = [
+      ['libvendorthing.so', '/vendor/lib64/libvendorthing.so'],
+      ['libproductthing.so', '/product/lib64/libproductthing.so'],
+      ['libodmthing.so', '/odm/lib64/libodmthing.so'],
+      ['libapexthing.so', '/data/misc/apexdata/com.android.art/lib64/libapexthing.so'],
+      ['libcachething.so', '/data/dalvik-cache/arm64/libcachething.so'],
+    ]
+    for (const [base, path] of roots) {
+      expect(classifyModule(base, new Map([[base, path]])), path).toBe('platform')
+    }
+  })
+
+  it('classifies bare addresses as platform', () => {
+    expect(classifyModule('0x7284edac18', new Map())).toBe('platform')
+  })
+
+  it('classifies unmapped managed artefacts as managed', () => {
+    expect(classifyModule('base.apk', new Map())).toBe('managed')
+  })
+
+  it('classifies mapped paths outside known roots as platform', () => {
+    expect(classifyModule('libodd.so', new Map([['libodd.so', '/opt/weird/libodd.so']]))).toBe('platform')
   })
 })

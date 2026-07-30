@@ -45,9 +45,8 @@ export function classifyModule(module: string | null, paths: ModulePaths): Modul
 
   const path = paths.get(module)
   if (path === undefined) {
-    if (SYSTEM_NATIVE.has(module) || MANAGED_SUFFIX.test(module)) {
-      return MANAGED_SUFFIX.test(module) ? 'managed' : 'platform'
-    }
+    if (MANAGED_SUFFIX.test(module)) return 'managed'
+    if (SYSTEM_NATIVE.has(module)) return 'platform'
     // Unknown and unmapped: prefer app-native. A wrong 'platform' silently drops
     // a real finding; a wrong 'app-native' merely names an odd node the analyst
     // can see and reject.
