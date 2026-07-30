@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { draftFromForm, predicateSummary, sequenceSummary, upsertRule, deleteRule, setEnabled, renderRules } from '../src/renderer/rules-view'
 import { validateRule } from '@shared/rasp-heuristics'
 import type { Rule, RuleScope } from '@shared/rasp-heuristics'
@@ -159,6 +159,15 @@ function stepValues(block: HTMLElement) {
 }
 
 describe('rules-view editor form (DOM)', () => {
+  // Opening a form starts refreshPreview's 250ms debounce (previewTimer in
+  // rules-view.ts); none of these tests close the form or wait it out, so a
+  // real setTimeout is left pending past the test's end. Fake timers keep it
+  // from ever firing for real - useRealTimers() in afterEach discards it
+  // instead of letting it fire against a jsdom environment the file has
+  // already torn down.
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
   it('Add step appends a new numbered step block and renumbers headings', async () => {
     const form = await openNewRuleForm()
     expect(stepBlocks(form)).toHaveLength(1)
