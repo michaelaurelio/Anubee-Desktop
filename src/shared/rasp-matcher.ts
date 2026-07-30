@@ -31,7 +31,7 @@ export interface Suggestion {
 export interface RawHit {
   ruleId: string
   target: string
-  frame: Frame | null   // the anchor (step 0) call site; null when it has no module
+  frame: Frame | null   // the anchor call site (the event that opened the match); null when it has no module
   pid: number
   category: RaspCategory
   confidence: number
@@ -45,7 +45,9 @@ function streamKey(mode: CorrelateKey, key: string): string { return `${mode}${K
 function partialKey(ruleId: string, key: string): string { return `${ruleId}${KEY_SEP}${key}` }
 
 interface PartialMatch {
-  nextStep: number
+  nextStep: number      // ordered mode only: the step cursor
+  done: boolean[]       // unordered mode only: which steps are satisfied
+  left: number          // unordered mode only: how many steps remain
   atCount: number       // key-local event count when the previous step matched
   stream: string        // streamKey() of the correlation stream this rides on
   pk: string            // partialKey() of the list holding it
@@ -72,13 +74,21 @@ export interface SequenceMatcherOptions {
   paths?: ModulePaths
 }
 
-// Ordered-sequence matcher over an id-ordered event stream. Stateful so it can be
+// Sequence matcher over an id-ordered event stream. Stateful so it can be
 // driven page by page (the candidate set is never materialised whole), pure in the
 // sense that the same ordered input always yields the same output.
 //
 // Per event, per rule: advance at most one in-flight partial (the oldest), else
-// open a new one on step 0. A completed match is consumed, so one anchor reports
-// one occurrence no matter how many later events would also satisfy the last step.
+// open a new one. A completed match is consumed, so one anchor reports one
+// occurrence no matter how many later events would also satisfy the last step.
+//
+// A rule is ordered (its steps must match in sequence, anchored on step 0) or
+// unordered (every step must be satisfied within the window, in any order,
+// anchored on whichever step the opening event satisfied). In unordered mode one
+// event satisfies at most one still-unsatisfied step, so a single event matching
+// two steps cannot complete a two-step rule by itself. An unordered rule opens a
+// partial on ANY step, not just its first, so a noisy key holds more in flight
+// than the ordered form of the same rule would; the cap below bounds that.
 //
 // Distance is counted in RULE-RELEVANT events: a rule's maxGap is how many events
 // that match some rule step and share this correlation key may fall between two
@@ -171,14 +181,36 @@ export class SequenceMatcher {
           const p = list[i]
           let drop = false
           if (n - p.atCount - 1 > r.maxGap) { this.retire(p); drop = true }   // expired
-          else if (!advanced && matchOne(r.steps[p.nextStep], e)) {
-            advanced = true
-            p.nextStep++
-            p.atCount = n
-            if (p.nextStep === r.steps.length) {
-              this.emit(r, p.target, p.frame, p.pid)
-              this.retire(p)
-              drop = true
+          else if (!advanced) {
+            if (r.mode === 'ordered') {
+              if (matchOne(r.steps[p.nextStep], e)) {
+                advanced = true
+                p.nextStep++
+                p.atCount = n
+                if (p.nextStep === r.steps.length) {
+                  this.emit(r, p.target, p.frame, p.pid)
+                  this.retire(p)
+                  drop = true
+                }
+              }
+            } else {
+              // Unordered: satisfy at most ONE still-unsatisfied step, so a
+              // single event can never complete a multi-step rule on its own -
+              // an event matching two steps is one observation, not two.
+              for (let s = 0; s < r.steps.length; s++) {
+                if (p.done[s]) continue
+                if (!matchOne(r.steps[s], e)) continue
+                advanced = true
+                p.done[s] = true
+                p.left--
+                p.atCount = n
+                if (p.left === 0) {
+                  this.emit(r, p.target, p.frame, p.pid)
+                  this.retire(p)
+                  drop = true
+                }
+                break
+              }
             }
           }
           if (drop) {
@@ -194,8 +226,21 @@ export class SequenceMatcher {
       }
 
       if (advanced) continue
+      // A one-step rule is trivially "all steps satisfied", so unordered mode
+      // must not give it a second route: the fast path owns it in both modes.
       if (r.steps.length === 1) { this.emitSingle(r, e); continue }
-      if (!matchOne(r.steps[0], e)) continue
+      // Ordered mode anchors on step 0. Unordered mode anchors on whichever step
+      // this event satisfies, so a scan whose artefact probe arrives before its
+      // map walk still opens a partial.
+      let first = -1
+      if (r.mode === 'ordered') {
+        if (matchOne(r.steps[0], e)) first = 0
+      } else {
+        for (let s = 0; s < r.steps.length; s++) {
+          if (matchOne(r.steps[s], e)) { first = s; break }
+        }
+      }
+      if (first < 0) continue
       // An event whose app-owned caller cannot be recovered is still a real
       // detection, so it is never dropped here: emit() resolves the null target
       // to the rule's synthetic `rasp:unattributed:<category>` id.
@@ -212,8 +257,12 @@ export class SequenceMatcher {
         this.dropped++
       }
       this.live++
+      const done = new Array<boolean>(r.steps.length).fill(false)
+      done[first] = true
+      // `nextStep: 1` is read in ordered mode only, where `first` is always 0.
       const p: PartialMatch = {
-        nextStep: 1, atCount: n, stream: sk, pk, maxGap: r.maxGap, dead: false,
+        nextStep: 1, done, left: r.steps.length - 1,
+        atCount: n, stream: sk, pk, maxGap: r.maxGap, dead: false,
         target, frame: anchorFrame(e, this.paths), pid: e.pid,
       }
       const open = this.partials.get(pk) ?? []
