@@ -59,7 +59,7 @@ describe('rasp-rules-store', () => {
 
   it('rejects an unknown future schema version', () => {
     const d = dir()
-    writeFileSync(join(d, 'rasp-rules.json'), JSON.stringify({ schemaVersion: 3, rules: [], enabledOverrides: {} }))
+    writeFileSync(join(d, 'rasp-rules.json'), JSON.stringify({ schemaVersion: 4, rules: [], enabledOverrides: {} }))
     expect(loadRules(d)).toEqual({ rules: [], enabledOverrides: {} })
   })
 
