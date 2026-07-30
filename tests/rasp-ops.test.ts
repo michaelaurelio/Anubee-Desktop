@@ -62,3 +62,33 @@ describe('decoded_args field', () => {
     expect(sqlClause).toContain('map_values(decoded_args)')
   })
 })
+
+describe('arg_hex_in', () => {
+  const r = rule({ category: 'debugger',
+    steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_in', argIndex: 0, value: '0x10 0x7 0x11' }] })
+
+  it('matches any listed request code, in hex or decimal spelling', () => {
+    for (const a of ['0x10', '0x7', '0x11', '7', '16', '17']) {
+      expect(matchSequences([r], [ev({ syscall: 'ptrace', args: [a] })]).hits, a).toHaveLength(1)
+    }
+  })
+
+  it('does not match an unlisted request code', () => {
+    expect(matchSequences([r], [ev({ syscall: 'ptrace', args: ['0x0'] })]).hits).toHaveLength(0)
+  })
+
+  it('compiles to an IN clause carrying both spellings', () => {
+    const sql = compileWhere([r])
+    expect(sql).toContain("args[1] IN (")
+    for (const lit of ["'0x10'", "'16'", "'0x7'", "'7'", "'0x11'", "'17'"]) expect(sql).toContain(lit)
+  })
+
+  it('rejects a non-hex element and a missing argIndex', () => {
+    expect(validateRule({ id: 'x', category: 'debugger', confidence: 0.5, rationale: 'r',
+      steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_in', argIndex: 0, value: '0x10 nope' }] }, 'global').error)
+      .toBe('arg_hex_in values must all be hex on x')
+    expect(validateRule({ id: 'y', category: 'debugger', confidence: 0.5, rationale: 'r',
+      steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_in', value: '0x10' }] }, 'global').error)
+      .toBe('arg_hex_in needs argIndex on y')
+  })
+})

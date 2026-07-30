@@ -1,7 +1,7 @@
 import type { SyscallEvent } from './events'
 import type { RaspCategory } from './project-store'
 import type { CorrelateKey, Rule, RuleField, RuleStep } from './rasp-rules'
-import { argNum } from './rasp-rules'
+import { argNum, hexList } from './rasp-rules'
 import type { Frame } from './rasp-attribution'
 import { anchorFrame, attributionOf, correlationKey, unattributedId } from './rasp-attribution'
 import type { ModulePaths } from './module-origin'
@@ -347,10 +347,12 @@ function clauseOf(m: RuleStep): string {
   const v = sqlLit(m.value)
   const f = m.field
   let pred: string
-  if (m.op === 'arg_hex_eq') {
+  if (m.op === 'arg_hex_eq' || m.op === 'arg_hex_in') {
     const idx = (m.argIndex ?? 0) + 1 // DuckDB list is 1-indexed
-    const dec = String(argNum(m.value))
-    pred = `args[${idx}] IN ('${v}', '${sqlLit(dec)}')`
+    const items = m.op === 'arg_hex_eq' ? [m.value] : hexList(m.value)
+    // Emit both spellings: the tracer renders an arg as hex or decimal.
+    const lits = items.flatMap(x => [`'${sqlLit(x)}'`, `'${sqlLit(String(argNum(x)))}'`])
+    pred = `args[${idx}] IN (${lits.join(', ')})`
   } else if (f === 'sock_addr') {
     pred = m.op === 'equals' ? `sock_addr = '${v}'` : `regexp_matches(sock_addr, '${v}', 'i')`
   } else if (f === 'args') {
@@ -391,6 +393,12 @@ function matchOne(m: RuleStep, e: SyscallEvent): boolean {
   if (m.op === 'arg_hex_eq') {
     const a = e.args[m.argIndex ?? 0]
     return a !== undefined && argNum(a) === argNum(m.value)
+  }
+  if (m.op === 'arg_hex_in') {
+    const a = e.args[m.argIndex ?? 0]
+    if (a === undefined) return false
+    const got = argNum(a)
+    return hexList(m.value).some(x => argNum(x) === got)
   }
   const vals = valuesOf(m.field, e)
   if (m.op === 'equals') return vals.some(v => v === m.value)

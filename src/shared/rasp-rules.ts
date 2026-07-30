@@ -3,7 +3,7 @@
 import type { RaspCategory } from './project-store'
 
 export type RuleField = 'string_args' | 'fd_args' | 'sock_addr' | 'args' | 'decoded_args'
-export type RuleOp = 'path_matches' | 'equals' | 'arg_hex_eq'
+export type RuleOp = 'path_matches' | 'equals' | 'arg_hex_eq' | 'arg_hex_in' | 'any'
 export type RuleSource = 'builtin' | 'global' | 'project'
 
 export type CorrelateKey = 'symbol' | 'symbol+tid' | 'module' | 'module+tid' | 'java'
@@ -57,7 +57,7 @@ export interface RuleScope {
 
 const CATEGORIES: RaspCategory[] = ['root', 'debugger', 'emulator', 'integrity', 'hook', 'custom']
 const FIELDS: RuleField[] = ['string_args', 'fd_args', 'sock_addr', 'args', 'decoded_args']
-const OPS: RuleOp[] = ['path_matches', 'equals', 'arg_hex_eq']
+const OPS: RuleOp[] = ['path_matches', 'equals', 'arg_hex_eq', 'arg_hex_in', 'any']
 const HEX = /^0x[0-9a-f]+$/i
 // Constructs valid in a JS RegExp but unsupported by DuckDB's RE2 engine
 // (lookahead/lookbehind/backreference). A path_matches value using one would pass
@@ -69,6 +69,11 @@ const RE2_INCOMPATIBLE = /\(\?<?[=!]|\\[1-9]/
 export function argNum(v: string | undefined): number {
   if (v === undefined) return NaN
   return v.startsWith('0x') || v.startsWith('0X') ? parseInt(v, 16) : Number(v)
+}
+
+// 'arg_hex_in' carries a space-separated hex list. Split identically everywhere.
+export function hexList(value: string): string[] {
+  return value.trim().split(/\s+/).filter(Boolean)
 }
 
 function validateStep(v: unknown, id: string): { step: RuleStep | null; error: string | null } {
@@ -83,6 +88,13 @@ function validateStep(v: unknown, id: string): { step: RuleStep | null; error: s
     if (typeof m.argIndex !== 'number' || m.argIndex < 0 || !Number.isInteger(m.argIndex))
       return { step: null, error: `arg_hex_eq needs argIndex on ${id}` }
     if (!HEX.test(m.value)) return { step: null, error: `arg_hex_eq value must be hex on ${id}` }
+  }
+  if (m.op === 'arg_hex_in') {
+    if (typeof m.argIndex !== 'number' || m.argIndex < 0 || !Number.isInteger(m.argIndex))
+      return { step: null, error: `arg_hex_in needs argIndex on ${id}` }
+    const items = hexList(m.value as string)
+    if (items.length === 0 || !items.every(x => HEX.test(x)))
+      return { step: null, error: `arg_hex_in values must all be hex on ${id}` }
   }
   if (m.op === 'path_matches') {
     try { new RegExp(m.value) } catch { return { step: null, error: `bad regex on ${id}` } }
