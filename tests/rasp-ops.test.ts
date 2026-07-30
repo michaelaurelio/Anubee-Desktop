@@ -92,3 +92,43 @@ describe('arg_hex_in', () => {
       .toBe('arg_hex_in needs argIndex on y')
   })
 })
+
+describe('retval step modifier', () => {
+  const found = rule({ category: 'root',
+    steps: [{ syscalls: ['faccessat'], field: 'string_args', op: 'path_matches', value: '(^|/)su$',
+      retval: { op: 'eq', value: 0 } }] })
+
+  it('matches only when the same event also satisfies the retval condition', () => {
+    expect(matchSequences([found], [ev({ syscall: 'faccessat', string_args: { '1': '/system/xbin/su' }, retval: 0 })]).hits)
+      .toHaveLength(1)
+    expect(matchSequences([found], [ev({ syscall: 'faccessat', string_args: { '1': '/system/xbin/su' }, retval: -2 })]).hits)
+      .toHaveLength(0)
+  })
+
+  it('skips an enter-only record with retval null', () => {
+    expect(matchSequences([found], [ev({ syscall: 'faccessat', string_args: { '1': '/system/xbin/su' }, retval: null })]).hits)
+      .toHaveLength(0)
+  })
+
+  it('supports ne, lt and ge', () => {
+    const mk = (op: string, value: number) => rule({ category: 'root',
+      steps: [{ syscalls: ['faccessat'], field: 'string_args', op: 'path_matches', value: 'su', retval: { op, value } }] })
+    const e = ev({ syscall: 'faccessat', string_args: { '1': '/su' }, retval: -2 })
+    expect(matchSequences([mk('ne', 0)], [e]).hits).toHaveLength(1)
+    expect(matchSequences([mk('lt', 0)], [e]).hits).toHaveLength(1)
+    expect(matchSequences([mk('ge', 0)], [e]).hits).toHaveLength(0)
+  })
+
+  it('compiles the condition into the same clause as the predicate', () => {
+    expect(compileWhere([found])).toContain('AND retval = 0)')
+  })
+
+  it('rejects a malformed retval condition', () => {
+    expect(validateRule({ id: 'z', category: 'root', confidence: 0.5, rationale: 'r',
+      steps: [{ syscalls: ['faccessat'], field: 'string_args', op: 'path_matches', value: 'su',
+        retval: { op: 'between', value: 0 } }] }, 'global').error).toBe('bad retval op on z')
+    expect(validateRule({ id: 'w', category: 'root', confidence: 0.5, rationale: 'r',
+      steps: [{ syscalls: ['faccessat'], field: 'string_args', op: 'path_matches', value: 'su',
+        retval: { op: 'eq', value: 'zero' } }] }, 'global').error).toBe('retval value must be a number on w')
+  })
+})

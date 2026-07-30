@@ -6,6 +6,9 @@ export type RuleField = 'string_args' | 'fd_args' | 'sock_addr' | 'args' | 'deco
 export type RuleOp = 'path_matches' | 'equals' | 'arg_hex_eq' | 'arg_hex_in' | 'any'
 export type RuleSource = 'builtin' | 'global' | 'project'
 
+export type RetvalOp = 'eq' | 'ne' | 'lt' | 'ge'
+export interface RetvalCond { op: RetvalOp; value: number }
+
 export type CorrelateKey = 'symbol' | 'symbol+tid' | 'module' | 'module+tid' | 'java'
 
 export type MatchMode = 'ordered' | 'unordered'
@@ -16,6 +19,11 @@ export interface RuleStep {
   op: RuleOp
   argIndex?: number
   value: string
+  // An AND-modifier on the SAME event, not a field. Modelled as a field it would
+  // need a second step, and in unordered mode two steps may be satisfied by two
+  // different events - so an open(su) plus any later retval 0 would falsely
+  // complete. An event with retval null (enter-only record) never satisfies it.
+  retval?: RetvalCond
 }
 
 // Retained name so existing renderer imports keep compiling; a step and a
@@ -58,6 +66,7 @@ export interface RuleScope {
 const CATEGORIES: RaspCategory[] = ['root', 'debugger', 'emulator', 'integrity', 'hook', 'custom']
 const FIELDS: RuleField[] = ['string_args', 'fd_args', 'sock_addr', 'args', 'decoded_args']
 const OPS: RuleOp[] = ['path_matches', 'equals', 'arg_hex_eq', 'arg_hex_in', 'any']
+const RETVAL_OPS: RetvalOp[] = ['eq', 'ne', 'lt', 'ge']
 const HEX = /^0x[0-9a-f]+$/i
 // Constructs valid in a JS RegExp but unsupported by DuckDB's RE2 engine
 // (lookahead/lookbehind/backreference). A path_matches value using one would pass
@@ -101,9 +110,21 @@ function validateStep(v: unknown, id: string): { step: RuleStep | null; error: s
     if (RE2_INCOMPATIBLE.test(m.value))
       return { step: null, error: `regex uses an RE2-incompatible construct (lookaround/backreference) on ${id}` }
   }
+  let retval: RetvalCond | undefined
+  if (m.retval !== undefined) {
+    if (typeof m.retval !== 'object' || m.retval === null) return { step: null, error: `bad retval on ${id}` }
+    const rc = m.retval as Record<string, unknown>
+    if (typeof rc.op !== 'string' || !RETVAL_OPS.includes(rc.op as RetvalOp))
+      return { step: null, error: `bad retval op on ${id}` }
+    if (typeof rc.value !== 'number' || !Number.isFinite(rc.value))
+      return { step: null, error: `retval value must be a number on ${id}` }
+    retval = { op: rc.op as RetvalOp, value: rc.value }
+  }
+
   const value = m.op === 'arg_hex_eq' ? '0x' + argNum(m.value as string).toString(16) : (m.value as string)
   const step: RuleStep = { syscalls: m.syscalls as string[], field: m.field as RuleField, op: m.op as RuleOp, value }
   if (typeof m.argIndex === 'number') step.argIndex = m.argIndex
+  if (retval) step.retval = retval
   return { step, error: null }
 }
 

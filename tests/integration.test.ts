@@ -466,6 +466,50 @@ describe('arg_hex_in field integration', () => {
   })
 })
 
+describe('retval step modifier integration', () => {
+  it('DuckDB WHERE clause for a retval condition agrees with JS matcher, including retval null', async () => {
+    const store = new GraphStore()
+    const events = [
+      { ...evA, id: 1, syscall: 'faccessat', args: [], string_args: { '1': '/system/xbin/su' }, retval: 0,
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // rooted: retval 0 matches
+      { ...evA, id: 2, syscall: 'faccessat', args: [], string_args: { '1': '/system/xbin/su' }, retval: -2,
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // ENOENT: not rooted, no match
+      { ...evA, id: 3, syscall: 'faccessat', args: [], string_args: { '1': '/system/xbin/su' }, retval: null,
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // enter-only record, no match
+      { ...evA, id: 4, syscall: 'openat', string_args: { '1': '/system/xbin/su' }, retval: 0,
+        decoded_args: {} }, // different syscall, should not match
+    ]
+    const { runId } = await store.ingest(fixture(events))
+
+    const { rule } = validateRule({
+      id: 'test-retval', category: 'root', confidence: 0.8, rationale: 'test',
+      source: 'project', enabled: true,
+      steps: [{ syscalls: ['faccessat'], field: 'string_args', op: 'path_matches', value: '(^|/)su$',
+        retval: { op: 'eq', value: 0 } }],
+    }, 'project')
+    expect(rule).not.toBeNull()
+
+    // Test DuckDB WHERE clause against real database
+    const where = compileWhere([rule!])
+    const admitted = new Set(
+      (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
+    )
+
+    // Verify DuckDB admits exactly the retval-0 match: id 1
+    expect(admitted).toEqual(new Set([1]))
+
+    // Verify agreement: for each event, DuckDB and JS must agree - including the
+    // retval:null event (id 3), which neither side may admit.
+    for (const e of events) {
+      const jsMatches = matchSequences([rule!], [e as any]).hits.length > 0
+      expect(admitted.has(e.id), `event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+    }
+    expect(admitted.has(3)).toBe(false)
+
+    await store.close()
+  })
+})
+
 describe('run diffing', () => {
   it('diffTable surfaces per-node presence and delta across two runs', async () => {
     const store = new GraphStore()

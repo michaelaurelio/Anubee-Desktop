@@ -1,6 +1,6 @@
 import type { SyscallEvent } from './events'
 import type { RaspCategory } from './project-store'
-import type { CorrelateKey, Rule, RuleField, RuleStep } from './rasp-rules'
+import type { CorrelateKey, Rule, RuleField, RuleStep, RetvalCond, RetvalOp } from './rasp-rules'
 import { argNum, hexList } from './rasp-rules'
 import type { Frame } from './rasp-attribution'
 import { anchorFrame, attributionOf, correlationKey, unattributedId } from './rasp-attribution'
@@ -342,8 +342,14 @@ const FD_NORM_SQL =
   "THEN regexp_extract(x, '^fd=[0-9]+ <(.*)>$', 1) " +
   "WHEN regexp_matches(x, '^fd=[0-9]+$') THEN NULL ELSE x END), y -> y IS NOT NULL)"
 
+// The SQL twin of retvalOk's operator switch. A NULL retval fails every DuckDB
+// comparison outright (SQL three-valued logic), matching retvalOk's null check
+// with no extra IS NOT NULL guard needed.
+const RETVAL_SQL: Record<RetvalOp, string> = { eq: '=', ne: '<>', lt: '<', ge: '>=' }
+
 function clauseOf(m: RuleStep): string {
   const inSys = `syscall IN (${m.syscalls.map(s => `'${sqlLit(s)}'`).join(', ')})`
+  const rv = m.retval ? ` AND retval ${RETVAL_SQL[m.retval.op]} ${m.retval.value}` : ''
   const v = sqlLit(m.value)
   const f = m.field
   let pred: string
@@ -368,7 +374,7 @@ function clauseOf(m: RuleStep): string {
       ? `list_contains(map_values(${f}), '${v}')`
       : `len(list_filter(map_values(${f}), x -> regexp_matches(x, '${v}', 'i'))) > 0`
   }
-  return `(${inSys} AND ${pred})`
+  return `(${inSys} AND ${pred}${rv})`
 }
 
 // Path checks read string_args (an openat/access path argument) and fd_args (the
@@ -385,11 +391,25 @@ function valuesOf(field: RuleField, e: SyscallEvent): string[] {
   }
 }
 
+// A step's retval condition. Null retval (an enter-only record) never satisfies
+// one, so a retval-conditioned rule under-reports on snapshot-mode captures.
+function retvalOk(c: RetvalCond | undefined, retval: number | null): boolean {
+  if (c === undefined) return true
+  if (retval === null) return false
+  switch (c.op) {
+    case 'eq': return retval === c.value
+    case 'ne': return retval !== c.value
+    case 'lt': return retval < c.value
+    case 'ge': return retval >= c.value
+  }
+}
+
 // A step matches only within the syscalls it is scoped to - the JS twin of
 // clauseOf's `syscall IN (...) AND pred`. Gated here rather than at each call
 // site so every consumer of matchOne (SequenceMatcher) inherits it.
 function matchOne(m: RuleStep, e: SyscallEvent): boolean {
   if (!m.syscalls.includes(e.syscall)) return false
+  if (!retvalOk(m.retval, e.retval)) return false
   if (m.op === 'arg_hex_eq') {
     const a = e.args[m.argIndex ?? 0]
     return a !== undefined && argNum(a) === argNum(m.value)
