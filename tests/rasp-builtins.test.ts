@@ -15,8 +15,8 @@ const only = (id: string): Rule[] => BUILTIN_RULES.filter(r => r.id === id)
 const fires = (id: string, e: SyscallEvent) => matchSequences(only(id), [e]).hits.length > 0
 
 describe('the built-in library', () => {
-  it('ships 30 rules covering every category', () => {
-    expect(BUILTIN_RULES).toHaveLength(30)
+  it('ships 31 rules covering every category', () => {
+    expect(BUILTIN_RULES).toHaveLength(31)
     for (const c of ['root', 'debugger', 'hook', 'emulator', 'integrity']) {
       expect(BUILTIN_RULES.some(r => r.category === c), c).toBe(true)
     }
@@ -71,6 +71,14 @@ describe('the built-in library', () => {
     const at = (retval: number) => ev({ syscall: 'bind', sock_addr: '[::ffff:127.0.0.1]:27042', retval })
     expect(fires('hook-frida-port-taken', at(-98))).toBe(true)
     expect(fires('hook-frida-port-taken', at(0))).toBe(false)
+  })
+
+  // Restores the coverage hook-frida-sock had before it was deleted: a connect
+  // to a frida control socket named by pattern, not by the fixed 27042/27043
+  // port hook-frida-port already covers.
+  it('hook-frida-sock matches a frida-named socket address', () => {
+    expect(fires('hook-frida-sock', ev({ syscall: 'connect', sock_addr: 'unix:@/frida-zymbiote-abc' }))).toBe(true)
+    expect(fires('hook-frida-sock', ev({ syscall: 'connect', sock_addr: '[::ffff:127.0.0.1]:443' }))).toBe(false)
   })
 
   // root-found must not fire on a stock directory: /system/xbin exists everywhere

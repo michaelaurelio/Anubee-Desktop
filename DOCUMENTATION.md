@@ -669,6 +669,7 @@ distinction is deliberate.
 | `hook-frida-artefact` | a frida artefact by name, **anchored** (`frida-agent`, `libfrida`, `re.frida`, `gum-js-loop`, ...) | 0.95 | **(unfired)** |
 | `hook-frida-port` | `bind` or `connect` on frida's default port 27042/27043 | 0.9 | |
 | `hook-frida-port-taken` | the same bind failing with EADDRINUSE - frida-server is already listening | 0.99 | **(unfired)** |
+| `hook-frida-sock` | `connect` to a frida-named socket address (bare `frida` - narrower field than a path, so unanchored is safe) | 0.9 | |
 | `hook-thread-comm-scan` | enumerating every thread name via `/proc/<pid>/task/<tid>/comm` | 0.75 | 20 |
 | `hook-fd-enum` | **unordered**: opening `/proc/<pid>/fd` + `any getdents64` | 0.6 | |
 | `hook-fd-readlink` | sustained `readlink` of `/proc/<pid>/fd/<n>` | 0.6 | 50 |

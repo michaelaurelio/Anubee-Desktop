@@ -89,6 +89,14 @@ export const BUILTIN_SPECS: unknown[] = [
     rationale: 'bind on frida port failed with EADDRINUSE - frida-server is already listening (unfired on available captures)',
     steps: [{ syscalls: ['bind'], field: 'sock_addr', op: 'path_matches', value: ':(27042|27043)$',
       retval: { op: 'eq', value: -98 } }] },
+  // sock_addr is a much narrower field than a path (only ever a real socket
+  // address, never an arbitrary filesystem string), so a bare "frida" match is
+  // safe here even though hook-frida-artefact's file-path tokens above are
+  // anchored - an unanchored token on a path caused 86 false positives on a
+  // real capture, but nothing legitimate names a socket "frida"-anything.
+  { id: 'hook-frida-sock', category: 'hook', confidence: 0.9,
+    rationale: 'connect to a frida control socket - dynamic-instrumentation probe',
+    steps: [{ syscalls: ['connect'], field: 'sock_addr', op: 'path_matches', value: 'frida' }] },
   { id: 'hook-thread-comm-scan', category: 'hook', confidence: 0.75, minOccurrences: 20,
     rationale: 'enumeration of every thread name via /proc/<pid>/task/<tid>/comm - hunting frida thread names such as gum-js-loop or gmain',
     steps: [{ syscalls: ['openat', 'newfstatat'], field: 'string_args', op: 'path_matches',
