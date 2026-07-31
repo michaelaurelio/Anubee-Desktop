@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseSidecar, serializeSidecar, upsertTag, removeTag, tagsByTarget, orphanedTags,
-  addDismissed, isDismissed, openSuggestions, type Tag, type RaspCategory,
+  addDismissed, isDismissed, openSuggestions, targetLabel, type Tag, type RaspCategory,
 } from '../src/shared/project-store'
 import type { Suggestion } from '../src/shared/rasp-heuristics'
 
@@ -70,6 +70,18 @@ describe('project-store', () => {
     const synthetic = tag({ target: 'rasp:unattributed:root' })
     expect(orphanedTags([synthetic], new Set())).toEqual([])
     expect(orphanedTags([synthetic], new Set(['rasp:unattributed:root']))).toEqual([])
+  })
+})
+
+describe('targetLabel', () => {
+  it('renders a synthetic target as prose', () => {
+    expect(targetLabel('rasp:unattributed:root')).toBe('unattributed root checks (caller truncated)')
+    expect(targetLabel('rasp:unattributed:hook')).toBe('unattributed hook checks (caller truncated)')
+  })
+
+  it('leaves a real node id untouched', () => {
+    expect(targetLabel('nat:libsentinel.so!check_root')).toBe('nat:libsentinel.so!check_root')
+    expect(targetLabel('java:dev.anubee.detector.RootCheck.run')).toBe('java:dev.anubee.detector.RootCheck.run')
   })
 })
 

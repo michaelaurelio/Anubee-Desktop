@@ -43,6 +43,16 @@ export interface Sidecar {
 
 export const CATEGORIES: RaspCategory[] = ['root', 'debugger', 'emulator', 'integrity', 'hook', 'custom']
 
+// A rasp:unattributed:<category> target is a real, taggable finding with no graph
+// node - it exists because Anubee truncates java_stack, so the app's own caller is
+// not recoverable. Print it as prose; the raw id means nothing to an analyst.
+const UNATTRIBUTED = /^rasp:unattributed:(.+)$/
+
+export function targetLabel(target: string): string {
+  const m = UNATTRIBUTED.exec(target)
+  return m ? `unattributed ${m[1]} checks (caller truncated)` : target
+}
+
 // Validate one entry into a Tag, or return null (caller records the error).
 function coerceTag(v: unknown): Tag | null {
   if (typeof v !== 'object' || v === null) return null

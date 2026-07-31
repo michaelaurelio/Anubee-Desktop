@@ -1,4 +1,4 @@
-import type { Tag } from '@shared/project-store'
+import { targetLabel, type Tag } from '@shared/project-store'
 import type { Suggestion } from '@shared/rasp-heuristics'
 
 // A confirmed suggestion becomes a heuristic-sourced tag (keeps its confidence
@@ -11,16 +11,6 @@ export function suggestionToTag(s: Suggestion, now: string, offset?: string): Ta
   }
   if (offset !== undefined) t.offset = offset
   return t
-}
-
-// A rasp:unattributed:<category> target is a real, taggable finding with no graph
-// node - it exists because Anubee truncates java_stack, so the app's own caller is
-// not recoverable. Print it as prose; the raw id means nothing to an analyst.
-const UNATTRIBUTED = /^rasp:unattributed:(.+)$/
-
-export function targetLabel(target: string): string {
-  const m = UNATTRIBUTED.exec(target)
-  return m ? `unattributed ${m[1]} checks (caller truncated)` : target
 }
 
 // Render the suggestions list into the popup. Each row: category chip, target,

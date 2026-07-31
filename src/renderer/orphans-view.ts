@@ -1,6 +1,5 @@
-import type { Tag, RaspCategory } from '@shared/project-store'
+import { targetLabel, type Tag, type RaspCategory } from '@shared/project-store'
 import { badgeText } from './tag-view'
-import { targetLabel } from './suggestions-view'
 
 // Panel listing tags whose target no longer matches any node/edge in the active
 // run (a re-ingest shifted ids). Hidden when there are none; each row offers a

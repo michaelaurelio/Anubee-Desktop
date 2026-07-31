@@ -65,4 +65,15 @@ describe('findings', () => {
     expect(JSON.parse(renderJSON([]))).toEqual([])
     expect(renderMarkdown([])).toContain('No findings')
   })
+
+  // rasp:unattributed:<category> is a synthetic target with no graph node, so
+  // it never has representative events - the export must still read as prose,
+  // not as the raw target id.
+  it('markdown renders a synthetic rasp: target as prose, not its raw id', () => {
+    const unattributedTag: Tag = { target: 'rasp:unattributed:root', category: 'root',
+      source: 'heuristic', createdAt: 'T' }
+    const md = renderMarkdown(buildFindings([unattributedTag], {}))
+    expect(md).toContain('unattributed root checks (caller truncated)')
+    expect(md).not.toContain('rasp:unattributed:root')
+  })
 })
