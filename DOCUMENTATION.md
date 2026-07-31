@@ -626,35 +626,36 @@ flowchart LR
   E -->|Suggestion| F[Suggestions popup]
 ```
 
-**Built-in rules** (`BUILTIN_RULES`). Thirty rules across five categories,
+**Built-in rules** (`BUILTIN_RULES`). Thirty-one rules across five categories,
 authored as raw specs and validated through `coerceRules` at module load, so a
 malformed built-in throws at import rather than disappearing quietly. Every
 regex and threshold was derived by measuring against two real captures: the
 maintainer's reference detector app and a production Android capture held
-outside the repository. `minOcc` is `minOccurrences`; blank means 1.
+outside the repository. `minOcc` is `minOccurrences`, the row's actual floor;
+blank means 1.
 
 Six rules score zero on both available captures because the capture device is
-clean and unrooted. They are marked **(unfired)**: their patterns come from
-documented artefact names, so they are authored rather than validated, and that
-distinction is deliberate.
+clean and unrooted. Their `matches` description ends **(unfired)**: their
+patterns come from documented artefact names, so they are authored rather than
+validated, and that distinction is deliberate.
 
 **root**
 
 | id | matches | conf | minOcc |
 |---|---|---|---|
 | `root-paths` | a root-indicator path (su, magisk, busybox, xbin, sbin, data-adb, supersu) | 0.85 | |
-| `root-found` | a root binary or artefact that **exists** (`retval eq 0`) - binaries only, since `/system/xbin` is a stock directory | 0.95 | **(unfired)** |
+| `root-found` | a root binary or artefact that **exists** (`retval eq 0`) - binaries only, since `/system/xbin` is a stock directory **(unfired)** | 0.95 | |
 | `root-shell-probe` | `execve` of a shell utility - shelling out to `which su` or `ps` | 0.6 | |
 | `root-kernel-files` | `/proc/modules`, `/proc/filesystems`, `/proc/mounts`, `/proc/self/mountinfo` | 0.5 | |
 | `root-selinux` | `/sys/fs/selinux` | 0.8 | |
-| `root-ksu-prctl` | `prctl(0xdeadbeef)` - the KernelSU magic probe | 0.9 | **(unfired)** |
+| `root-ksu-prctl` | `prctl(0xdeadbeef)` - the KernelSU magic probe **(unfired)** | 0.9 | |
 
 **debugger**
 
 | id | matches | conf | minOcc |
 |---|---|---|---|
 | `dbg-tracerpid` | `/proc/(self\|thread-self\|<pid>)/status` - a TracerPid check | 0.6 | |
-| `dbg-ptrace-traceme` | `ptrace(PTRACE_TRACEME)` | 0.9 | **(unfired)** |
+| `dbg-ptrace-traceme` | `ptrace(PTRACE_TRACEME)` **(unfired)** | 0.9 | |
 | `dbg-ptrace-selftrace` | `arg_hex_in` over ATTACH/CONT/DETACH/KILL/SETOPTIONS - the app traces its own threads so a real debugger cannot attach | 0.85 | 10 |
 | `dbg-tracer-fork` | **unordered**: `any ptrace` + `any wait4` + `any getppid` on one thread - the fork-and-trace pattern | 0.9 | |
 | `dbg-prctl-antidebug` | `decoded_args` matching `PR_SET/GET_DUMPABLE` or `PR_SET_SECCOMP` | 0.5 | 5 |
@@ -666,15 +667,15 @@ distinction is deliberate.
 |---|---|---|---|
 | `hook-maps-open` | opening `/proc/<pid>/maps` or `smaps` - weak alone | 0.4 | |
 | `hook-maps-scan` | sustained reading of maps/smaps - a memory-map or injected-region scan | 0.8 | 50 |
-| `hook-frida-artefact` | a frida artefact by name, **anchored** (`frida-agent`, `libfrida`, `re.frida`, `gum-js-loop`, ...) | 0.95 | **(unfired)** |
+| `hook-frida-artefact` | a frida artefact by name, **anchored** (`frida-agent`, `libfrida`, `re.frida`, `gum-js-loop`, ...) **(unfired)** | 0.95 | |
 | `hook-frida-port` | `bind` or `connect` on frida's default port 27042/27043 | 0.9 | |
-| `hook-frida-port-taken` | the same bind failing with EADDRINUSE - frida-server is already listening | 0.99 | **(unfired)** |
+| `hook-frida-port-taken` | the same bind failing with EADDRINUSE - frida-server is already listening **(unfired)** | 0.99 | |
 | `hook-frida-sock` | `connect` to a frida-named socket address (bare `frida` - narrower field than a path, so unanchored is safe) | 0.9 | |
 | `hook-thread-comm-scan` | enumerating every thread name via `/proc/<pid>/task/<tid>/comm` | 0.75 | 20 |
 | `hook-fd-enum` | **unordered**: opening `/proc/<pid>/fd` + `any getdents64` | 0.6 | |
 | `hook-fd-readlink` | sustained `readlink` of `/proc/<pid>/fd/<n>` | 0.6 | 50 |
 | `hook-xposed` | an Xposed / Riru / Zygisk / Substrate artefact, including the renamed `app_process` binaries | 0.9 | |
-| `hook-frida-scan` | **unordered**: a maps/smaps walk + a frida artefact probe on one thread | 0.95 | **(unfired)** |
+| `hook-frida-scan` | **unordered**: a maps/smaps walk + a frida artefact probe on one thread **(unfired)** | 0.95 | |
 
 **emulator**
 
@@ -682,7 +683,7 @@ distinction is deliberate.
 |---|---|---|---|
 | `emu-qemu-goldfish` | a QEMU / goldfish / ranchu artefact | 0.9 | |
 | `emu-vendor-images` | a vendor emulator image (Genymotion, BlueStacks, Nox, LDPlayer, Droid4X, VirtualBox) | 0.9 | |
-| `emu-hwinfo` | `/proc/cpuinfo`, `/proc/version`, `/proc/meminfo` - hardware fingerprinting, weak | 0.35 | 2 |
+| `emu-hwinfo` | `/proc/cpuinfo`, `/proc/version`, `/proc/meminfo`, `/sys/module/intel_powerclamp`, `/sys/devices/virtual` - hardware fingerprinting, weak | 0.35 | 2 |
 | `emu-qemu-props` | a qemu system-property context | 0.7 | |
 
 **integrity**
@@ -762,7 +763,7 @@ rejects a step carrying either spuriously. `draftFromForm`/`validateRule` reject
 an invalid draft inline before anything reaches IPC, which is also how an `any`
 step naming a denylisted syscall surfaces its error.
 
-The step-list heading tracks the mode live: `step 1 -> step 2` when ordered,
+The step-list heading tracks the mode live: `step 1 → step 2` when ordered,
 `step 1 + step 2` when unordered. That separator is the only thing telling an
 author that unordered steps are a **set** rather than a sequence, so it updates
 the moment the mode selector changes rather than on reopen. In the rule list a

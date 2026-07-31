@@ -1,4 +1,4 @@
-import { targetLabel, type Tag, type RaspCategory } from '@shared/project-store'
+import type { Tag, RaspCategory } from '@shared/project-store'
 import { badgeText } from './tag-view'
 
 // Panel listing tags whose target no longer matches any node/edge in the active
@@ -30,7 +30,10 @@ export function renderOrphans(
   for (const t of orphans) {
     const row = document.createElement('div')
     row.style.marginTop = '4px'
-    row.textContent = `${badgeText([t])} ${targetLabel(t.target)}${t.offset ? ' @ ' + t.offset : ''}${t.note ? ' - ' + t.note : ''}`
+    // No targetLabel() here: `orphans` always comes from project-store's
+    // orphanedTags(), which filters every rasp: target out before this
+    // renders, so a synthetic target's prose branch can never fire on this row.
+    row.textContent = `${badgeText([t])} ${t.target}${t.offset ? ' @ ' + t.offset : ''}${t.note ? ' - ' + t.note : ''}`
     const drop = document.createElement('button')
     drop.textContent = 'Drop'
     drop.style.marginLeft = '6px'
