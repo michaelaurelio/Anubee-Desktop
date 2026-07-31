@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { draftFromForm, predicateSummary, sequenceSummary, upsertRule, deleteRule, setEnabled, renderRules } from '../src/renderer/rules-view'
 import { validateRule } from '@shared/rasp-heuristics'
 import type { Rule, RuleScope } from '@shared/rasp-heuristics'
@@ -7,22 +7,22 @@ import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 const R: Rule = {
   id: 'a', category: 'root', confidence: 0.8, rationale: 'r', enabled: true, source: 'global',
   steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' }],
-  correlate: 'symbol+tid', maxGap: 50,
+  correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
 }
 
 describe('rules-view helpers', () => {
   it('draftFromForm omits argIndex for non-hex ops', () => {
     const d = draftFromForm({ id: 'a', category: 'root', confidence: 0.8, rationale: 'r', enabled: true,
-      correlate: 'symbol+tid', maxGap: 50,
+      correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
       steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' }] })
     expect(d).toEqual({ id: 'a', category: 'root', confidence: 0.8, rationale: 'r', enabled: true,
-      correlate: 'symbol+tid', maxGap: 50,
+      correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
       steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' }] })
   })
 
   it('draftFromForm includes argIndex for arg_hex_eq', () => {
     const d = draftFromForm({ id: 'p', category: 'debugger', confidence: 0.7, rationale: 'r', enabled: true,
-      correlate: 'symbol+tid', maxGap: 50,
+      correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
       steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 0, value: '0x10' }] })
     expect((d.steps as Record<string, unknown>[])[0].argIndex).toBe(0)
   })
@@ -30,7 +30,7 @@ describe('rules-view helpers', () => {
   it('builds a multi-step draft the validator accepts', () => {
     const draft = draftFromForm({
       id: 'seq', category: 'hook', confidence: 0.9, rationale: 'r', enabled: true,
-      correlate: 'module+tid', maxGap: 10,
+      correlate: 'module+tid', maxGap: 10, mode: 'ordered', minOccurrences: 1,
       steps: [
         { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' },
         { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'frida' },
@@ -46,7 +46,7 @@ describe('rules-view helpers', () => {
   it('summarises a sequence as its steps joined by an arrow', () => {
     expect(sequenceSummary({
       id: 'x', category: 'hook', confidence: 0.9, rationale: 'r', enabled: true, source: 'project',
-      correlate: 'module+tid', maxGap: 10,
+      correlate: 'module+tid', maxGap: 10, mode: 'ordered', minOccurrences: 1,
       steps: [
         { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'maps' },
         { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'frida' },
@@ -76,8 +76,8 @@ describe('rules-view helpers', () => {
   })
 
   it('setEnabled writes an override', () => {
-    expect(setEnabled({ rules: [], enabledOverrides: {} }, 'dbg-ptrace-attach', false).enabledOverrides)
-      .toEqual({ 'dbg-ptrace-attach': false })
+    expect(setEnabled({ rules: [], enabledOverrides: {} }, 'dbg-ptrace-traceme', false).enabledOverrides)
+      .toEqual({ 'dbg-ptrace-traceme': false })
   })
 })
 
@@ -85,7 +85,7 @@ describe('rules-view helpers', () => {
 
 const twoStepRule: Rule = {
   id: 'seq2', category: 'hook', confidence: 0.9, rationale: 'r', enabled: true, source: 'project',
-  correlate: 'module+tid', maxGap: 20,
+  correlate: 'module+tid', maxGap: 20, mode: 'ordered', minOccurrences: 1,
   steps: [
     { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'maps' },
     { syscalls: ['ptrace'], field: 'args', op: 'arg_hex_eq', argIndex: 2, value: '0x10' },
@@ -94,7 +94,7 @@ const twoStepRule: Rule = {
 
 const threeStepRule: Rule = {
   id: 'seq3', category: 'hook', confidence: 0.9, rationale: 'r', enabled: true, source: 'project',
-  correlate: 'module+tid', maxGap: 10,
+  correlate: 'module+tid', maxGap: 10, mode: 'ordered', minOccurrences: 1,
   steps: [
     { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'alpha' },
     { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'beta' },
@@ -159,6 +159,15 @@ function stepValues(block: HTMLElement) {
 }
 
 describe('rules-view editor form (DOM)', () => {
+  // Opening a form starts refreshPreview's 250ms debounce (previewTimer in
+  // rules-view.ts); none of these tests close the form or wait it out, so a
+  // real setTimeout is left pending past the test's end. Fake timers keep it
+  // from ever firing for real - useRealTimers() in afterEach discards it
+  // instead of letting it fire against a jsdom environment the file has
+  // already torn down.
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
   it('Add step appends a new numbered step block and renumbers headings', async () => {
     const form = await openNewRuleForm()
     expect(stepBlocks(form)).toHaveLength(1)
@@ -169,7 +178,7 @@ describe('rules-view editor form (DOM)', () => {
     const blocks = stepBlocks(form)
     expect(blocks).toHaveLength(2)
     expect(headingOf(blocks[0])).toBe('step 1')
-    expect(headingOf(blocks[1])).toBe('step 2')
+    expect(headingOf(blocks[1])).toBe('→ step 2')
   })
 
   it('refuses to remove the last remaining step', async () => {
@@ -229,7 +238,7 @@ describe('rules-view editor form (DOM)', () => {
     const blocks = stepBlocks(form)
     expect(blocks).toHaveLength(2)
     expect(headingOf(blocks[0])).toBe('step 1')
-    expect(headingOf(blocks[1])).toBe('step 2')
+    expect(headingOf(blocks[1])).toBe('→ step 2')
     expect(stepValues(blocks[0]).valIn.value).toBe('alpha')
     expect(stepValues(blocks[1]).valIn.value).toBe('gamma')
   })
@@ -286,5 +295,53 @@ describe('rules-view editor form (DOM)', () => {
     expect(s.fieldSel.value).toBe('string_args')
     expect(s.opSel.value).toBe('path_matches')
     expect(s.valIn.value).toBe('su')
+  })
+})
+
+describe('rules-view v3 form', () => {
+  const form = (over: Record<string, unknown> = {}, step: Record<string, unknown> = {}) => ({
+    id: 'a', category: 'root', confidence: 0.8, rationale: 'r', enabled: true,
+    correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
+    steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su', ...step }],
+    ...over,
+  }) as never
+
+  it('carries mode and minOccurrences into the draft', () => {
+    const d = draftFromForm(form({ mode: 'unordered', minOccurrences: 20 }))
+    expect(d.mode).toBe('unordered')
+    expect(d.minOccurrences).toBe(20)
+    expect(validateRule(d, 'global').rule!.mode).toBe('unordered')
+  })
+
+  it("omits field and value for op:'any'", () => {
+    const d = draftFromForm(form({}, { op: 'any', field: 'string_args', value: '' }))
+    const s = (d.steps as Record<string, unknown>[])[0]
+    expect(s.field).toBeUndefined()
+    expect(s.value).toBeUndefined()
+    expect(validateRule({ ...d, steps: [{ syscalls: ['process_vm_readv'], op: 'any' }] }, 'global').error).toBeNull()
+  })
+
+  it('includes argIndex for arg_hex_in', () => {
+    const d = draftFromForm(form({}, { op: 'arg_hex_in', field: 'args', argIndex: 0, value: '0x7 0x10' }))
+    expect((d.steps as Record<string, unknown>[])[0].argIndex).toBe(0)
+  })
+
+  it('emits a retval condition only when an operator is chosen', () => {
+    const none = draftFromForm(form({}, { retvalOp: '', retvalValue: 0 }))
+    expect((none.steps as Record<string, unknown>[])[0].retval).toBeUndefined()
+    const some = draftFromForm(form({}, { retvalOp: 'eq', retvalValue: 0 }))
+    expect((some.steps as Record<string, unknown>[])[0].retval).toEqual({ op: 'eq', value: 0 })
+  })
+
+  it('joins an unordered summary with + and an ordered one with an arrow', () => {
+    const two = [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'a' },
+                 { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'b' }] as never
+    expect(sequenceSummary({ ...R, steps: two, mode: 'unordered' })).toContain(' + ')
+    expect(sequenceSummary({ ...R, steps: two, mode: 'ordered' })).toContain(' → ')
+  })
+
+  it('summarises an any step without a field', () => {
+    expect(predicateSummary({ syscalls: ['process_vm_readv'], op: 'any' } as never))
+      .toBe('any process_vm_readv')
   })
 })

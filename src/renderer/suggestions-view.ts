@@ -1,4 +1,4 @@
-import type { Tag } from '@shared/project-store'
+import { targetLabel, type Tag } from '@shared/project-store'
 import type { Suggestion } from '@shared/rasp-heuristics'
 
 // A confirmed suggestion becomes a heuristic-sourced tag (keeps its confidence
@@ -11,6 +11,72 @@ export function suggestionToTag(s: Suggestion, now: string, offset?: string): Ta
   }
   if (offset !== undefined) t.offset = offset
   return t
+}
+
+// Painted into the popup before the scan starts. Scoring a run is a paged DuckDB
+// pass plus the sequence matcher over every candidate event, so on a large
+// capture it takes long enough that an unpainted panel reads as "found nothing"
+// rather than "still working". Mirrors the table's skeleton idiom - placeholder
+// rows shaped like the real ones, so the list does not jump when they land -
+// rather than a spinner, which would say nothing about what is coming.
+export function renderSuggestionsLoading(host: HTMLElement): void {
+  host.innerHTML = ''
+  // The head is loading content too - its text is "Suggestions (N)" and N is not
+  // known yet - so it shimmers rather than repeating the modal's own title back
+  // at the reader. Keeping it reserves the same vertical space the real head
+  // takes, so the list does not shift when the rows land.
+  const head = document.createElement('div')
+  head.className = 'sug-head'
+  const headBar = document.createElement('span')
+  headBar.className = 'sk'
+  headBar.style.width = '108px'
+  headBar.style.height = '12px'
+  head.appendChild(headBar)
+  host.appendChild(head)
+
+  // Widths vary per row so the placeholder reads as a list of differing findings
+  // rather than a repeating pattern.
+  const widths: [string, string, string][] = [
+    ['54px', '38%', '46px'],
+    ['62px', '52%', '46px'],
+    ['48px', '30%', '46px'],
+    ['58px', '44%', '46px'],
+  ]
+  for (const [chip, target, conf] of widths) {
+    const row = document.createElement('div')
+    row.className = 'sk-row sug-skel-row'
+
+    const info = document.createElement('div')
+    info.className = 'sug-skel-info'
+    const line1 = document.createElement('div')
+    line1.className = 'sug-skel-line'
+    for (const w of [chip, target, conf]) {
+      const b = document.createElement('span')
+      b.className = 'sk'
+      b.style.width = w
+      line1.appendChild(b)
+    }
+    const line2 = document.createElement('span')
+    line2.className = 'sk'
+    line2.style.width = '68%'
+    info.append(line1, line2)
+
+    const btns = document.createElement('div')
+    btns.className = 'sug-skel-btns'
+    for (let i = 0; i < 2; i++) {
+      const b = document.createElement('span')
+      b.className = 'sk sug-skel-btn'
+      btns.appendChild(b)
+    }
+
+    row.append(info, btns)
+    host.appendChild(row)
+  }
+
+  const note = document.createElement('div')
+  note.className = 'sug-note'
+  note.textContent = 'Scoring this run against the rule library…'
+  host.appendChild(note)
 }
 
 // Render the suggestions list into the popup. Each row: category chip, target,
@@ -50,7 +116,7 @@ export function renderSuggestions(
     cat.textContent = s.category.toUpperCase()
     const tgt = document.createElement('span')
     tgt.className = 'sug-target'
-    tgt.textContent = s.target
+    tgt.textContent = targetLabel(s.target)
     const conf = document.createElement('span')
     conf.className = 'sug-conf'
     conf.textContent = `${(s.confidence * 100).toFixed(0)}% · ${s.occurrences}x`

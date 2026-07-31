@@ -15,7 +15,7 @@ function ev(id: number, syscall: string, path: string, over: Partial<SyscallEven
 
 const seq: Rule = {
   id: 'hook-frida-scan', category: 'hook', confidence: 0.95, rationale: 'maps scan then frida probe',
-  enabled: true, source: 'builtin', correlate: 'module+tid', maxGap: 5,
+  enabled: true, source: 'builtin', correlate: 'module+tid', maxGap: 5, mode: 'ordered', minOccurrences: 1,
   steps: [
     { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' },
     { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'frida' },
@@ -26,15 +26,16 @@ const seq: Rule = {
 // they count against a gap, but they never open a partial of their own.
 const benign: Rule = {
   id: 'benign-probe', category: 'custom', confidence: 0.1, rationale: 'benign lib open',
-  enabled: true, source: 'builtin', correlate: 'module+tid', maxGap: 5,
+  enabled: true, source: 'builtin', correlate: 'module+tid', maxGap: 5, mode: 'ordered', minOccurrences: 1,
   steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/data/benign' }],
 }
 
 const OTHER = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
                { frame: 1, addr: '0x9000', symbol: 'libother.so!f+0x4' }]
 
-// A backtrace with no app frame at all: it has no module key, so no rule with a
-// module correlate participates in it and no correlation stream is bumped.
+// A backtrace with no app frame at all: it has no module key. One-step rules
+// without a key now emit against the synthetic target; multi-step rules still
+// cannot participate and no correlation stream is bumped.
 const PLATFORM_ONLY = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' }]
 
 function idsOf(hits: { ruleId: string }[]): string[] {
@@ -114,8 +115,10 @@ describe('SequenceMatcher', () => {
     m.push(ev(1, 'openat', '/proc/self/maps'))
     for (let i = 0; i < 6; i++) m.push(ev(10 + i, 'openat', '/data/benign.so'))
     m.push(ev(50, 'openat', '/data/benign.so', { backtrace: PLATFORM_ONLY }))
+    expect(idsOf(m.finish().hits)).toEqual(['benign-probe', 'benign-probe', 'benign-probe', 'benign-probe', 'benign-probe', 'benign-probe', 'benign-probe'])
+    const state_after = state(m)
     expect(m.sweepCount).toBe(8)
-    expect(state(m).live).toBe(1)
+    expect(state_after.live).toBe(1)
   })
 
   it('measures the gap key-locally, so filler on another key does not expire it', () => {
@@ -259,10 +262,54 @@ describe('SequenceMatcher', () => {
   })
 })
 
+describe('unattributable events', () => {
+  // The case the attribution work exists for: ART's JNI trampoline is the only
+  // native frame above libc and every java frame is platform code, so no
+  // app-owned caller is recoverable and there is nothing to correlate on.
+  const UNATTRIBUTABLE: Partial<SyscallEvent> = {
+    backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
+                { frame: 1, addr: '0x2000', symbol: 'boot.oat!art_jni_trampoline+0x80' }],
+    java_stack: ['libcore.io.BlockGuardOs.access', 'java.io.File.exists', '...'],
+  }
+  const paths = new Map([
+    ['libc.so', '/apex/com.android.runtime/lib64/bionic/libc.so'],
+    ['boot.oat', '/apex/com.android.art/javalib/arm64/boot.oat'],
+    ['libsentinel.so', '/data/app/~~a==/dev.anubee.detector-b==/lib/arm64/libsentinel.so'],
+  ])
+  const one: Rule = { ...seq, id: 'maps-only', steps: [seq.steps[0]], correlate: 'symbol+tid' }
+
+  it('emits a one-step rule against the synthetic target', () => {
+    // A one-step rule has no sequence, so a missing correlation key must not
+    // cost the detection - it is attributed to rasp:unattributed:<category>.
+    const { hits } = matchSequences([one], [ev(1, 'openat', '/proc/self/maps', UNATTRIBUTABLE)],
+                                    undefined, { paths })
+    expect(hits).toHaveLength(1)
+    expect(hits[0].target).toBe('rasp:unattributed:hook')
+    expect(hits[0].frame).toBeNull()
+  })
+
+  it('still requires a correlation key for a multi-step rule', () => {
+    // A sequence genuinely must correlate its steps and there is nothing to key
+    // on, so it matches nothing. Drop the one-step condition on the key guard
+    // and this rule would emit on its first step alone.
+    const { hits } = matchSequences([seq], [
+      ev(1, 'openat', '/proc/self/maps', UNATTRIBUTABLE),
+      ev(2, 'openat', '/data/frida-agent.so', UNATTRIBUTABLE),
+    ], undefined, { paths })
+    expect(hits).toEqual([])
+  })
+
+  it('does not reach for the synthetic target when the app is in the stack', () => {
+    const { hits } = matchSequences([one], [ev(1, 'openat', '/proc/self/maps')], undefined, { paths })
+    expect(hits).toHaveLength(1)
+    expect(hits[0].target).toBe('nat:libsentinel.so!scan')
+  })
+})
+
 describe('one-step rules', () => {
   const single: Rule = {
     id: 'maps', category: 'hook', confidence: 0.5, rationale: 'maps read',
-    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50,
+    enabled: true, source: 'builtin', correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
     steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' }],
   }
 

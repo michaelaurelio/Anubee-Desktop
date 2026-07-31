@@ -15,7 +15,7 @@ const RULE: Rule = {
   id: 'proj-1', category: 'root', confidence: 0.8, rationale: 'test',
   enabled: true, source: 'project',
   steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'magisk' }],
-  correlate: 'symbol+tid', maxGap: 50,
+  correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
 }
 
 describe('sidecar fs', () => {
@@ -44,9 +44,9 @@ describe('sidecar fs', () => {
     // seed a tag first
     saveTags(run, '2026-07-07T00:00:00Z', [{ target: 'sys:openat', category: 'root', source: 'manual', createdAt: 'T' }])
     // then author a project rule
-    saveSidecarRules(run, '2026-07-07T00:00:00Z', [RULE], { 'dbg-ptrace-attach': false })
+    saveSidecarRules(run, '2026-07-07T00:00:00Z', [RULE], { 'dbg-ptrace-traceme': false })
     expect(loadSidecarRules(run).rules).toEqual([RULE])
-    expect(loadSidecarRules(run).enabledOverrides).toEqual({ 'dbg-ptrace-attach': false })
+    expect(loadSidecarRules(run).enabledOverrides).toEqual({ 'dbg-ptrace-traceme': false })
     expect(loadTags(run).tags).toHaveLength(1) // tag survived the rule write
     rmSync(dir, { recursive: true, force: true })
   })

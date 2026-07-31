@@ -7,7 +7,7 @@ import { parseJsonl, isSyscall } from '@shared/anubee-parse'
 import { foldEvents, foldFuncEvents, mergeGraphs } from '@shared/graph-shape'
 import { presenceOf } from '../src/shared/diff'
 import type { StackRollup } from '../src/shared/flame-shape'
-import { compileWhere, matchSequences, resolveRules, BUILTIN_RULES } from '../src/shared/rasp-heuristics'
+import { compileWhere, matchSequences, resolveRules, BUILTIN_RULES, validateRule } from '../src/shared/rasp-heuristics'
 import type { Rule } from '../src/shared/rasp-heuristics'
 import type { SyscallEvent, FuncEvent } from '@shared/events'
 
@@ -141,7 +141,7 @@ describe('heuristic suggestions', () => {
     const store = new GraphStore()
     await store.ingest(fixture([
       evA, // openat /system/bin/su -> root
-      { ...evA, id: 2, syscall: 'ptrace', args: ['0x10'], string_args: {}, backtrace: [] }, // ATTACH -> debugger
+      { ...evA, id: 2, syscall: 'ptrace', args: ['0x0'], string_args: {}, backtrace: [] }, // TRACEME -> debugger
       { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/proc/self/maps' },
         backtrace: [{ frame: 0, addr: '0x2', symbol: 'libhook.so!scan_maps+0x4' }] }, // -> hook (distinct target so it doesn't collapse into root's aggregate entry)
       { ...evA, id: 4, syscall: 'openat', string_args: { '1': '/data/app/ok.so' } }, // benign
@@ -157,9 +157,9 @@ describe('heuristic suggestions', () => {
 
   it('honors an explicit resolved rule set (a disabled built-in stops firing)', async () => {
     const store = new GraphStore()
-    await store.ingest(fixture([{ ...evA, syscall: 'ptrace', args: ['0x10'], string_args: {},
+    await store.ingest(fixture([{ ...evA, syscall: 'ptrace', args: ['0x0'], string_args: {},
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }]))
-    const disabled = resolveRules(BUILTIN_RULES, { rules: [], enabledOverrides: { 'dbg-ptrace-attach': false } }, { rules: [], enabledOverrides: {} })
+    const disabled = resolveRules(BUILTIN_RULES, { rules: [], enabledOverrides: { 'dbg-ptrace-traceme': false } }, { rules: [], enabledOverrides: {} })
       .filter(r => r.enabled)
     const s = await store.suggest(undefined, disabled)
     expect(s.some(x => x.category === 'debugger')).toBe(false)
@@ -194,14 +194,17 @@ describe('heuristic suggestions', () => {
     // evA's java_stack is cleared here: a platform-only native chain with a java
     // fallback attributes to the java frame by design (see rasp-heuristics'
     // "falls back to the innermost java frame for a pure-java check"); this test
-    // isolates the platform-only-stack-with-no-app-owner case, which must yield
-    // no target at all (mirrors "does not attribute a platform-only stack to a
-    // platform library" in tests/rasp-heuristics.test.ts).
+    // isolates the platform-only-stack-with-no-app-owner case, which keeps the
+    // detection but names the synthetic target rather than libc or libart
+    // (mirrors "does not attribute a platform-only stack to a platform library"
+    // in tests/rasp-heuristics.test.ts).
     await store.ingest(fixture([{ ...evA, id: 1, syscall: 'openat',
       string_args: { '1': '/proc/self/maps' }, java_stack: [],
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libc.so!openat+0x8' },
                   { frame: 1, addr: '0x2000', symbol: 'libart.so!ReadMaps+0x40' }] }]))
-    expect(await store.suggest()).toEqual([])
+    const s = await store.suggest()
+    expect(s.map(x => x.target)).toEqual(['rasp:unattributed:hook'])
+    expect(s.some(x => x.target.includes('libc.so') || x.target.includes('libart.so'))).toBe(false)
     await store.close()
   })
 
@@ -247,7 +250,7 @@ describe('heuristic suggestions', () => {
     const bt = [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!scan+0x100' }]
     const straddleRule: Rule = {
       id: 'test-straddle', category: 'hook', confidence: 0.9, rationale: 'straddle test',
-      enabled: true, source: 'project', correlate: 'symbol+tid', maxGap: 50,
+      enabled: true, source: 'project', correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
       steps: [
         { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/proc/self/maps$' },
         { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'frida-agent-64\\.so$' },
@@ -259,6 +262,84 @@ describe('heuristic suggestions', () => {
     ]))
     const s = await store.suggest(undefined, [straddleRule])
     expect(s).toHaveLength(1)
+    await store.close()
+  })
+})
+
+describe('suggest honours minOccurrences', () => {
+  it('suppresses a target below the rule threshold and keeps one at it', async () => {
+    const bt = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!__openat+0x8' },
+                { frame: 1, addr: '0x2100', symbol: 'libsentinel.so!scan+0x10' }]
+    const events = [1, 2, 3].map(id => ({ ...evA, id, syscall: 'openat', string_args: { '1': '/proc/self/task/9/comm' }, backtrace: bt }))
+    const r = { id: 'thr', category: 'hook', confidence: 0.7, rationale: 'r', enabled: true, source: 'global',
+      minOccurrences: 3, correlate: 'symbol+tid', maxGap: 50, mode: 'ordered',
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/comm$' }] } as any
+
+    const store = new GraphStore()
+    await store.ingest(fixture(events))
+    expect(await store.suggest(undefined, [r])).toHaveLength(1)
+    expect(await store.suggest(undefined, [{ ...r, minOccurrences: 4 }])).toHaveLength(0)
+    await store.close()
+  })
+
+  it('drops a below-floor target whole, contributing to neither another row\'s occurrences nor its offsets', async () => {
+    const btA = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!__openat+0x8' },
+                 { frame: 1, addr: '0x2100', symbol: 'libalpha.so!scanA+0x10' }]
+    const btB = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!__openat+0x8' },
+                 { frame: 1, addr: '0x2100', symbol: 'libbeta.so!scanB+0x10' }]
+    const r: Rule = { id: 'thr', category: 'hook', confidence: 0.7, rationale: 'r', enabled: true, source: 'global',
+      minOccurrences: 3, correlate: 'symbol+tid', maxGap: 50, mode: 'ordered',
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/comm$' }] }
+
+    const events = [
+      // target a: 2 completed hits, below the floor of 3 - must vanish entirely.
+      { ...evA, id: 1, syscall: 'openat', string_args: { '1': '/proc/self/task/9/comm' }, backtrace: btA },
+      { ...evA, id: 2, syscall: 'openat', string_args: { '1': '/proc/self/task/9/comm' }, backtrace: btA },
+      // target b: 3 completed hits, exactly at the floor - must survive intact.
+      { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/proc/self/task/9/comm' }, backtrace: btB },
+      { ...evA, id: 4, syscall: 'openat', string_args: { '1': '/proc/self/task/9/comm' }, backtrace: btB },
+      { ...evA, id: 5, syscall: 'openat', string_args: { '1': '/proc/self/task/9/comm' }, backtrace: btB },
+    ]
+
+    const store = new GraphStore()
+    await store.ingest(fixture(events))
+    const s = await store.suggest(undefined, [r])
+    expect(s).toHaveLength(1)
+    expect(s[0].target).toBe('nat:libbeta.so!scanB')
+    expect(s[0].occurrences).toBe(3)
+    expect(s[0].offsets.reduce((n, o) => n + o.occurrences, 0)).toBe(3)
+    expect(s.some(x => x.target === 'nat:libalpha.so!scanA')).toBe(false)
+    await store.close()
+  })
+
+  it('counts completed sequences, not matched steps, for a multi-step rule', async () => {
+    const bt = [{ frame: 0, addr: '0x1000', symbol: 'libc.so!__openat+0x8' },
+                { frame: 1, addr: '0x2100', symbol: 'libsentinel.so!scan+0x10' }]
+    // Ordered 2-step rule, minOccurrences: 2. Three step-0 events each open their
+    // own partial on the shared correlation key (an in-flight partial that is
+    // waiting on step 1 cannot itself be advanced by another step-0 event); one
+    // step-1 event can then advance only the oldest, so exactly one sequence
+    // completes even though four events matched some step of the rule. An
+    // implementation that counted matched steps instead of completed sequences
+    // would see 4 >= 2 and wrongly keep the hit; counting sequences correctly
+    // sees 1 < 2 and drops it, so suggest must return nothing.
+    const r: Rule = { id: 'seq', category: 'hook', confidence: 0.7, rationale: 'r', enabled: true, source: 'global',
+      minOccurrences: 2, correlate: 'symbol+tid', maxGap: 50, mode: 'ordered',
+      steps: [
+        { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/a$' },
+        { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: '/b$' },
+      ] }
+
+    const events = [
+      { ...evA, id: 1, syscall: 'openat', string_args: { '1': '/proc/self/a' }, backtrace: bt },
+      { ...evA, id: 2, syscall: 'openat', string_args: { '1': '/proc/self/a' }, backtrace: bt },
+      { ...evA, id: 3, syscall: 'openat', string_args: { '1': '/proc/self/a' }, backtrace: bt },
+      { ...evA, id: 4, syscall: 'openat', string_args: { '1': '/proc/self/b' }, backtrace: bt },
+    ]
+
+    const store = new GraphStore()
+    await store.ingest(fixture(events))
+    expect(await store.suggest(undefined, [r])).toHaveLength(0)
     await store.close()
   })
 })
@@ -284,12 +365,74 @@ describe('compiler lockstep (real DuckDB admits exactly what matchSequences scor
     { ...evA, id: 11, syscall: 'read', string_args: {}, fd_args: { '0': 'fd=122' },
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // unresolved: matches nothing
     { ...evA, id: 12, syscall: 'openat', string_args: { '1': '/data/local/tmp/frida-agent-64.so' } },
+    { ...evA, id: 13, syscall: 'process_vm_readv', string_args: {},
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+    { ...evA, id: 14, syscall: 'prctl', args: ['0x3'], string_args: {}, decoded_args: { '0': 'PR_GET_DUMPABLE' },
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+    { ...evA, id: 15, syscall: 'ptrace', args: ['0x7'], string_args: {},
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+    { ...evA, id: 16, syscall: 'bind', string_args: {}, sock_addr: '[::ffff:127.0.0.1]:27042', retval: -98,
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+    { ...evA, id: 17, syscall: 'faccessat', string_args: { '1': '/system/xbin/su' }, retval: 0 },
+    { ...evA, id: 18, syscall: 'faccessat', string_args: { '1': '/system/xbin' }, retval: 0 },
+    { ...evA, id: 19, syscall: 'openat', string_args: { '1': '/proc/8185/smaps' } },
+    { ...evA, id: 20, syscall: 'openat', string_args: { '1': '/dev/goldfish_sync' } },
+    // hook-maps-scan's fd_args step has no other positive-admitting event above:
+    // ids 4/11 exercise FD_NORM_SQL/normalizeFdValue only negatively (they belong
+    // to other built-ins' syscalls or are unresolved). This fd carries a resolved
+    // smaps path, so the unwrapper must be exercised in the matching direction too.
+    { ...evA, id: 21, syscall: 'read', string_args: {}, fd_args: { '0': 'fd=7 </proc/8185/smaps>' },
+      backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
   ]
+
+  // Deleting dbg-status-read (the only built-in using field:'fd_args', op:'equals')
+  // left no built-in exercising op:'equals' through real DuckDB at all, so the
+  // list_contains(...) branches of clauseOf had zero coverage. These are not
+  // built-ins - they are synthetic probes, built through validateRule like any
+  // other rule, run through the same lockstep loop below purely to keep 'equals'
+  // honest on both compilers.
+  //
+  // sock_addr+equals, args+equals and args+path_matches are reachable from the
+  // rule editor but no built-in uses them either, so they had the same zero
+  // coverage; likewise retval's 'ne' and 'lt' operators (only 'eq' is exercised,
+  // by root-found and hook-frida-port-taken). Each probe below is built to
+  // land on both a true and a false event already in the fixture above, so a
+  // divergence in either direction would fail the loop.
+  const PROBE_RULES: Rule[] = (() => {
+    const specs = [
+      { id: 'probe-fd-equals', category: 'debugger', confidence: 0.5,
+        rationale: 'probe: equals on fd_args, exercised through the resolved-fd unwrapper',
+        steps: [{ syscalls: ['read'], field: 'fd_args', op: 'equals', value: '/proc/self/status' }] },
+      { id: 'probe-string-equals', category: 'debugger', confidence: 0.5,
+        rationale: 'probe: equals on string_args',
+        steps: [{ syscalls: ['openat'], field: 'string_args', op: 'equals', value: '/proc/self/status' }] },
+      { id: 'probe-sock-equals', category: 'hook', confidence: 0.5,
+        rationale: "probe: equals on sock_addr - true on id 6's connect, false on id 16's bind",
+        steps: [{ syscalls: ['connect', 'bind'], field: 'sock_addr', op: 'equals', value: 'unix:@/frida-zymbiote-abc' }] },
+      { id: 'probe-args-equals', category: 'debugger', confidence: 0.5,
+        rationale: "probe: equals on args - true on id 1's ptrace(0x10), false on id 2's/15's",
+        steps: [{ syscalls: ['ptrace'], field: 'args', op: 'equals', value: '0x10' }] },
+      { id: 'probe-args-path-matches', category: 'debugger', confidence: 0.5,
+        rationale: "probe: path_matches on args - true on id 9's prctl(0xdeadbeef), false on id 14's",
+        steps: [{ syscalls: ['prctl'], field: 'args', op: 'path_matches', value: '^0xd' }] },
+      { id: 'probe-retval-ne', category: 'hook', confidence: 0.5,
+        rationale: "probe: retval 'ne' - true on id 16's bind (-98), false on id 17/18's faccessat (0)",
+        steps: [{ syscalls: ['bind', 'faccessat'], op: 'any', retval: { op: 'ne', value: 0 } }] },
+      { id: 'probe-retval-lt', category: 'hook', confidence: 0.5,
+        rationale: "probe: retval 'lt' - true on id 16's bind (-98), false on id 17/18's faccessat (0)",
+        steps: [{ syscalls: ['bind', 'faccessat'], op: 'any', retval: { op: 'lt', value: 0 } }] },
+    ]
+    return specs.map(s => {
+      const { rule, error } = validateRule(s, 'project')
+      if (!rule) throw new Error(error ?? 'invalid probe rule')
+      return rule
+    })
+  })()
 
   it('for every built-in rule step, DuckDB WHERE-admission matches the JS predicate', async () => {
     const store = new GraphStore()
     const { runId } = await store.ingest(fixture(events))
-    for (const rule of BUILTIN_RULES) {
+    for (const rule of [...BUILTIN_RULES, ...PROBE_RULES]) {
       for (const [i, step] of rule.steps.entries()) {
         const probe = { ...rule, id: `${rule.id}#${i}`, steps: [step] }
         const where = compileWhere([probe])
@@ -317,6 +460,235 @@ describe('suggest fail-safe', () => {
     const out = await store.suggest(undefined, [badRule])
     expect(out).toEqual([])
     spy.mockRestore()
+    await store.close()
+  })
+})
+
+describe('decoded_args field integration', () => {
+  it('DuckDB WHERE clause for decoded_args path_matches agrees with JS matcher', async () => {
+    const store = new GraphStore()
+    // Test events with decoded_args field populated
+    const events = [
+      { ...evA, id: 1, syscall: 'prctl', args: ['0x1'], string_args: {},
+        decoded_args: { '0': 'PR_GET_DUMPABLE' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 2, syscall: 'prctl', args: ['0x2'], string_args: {},
+        decoded_args: { '0': 'PR_SET_DUMPABLE' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 3, syscall: 'prctl', args: ['0x3'], string_args: {},
+        decoded_args: { '0': 'PR_SET_NAME' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 4, syscall: 'prctl', args: ['0x4'], string_args: {},
+        decoded_args: { '0': 'PROT_READ|PROT_WRITE' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 5, syscall: 'openat', string_args: { '1': '/data/app/ok.so' },
+        decoded_args: {} }, // different syscall, should not match
+    ]
+    const { runId } = await store.ingest(fixture(events))
+
+    // Rule with path_matches operator
+    const { rule: pathRule } = validateRule({
+      id: 'test-decoded-path', category: 'hook', confidence: 0.8, rationale: 'test',
+      source: 'project', enabled: true,
+      steps: [{ syscalls: ['prctl'], field: 'decoded_args', op: 'path_matches', value: 'PR_(SET|GET)_DUMPABLE' }],
+    }, 'project')
+    expect(pathRule).not.toBeNull()
+
+    // Test DuckDB WHERE clause against real database
+    const where = compileWhere([pathRule!])
+    const admitted = new Set(
+      (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
+    )
+
+    // Test JS matcher for comparison
+    const jsResult = matchSequences([pathRule!], events as any)
+    const jsMatched = new Set(jsResult.hits.map((h) => {
+      const evt = events.find((e: any) => e.backtrace === evA.backtrace)
+      return events.findIndex((e: any) => e === evt || (e.syscall === 'prctl' && e.decoded_args['0']?.match(/PR_(SET|GET)_DUMPABLE/)))
+    }))
+
+    // Verify DuckDB admits exactly the events that path_matches events: ids 1 and 2
+    expect(admitted).toEqual(new Set([1, 2]))
+
+    // Verify agreement: for each event, DuckDB and JS must agree
+    for (const e of events) {
+      const jsMatches = matchSequences([pathRule!], [e as any]).hits.length > 0
+      expect(admitted.has(e.id), `event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+    }
+
+    await store.close()
+  })
+
+  it('DuckDB WHERE clause for decoded_args equals agrees with JS matcher', async () => {
+    const store = new GraphStore()
+    // Test events with decoded_args as complete composites
+    const events = [
+      { ...evA, id: 1, syscall: 'mprotect', args: ['0x1'], string_args: {},
+        decoded_args: { '0': 'PROT_READ|PROT_WRITE' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 2, syscall: 'mprotect', args: ['0x2'], string_args: {},
+        decoded_args: { '0': 'PROT_READ' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 3, syscall: 'mprotect', args: ['0x3'], string_args: {},
+        decoded_args: { '0': 'PROT_EXEC' },
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] },
+      { ...evA, id: 4, syscall: 'openat', string_args: { '1': '/ok' },
+        decoded_args: {} }, // different syscall
+    ]
+    const { runId } = await store.ingest(fixture(events))
+
+    // Rule with equals operator, matching a composite value
+    const { rule: eqRule } = validateRule({
+      id: 'test-decoded-equals', category: 'hook', confidence: 0.8, rationale: 'test',
+      source: 'project', enabled: true,
+      steps: [{ syscalls: ['mprotect'], field: 'decoded_args', op: 'equals', value: 'PROT_READ|PROT_WRITE' }],
+    }, 'project')
+    expect(eqRule).not.toBeNull()
+
+    // Test DuckDB WHERE clause
+    const where = compileWhere([eqRule!])
+    const admitted = new Set(
+      (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
+    )
+
+    // Verify DuckDB admits exactly event id 1 (the one with exact composite match)
+    expect(admitted).toEqual(new Set([1]))
+
+    // Verify agreement: for each event, DuckDB and JS must agree
+    for (const e of events) {
+      const jsMatches = matchSequences([eqRule!], [e as any]).hits.length > 0
+      expect(admitted.has(e.id), `event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+    }
+
+    await store.close()
+  })
+})
+
+describe('arg_hex_in field integration', () => {
+  it('DuckDB WHERE clause for arg_hex_in agrees with JS matcher, including the decimal spelling', async () => {
+    const store = new GraphStore()
+    // The tracer renders an arg either hex or decimal; a value the list carries
+    // as '0x10' must also match the decimal spelling '16'.
+    const events = [
+      { ...evA, id: 1, syscall: 'ptrace', args: ['0x7'], string_args: {},
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // hex-spelled match
+      { ...evA, id: 2, syscall: 'ptrace', args: ['16'], string_args: {},
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // decimal-spelled match (0x10)
+      { ...evA, id: 3, syscall: 'ptrace', args: ['0x0'], string_args: {},
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // non-match
+    ]
+    const { runId } = await store.ingest(fixture(events))
+
+    const { rule } = validateRule({
+      id: 'test-arg-hex-in', category: 'debugger', confidence: 0.8, rationale: 'test',
+      source: 'project', enabled: true,
+      steps: [{ syscalls: ['ptrace'], field: 'args', op: 'arg_hex_in', argIndex: 0, value: '0x10 0x7 0x11' }],
+    }, 'project')
+    expect(rule).not.toBeNull()
+
+    // Test DuckDB WHERE clause against real database
+    const where = compileWhere([rule!])
+    const admitted = new Set(
+      (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
+    )
+
+    // Verify DuckDB admits exactly the hex-spelled and decimal-spelled matches: ids 1 and 2
+    expect(admitted).toEqual(new Set([1, 2]))
+
+    // Verify agreement: for each event, DuckDB and JS must agree - this is the
+    // property the string-only compiler assertions cannot reach.
+    for (const e of events) {
+      const jsMatches = matchSequences([rule!], [e as any]).hits.length > 0
+      expect(admitted.has(e.id), `event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+    }
+
+    await store.close()
+  })
+})
+
+describe('retval step modifier integration', () => {
+  it('DuckDB WHERE clause for a retval condition agrees with JS matcher, including retval null', async () => {
+    const store = new GraphStore()
+    const events = [
+      { ...evA, id: 1, syscall: 'faccessat', args: [], string_args: { '1': '/system/xbin/su' }, retval: 0,
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // rooted: retval 0 matches
+      { ...evA, id: 2, syscall: 'faccessat', args: [], string_args: { '1': '/system/xbin/su' }, retval: -2,
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // ENOENT: not rooted, no match
+      { ...evA, id: 3, syscall: 'faccessat', args: [], string_args: { '1': '/system/xbin/su' }, retval: null,
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // enter-only record, no match
+      { ...evA, id: 4, syscall: 'openat', string_args: { '1': '/system/xbin/su' }, retval: 0,
+        decoded_args: {} }, // different syscall, should not match
+    ]
+    const { runId } = await store.ingest(fixture(events))
+
+    const { rule } = validateRule({
+      id: 'test-retval', category: 'root', confidence: 0.8, rationale: 'test',
+      source: 'project', enabled: true,
+      steps: [{ syscalls: ['faccessat'], field: 'string_args', op: 'path_matches', value: '(^|/)su$',
+        retval: { op: 'eq', value: 0 } }],
+    }, 'project')
+    expect(rule).not.toBeNull()
+
+    // Test DuckDB WHERE clause against real database
+    const where = compileWhere([rule!])
+    const admitted = new Set(
+      (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
+    )
+
+    // Verify DuckDB admits exactly the retval-0 match: id 1
+    expect(admitted).toEqual(new Set([1]))
+
+    // Verify agreement: for each event, DuckDB and JS must agree - including the
+    // retval:null event (id 3), which neither side may admit.
+    for (const e of events) {
+      const jsMatches = matchSequences([rule!], [e as any]).hits.length > 0
+      expect(admitted.has(e.id), `event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+    }
+    expect(admitted.has(3)).toBe(false)
+
+    await store.close()
+  })
+})
+
+describe("op: 'any' field integration", () => {
+  it('DuckDB WHERE clause for a bare any op agrees with JS matcher, including a retval modifier', async () => {
+    const store = new GraphStore()
+    const events = [
+      { ...evA, id: 1, syscall: 'process_vm_readv', args: [], string_args: {}, retval: 8,
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // any + retval >= 1: matches
+      { ...evA, id: 2, syscall: 'process_vm_readv', args: [], string_args: {}, retval: -1,
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // retval fails the modifier
+      { ...evA, id: 3, syscall: 'process_vm_readv', args: [], string_args: {}, retval: null,
+        backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }, // enter-only record, no match
+      { ...evA, id: 4, syscall: 'openat', string_args: { '1': '/system/xbin/su' }, retval: 8,
+        decoded_args: {} }, // different syscall, should not match
+    ]
+    const { runId } = await store.ingest(fixture(events))
+
+    const { rule } = validateRule({
+      id: 'test-any-retval', category: 'integrity', confidence: 0.8, rationale: 'test',
+      source: 'project', enabled: true,
+      steps: [{ syscalls: ['process_vm_readv'], op: 'any', retval: { op: 'ge', value: 1 } }],
+    }, 'project')
+    expect(rule).not.toBeNull()
+
+    // Test DuckDB WHERE clause against real database
+    const where = compileWhere([rule!])
+    const admitted = new Set(
+      (await store.raw(`SELECT id FROM ev WHERE run_id = ${runId} AND (${where})`)).map(r => Number(r.id)),
+    )
+
+    // Verify DuckDB admits exactly the retval>=1 match: id 1
+    expect(admitted).toEqual(new Set([1]))
+
+    // Verify agreement: for each event, DuckDB and JS must agree - including the
+    // retval:null event (id 3), which neither side may admit.
+    for (const e of events) {
+      const jsMatches = matchSequences([rule!], [e as any]).hits.length > 0
+      expect(admitted.has(e.id), `event ${e.id}: SQL=${admitted.has(e.id)} JS=${jsMatches}`).toBe(jsMatches)
+    }
+    expect(admitted.has(3)).toBe(false)
+
     await store.close()
   })
 })

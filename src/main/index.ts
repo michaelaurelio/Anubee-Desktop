@@ -715,6 +715,10 @@ ipcMain.handle('findings:export', async (_e, runId: number, format: 'md' | 'json
   const reps: Record<string, SyscallEvent[]> = {}
   for (const t of tags) {
     if (reps[t.target]) continue
+    // A rasp:-prefixed target is synthetic (see project-store.ts): it never has
+    // a graph node, so a chain scan for it can never match. Skip the query
+    // rather than pay for a full-run scan that is guaranteed to return nothing.
+    if (t.target.startsWith('rasp:')) { reps[t.target] = []; continue }
     // findings export is a syscall-only view today; a funcs run's calls are
     // filtered out here (same shape reps has always had).
     reps[t.target] = (await store.nodeEvents(t.target, {}, 50, runId))

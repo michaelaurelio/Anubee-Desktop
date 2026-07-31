@@ -1,4 +1,4 @@
-import type { Tag } from './project-store'
+import { targetLabel, type Tag } from './project-store'
 import type { SyscallEvent } from './events'
 
 // A finding = a confirmed tag joined to context from a representative event:
@@ -45,9 +45,11 @@ export function buildFindings(tags: Tag[], reps: Record<string, SyscallEvent[]>)
 // prefix, plus an offset refinement when present. The offset is module-relative
 // and bare ("0x88c", or "[unmapped]" when the call site could not be resolved),
 // so it never names its library or symbol on its own - the target has to carry
-// them or the exported report loses them.
+// them or the exported report loses them. A synthetic rasp: target has no such
+// prefix and never carries an offset (it has no call site), so it goes through
+// targetLabel instead and renders as prose.
 function blockLabel(f: Finding): string {
-  const target = f.target.replace(/^(nat:|java:|sys:|edge:)/, '')
+  const target = targetLabel(f.target).replace(/^(nat:|java:|sys:|edge:)/, '')
   return f.offset ? `${target} + ${f.offset}` : target
 }
 

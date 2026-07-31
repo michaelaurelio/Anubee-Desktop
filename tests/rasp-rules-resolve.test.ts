@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  BUILTIN_RULES, validateRule, coerceRules, resolveRules,
+  BUILTIN_RULES, validateRule, coerceRules, coerceOverrides, migrateRuleId, resolveRules, hexList,
   type Rule, type RuleScope,
 } from '../src/shared/rasp-heuristics'
 
@@ -9,7 +9,7 @@ const EMPTY: RuleScope = { rules: [], enabledOverrides: {} }
 const userRule = (over: Partial<Rule> = {}): Rule => ({
   id: 'u-1', category: 'custom', confidence: 0.5, rationale: 'user rule', enabled: true,
   steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'foo' }],
-  correlate: 'symbol+tid', maxGap: 50,
+  correlate: 'symbol+tid', maxGap: 50, mode: 'ordered', minOccurrences: 1,
   source: 'global', ...over,
 })
 
@@ -24,13 +24,13 @@ describe('BUILTIN_RULES', () => {
     }
     // the corrected/added categories the redesign requires
     const byId = new Map(BUILTIN_RULES.map(r => [r.id, r]))
-    expect(byId.get('dbg-ptrace-attach')!.steps[0].value).toBe('0x10')
-    expect(byId.get('hook-frida-sock')!.steps[0].field).toBe('sock_addr')
+    expect(hexList(byId.get('dbg-ptrace-selftrace')!.steps[0].value as string)).toContain('0x10')
+    expect(byId.get('hook-frida-port')!.steps[0].field).toBe('sock_addr')
     expect(byId.get('root-selinux')).toBeTruthy()
     expect(byId.get('root-ksu-prctl')!.steps[0].op).toBe('arg_hex_eq')
-    // emulator/integrity ship NO built-in rule (not syscall-detectable)
-    expect(BUILTIN_RULES.some(r => r.category === 'emulator')).toBe(false)
-    expect(BUILTIN_RULES.some(r => r.category === 'integrity')).toBe(false)
+    // the 30-rule library ships both categories (see Task 12)
+    expect(BUILTIN_RULES.some(r => r.category === 'emulator')).toBe(true)
+    expect(BUILTIN_RULES.some(r => r.category === 'integrity')).toBe(true)
   })
 })
 
@@ -83,6 +83,39 @@ describe('coerceRules', () => {
     const { rules, errors } = coerceRules([userRule(), { garbage: true }], 'global')
     expect(rules).toHaveLength(1)
     expect(errors).toHaveLength(1)
+  })
+})
+
+// The schema-v3 rule-library overhaul renamed hook-maps -> hook-maps-open,
+// dbg-status-open -> dbg-tracerpid, dbg-ptrace-attach -> dbg-ptrace-selftrace,
+// and deleted dbg-status-read and hook-frida-sock outright. A persisted
+// enabledOverride on any of those old ids has to survive the upgrade rather
+// than silently re-enabling whatever now sits at that id.
+describe('migrateRuleId', () => {
+  it('maps each renamed id to its replacement', () => {
+    expect(migrateRuleId('hook-maps')).toBe('hook-maps-open')
+    expect(migrateRuleId('dbg-status-open')).toBe('dbg-tracerpid')
+    expect(migrateRuleId('dbg-ptrace-attach')).toBe('dbg-ptrace-selftrace')
+  })
+  it('maps each deleted id to null', () => {
+    expect(migrateRuleId('dbg-status-read')).toBeNull()
+    expect(migrateRuleId('hook-frida-sock')).toBeNull()
+  })
+  it('leaves an unrelated id untouched', () => {
+    expect(migrateRuleId('dbg-tracerpid')).toBe('dbg-tracerpid')
+  })
+})
+
+describe('coerceOverrides', () => {
+  it('survives an override on a renamed id, landing on the replacement', () => {
+    expect(coerceOverrides({ 'hook-maps': false })).toEqual({ 'hook-maps-open': false })
+  })
+  it('drops an override on a deleted id without error', () => {
+    expect(coerceOverrides({ 'dbg-status-read': false, 'dbg-tracerpid': true })).toEqual({ 'dbg-tracerpid': true })
+  })
+  it('ignores non-boolean values and non-object input', () => {
+    expect(coerceOverrides({ x: 'not a bool' })).toEqual({})
+    expect(coerceOverrides(null)).toEqual({})
   })
 })
 
@@ -161,7 +194,58 @@ describe('rule schema v2', () => {
     expect(error).toMatch(/maxGap/)
   })
 
-  it('every built-in is a one-step rule, except the frida-scan sequence', () => {
-    for (const r of BUILTIN_RULES) expect(r.steps).toHaveLength(r.id === 'hook-frida-scan' ? 2 : 1)
+  it('every built-in is a one-step rule, except the multi-step sequences', () => {
+    const multiStep: Record<string, number> = { 'hook-frida-scan': 2, 'hook-fd-enum': 2, 'dbg-tracer-fork': 3 }
+    for (const r of BUILTIN_RULES) expect(r.steps).toHaveLength(multiStep[r.id] ?? 1)
+  })
+})
+
+describe('rule schema v3', () => {
+  it('defaults mode to ordered and minOccurrences to 1 when absent (v1/v2 rules)', () => {
+    const { rule, error } = validateRule({
+      id: 'legacy', category: 'root', confidence: 0.5, rationale: 'r',
+      match: { syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'su' },
+    }, 'global')
+    expect(error).toBeNull()
+    expect(rule!.mode).toBe('ordered')
+    expect(rule!.minOccurrences).toBe(1)
+  })
+
+  it('accepts an explicit unordered mode and minOccurrences', () => {
+    const { rule } = validateRule({
+      id: 'u', category: 'hook', confidence: 0.9, rationale: 'r', mode: 'unordered', minOccurrences: 20,
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'a' }],
+    }, 'global')
+    expect(rule!.mode).toBe('unordered')
+    expect(rule!.minOccurrences).toBe(20)
+  })
+
+  it('rejects an unknown mode', () => {
+    const { rule, error } = validateRule({
+      id: 'bad', category: 'hook', confidence: 0.9, rationale: 'r', mode: 'sideways',
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'a' }],
+    }, 'global')
+    expect(rule).toBeNull()
+    expect(error).toBe('bad mode on bad')
+  })
+
+  it('rejects a non-positive or fractional minOccurrences', () => {
+    for (const bad of [0, -1, 2.5]) {
+      const { rule, error } = validateRule({
+        id: 'm', category: 'hook', confidence: 0.9, rationale: 'r', minOccurrences: bad,
+        steps: [{ syscalls: ['openat'], field: 'string_args', op: 'path_matches', value: 'a' }],
+      }, 'global')
+      expect(rule).toBeNull()
+      expect(error).toBe('minOccurrences must be a positive integer on m')
+    }
+  })
+
+  it('every built-in spec passes validation', () => {
+    expect(BUILTIN_RULES.length).toBeGreaterThan(0)
+    for (const r of BUILTIN_RULES) {
+      expect(r.mode).toBeDefined()
+      expect(r.minOccurrences).toBeGreaterThanOrEqual(1)
+      expect(r.source).toBe('builtin')
+    }
   })
 })

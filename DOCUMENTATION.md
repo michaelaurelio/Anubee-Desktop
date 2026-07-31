@@ -485,21 +485,52 @@ scorer. A `Rule` is data:
 
 ```
 { id, category, confidence, rationale, enabled,
-  steps: [{ syscalls, field, op, argIndex?, value }, ...],  // >= 1
-  correlate, maxGap, source }
+  steps: [{ syscalls, field?, op, argIndex?, value?, retval? }, ...],  // >= 1
+  mode, correlate, maxGap, minOccurrences, source }
 ```
 
-A rule is a list of ordered **steps**, not a single predicate: a length-1
-`steps` array is today's single-event predicate (unchanged from before), and a
-longer array requires each step to match, in order, before the rule fires. A
-two-step rule like `hook-frida-scan` (below) reads as "a maps walk, later
-followed by a frida-artefact probe" - either step alone is weak evidence, the
-sequence is what makes it a strong one.
+A rule is a list of **steps** plus a **mode**. In `ordered` mode (the default,
+and what every pre-existing rule means) the steps must match in sequence. In
+`unordered` mode every step must match within the same window on the same
+correlation key, in **any order**. A real instrumentation scan interleaves its
+map walk and its artefact probes rather than ordering them, so scan-shaped
+rules use `unordered`; `ordered` still expresses "open X, then read X", which
+unordered would flatten. A length-1 `steps` array is a single-event predicate
+and its mode is irrelevant.
 
-`field` is one of the event's own shapes (`args`, `string_args`, `fd_args`,
-`sock_addr`); `op` is a **fixed** operator vocabulary - `path_matches` (regex
-against a path-like field), `equals`, `arg_hex_eq` (hex-normalized arg
-comparison) - so a step is pure declarative matching, never user SQL or code.
+`field` is one of the event's own shapes and `op` is a **fixed** operator
+vocabulary, so a step is pure declarative matching, never user SQL or code:
+
+| field | source |
+|---|---|
+| `string_args` | path-like string arguments |
+| `fd_args` | the path the tracer resolved behind a file descriptor |
+| `sock_addr` | the rendered socket address |
+| `args` | raw syscall arguments |
+| `decoded_args` | the tracer's decoded flag and constant names (`PR_GET_DUMPABLE`, `O_RDONLY\|O_CLOEXEC`, `AF_UNIX`) |
+
+| op | meaning |
+|---|---|
+| `path_matches` | RE2-compatible regex, case-insensitive |
+| `equals` | exact string |
+| `arg_hex_eq` | one hex value at `argIndex`, matched in either the hex or decimal spelling the tracer emits |
+| `arg_hex_in` | any of a space-separated hex list at `argIndex`, same dual-spelling handling |
+| `any` | the syscall alone, no argument predicate; `field` and `value` are absent |
+
+A step may additionally carry a **`retval` condition** (`eq` / `ne` / `lt` /
+`ge`), evaluated on the **same event**. This is what separates "probed for `su`"
+from "probed for `su` and found it": `faccessat("/system/xbin/su") == 0` means
+the device is rooted, `-2` (ENOENT) means it is not. It is a step modifier
+rather than a sixth field on purpose - as a field it would need two steps, and
+in `unordered` mode two steps may be satisfied by two *different* events, so an
+`openat(su)` plus any unrelated later `retval == 0` would falsely complete.
+
+`minOccurrences` is a rule-level noise floor: the rule produces no suggestion
+until it has completed that many matches **for one target**. Sub-floor hits are
+dropped whole, reaching neither a row's occurrence count nor its per-offset
+children. This is what lets a weak-but-real signal ship without flooding the
+panel - one `/proc/cpuinfo` read is nothing, a burst of thread-`comm` opens is
+an instrumentation hunt.
 That fixed vocabulary is the safety boundary: anyone (a project, a user
 library) can add a rule, but no rule can execute arbitrary logic. In both
 compilers (below), an `fd_args` value is normalised from the tracer's raw
@@ -536,13 +567,38 @@ real-DuckDB integration test that checks them **per step**:
   a `RawHit` when a rule's full step sequence completes. The SQL pre-filter is
   purely a bounded narrowing, never the source of truth for what matches.
 
-Every hit is attributed to the innermost **non-system** native frame
-(`targetOf`) - the app's own RASP block (e.g.
-`base.apk -> libsentinel.so!sentinel_check_root`), skipping the bionic / ART /
-framework wrappers; it falls back to the innermost **Java** frame when the
-whole native path is system libs (a managed-code check with no custom native
-lib to anchor on), and yields nothing at all for a stack that is entirely
-platform code (no `Suggestion` row is produced for it). Resolved hits
+**Where a suggestion points.** A finding is attributed to the app's own code,
+never to the platform library it reached the kernel through. `attributionOf`
+prefers, in order:
+
+1. the innermost **app-native** frame (e.g.
+   `base.apk -> libsentinel.so!sentinel_check_root`),
+2. the innermost **java** frame that is not platform or vendor framework code,
+3. nothing app-owned survives - the finding is attributed to the synthetic
+   target `rasp:unattributed:<category>`.
+
+A module's class comes from its **real load path**, taken from the tracer's
+`lib` records (`src/shared/module-origin.ts`), not from a basename denylist
+that can never keep up with the platform. Anything under `/data/app/` (or
+bundled inside the APK, `base.apk -> inner.so`) is the app's; ART AOT output
+(`boot.oat`, `base.vdex`, `*.odex`) is managed code; everything under
+`/system`, `/vendor`, `/apex` and friends is platform. The basename list
+survives only as a fallback for a module with no `lib` record. Java frames are
+filtered by package prefix (`java.`, `libcore.`, `android.`, `androidx.`,
+`dalvik.`, `kotlin.`, `miui.` and others) so a framework frame is never
+mistaken for the app's check.
+
+The third case is common and is **not** a defect in this app: Anubee byte-caps
+`java_stack` innermost-first, so a deep Kotlin or Compose stack loses exactly
+the outer frame naming the app's own check. Measured on a production capture,
+roughly 72% of hits on Java-implemented checks have no recoverable app-owned
+caller. The synthetic target keeps those findings visible and countable instead
+of dropping them or naming ART's JNI trampoline. It is fully taggable and
+dismissible, renders in prose ("unattributed root checks (caller truncated)"),
+has **no graph node** so it never seeds graph colouring, and is never reported
+as an orphaned tag - it is orphaned by construction, not by a broken re-ingest.
+
+Resolved hits
 (`resolveHits` in `src/shared/origins.ts`) are aggregated per **(target,
 category)** pair (`aggregate()`: sums occurrences, keeps the highest-confidence
 rationale, and folds each distinct call-site offset into a per-offset count)
@@ -570,29 +626,105 @@ flowchart LR
   E -->|Suggestion| F[Suggestions popup]
 ```
 
-**Built-in rules** (`BUILTIN_RULES`). Every row below is a single step unless
-noted; `hook-frida-scan` is the one built-in **sequence** rule (two steps,
-matched in order on the same `module+tid`, up to 200 rule-relevant events
-apart):
+**Built-in rules** (`BUILTIN_RULES`). Thirty-one rules across five categories,
+authored as raw specs and validated through `coerceRules` at module load, so a
+malformed built-in throws at import rather than disappearing quietly. Every
+regex and threshold was derived by measuring against two real captures: the
+maintainer's reference detector app and a production Android capture held
+outside the repository. `minOcc` is `minOccurrences`, the row's actual floor;
+blank means 1.
 
-| id | syscalls | field / op / value | category | conf |
-|---|---|---|---|---|
-| `dbg-ptrace-attach` | ptrace | args / arg_hex_eq[0] / `0x10` | debugger | 0.7 |
-| `dbg-ptrace-traceme` | ptrace | args / arg_hex_eq[0] / `0x0` | debugger | 0.9 |
-| `dbg-status-open` | openat, newfstatat | string_args / path_matches / `/proc/self/status$` | debugger | 0.6 |
-| `dbg-status-read` | read | fd_args / equals / `/proc/self/status` | debugger | 0.6 |
-| `hook-maps` | openat, newfstatat | string_args / path_matches / `/proc/self/maps$` | hook | 0.4 |
-| `hook-frida-sock` | connect | sock_addr / path_matches / `frida` | hook | 0.9 |
-| `hook-frida-scan` | step 1: openat / string_args / path_matches / `/proc/self/maps$`; step 2: openat, newfstatat, faccessat, access, readlinkat / string_args / path_matches / `frida\|gum-js-loop\|re\.frida\|linjector` | hook | 0.95 |
-| `root-paths` | openat, access, newfstatat, faccessat | string_args / path_matches / `su`, `magisk`, `busybox`, `/system/xbin`, `/sbin`, `/data/adb` | root | 0.85 |
-| `root-selinux` | openat, newfstatat, faccessat | string_args / path_matches / `/sys/fs/selinux/enforce$` | root | 0.8 |
-| `root-ksu-prctl` | prctl | args / arg_hex_eq[0] / `0xdeadbeef` | root | 0.9 |
+Six rules score zero on both available captures because the capture device is
+clean and unrooted. Their `matches` description ends **(unfired)**: their
+patterns come from documented artefact names, so they are authored rather than
+validated, and that distinction is deliberate.
 
-`emulator` and `integrity` ship **no built-in rule** and are not
-syscall-detectable: emulator checks are typically property reads
-(`__system_property_get`, not a syscall), and integrity checks read the app's
-own `base.apk`, which is indistinguishable from ordinary DEX/zip loading at the
-syscall layer. Both remain valid `RaspCategory` values for manual tagging.
+**root**
+
+| id | matches | conf | minOcc |
+|---|---|---|---|
+| `root-paths` | a root-indicator path (su, magisk, busybox, xbin, sbin, data-adb, supersu) | 0.85 | |
+| `root-found` | a root binary or artefact that **exists** (`retval eq 0`) - binaries only, since `/system/xbin` is a stock directory **(unfired)** | 0.95 | |
+| `root-shell-probe` | `execve` of a shell utility - shelling out to `which su` or `ps` | 0.6 | |
+| `root-kernel-files` | `/proc/modules`, `/proc/filesystems`, `/proc/mounts`, `/proc/self/mountinfo` | 0.5 | |
+| `root-selinux` | `/sys/fs/selinux` | 0.8 | |
+| `root-ksu-prctl` | `prctl(0xdeadbeef)` - the KernelSU magic probe **(unfired)** | 0.9 | |
+
+**debugger**
+
+| id | matches | conf | minOcc |
+|---|---|---|---|
+| `dbg-tracerpid` | `/proc/(self\|thread-self\|<pid>)/status` - a TracerPid check | 0.6 | |
+| `dbg-ptrace-traceme` | `ptrace(PTRACE_TRACEME)` **(unfired)** | 0.9 | |
+| `dbg-ptrace-selftrace` | `arg_hex_in` over ATTACH/CONT/DETACH/KILL/SETOPTIONS - the app traces its own threads so a real debugger cannot attach | 0.85 | 10 |
+| `dbg-tracer-fork` | **unordered**: `any ptrace` + `any wait4` + `any getppid` on one thread - the fork-and-trace pattern | 0.9 | |
+| `dbg-prctl-antidebug` | `decoded_args` matching `PR_SET/GET_DUMPABLE` or `PR_SET_SECCOMP` | 0.5 | 5 |
+| `dbg-ftrace` | the kernel ftrace interface - is a kernel tracer active | 0.7 | |
+
+**hook**
+
+| id | matches | conf | minOcc |
+|---|---|---|---|
+| `hook-maps-open` | opening `/proc/<pid>/maps` or `smaps` - weak alone | 0.4 | |
+| `hook-maps-scan` | sustained reading of maps/smaps - a memory-map or injected-region scan | 0.8 | 50 |
+| `hook-frida-artefact` | a frida artefact by name, **anchored** (`frida-agent`, `libfrida`, `re.frida`, `gum-js-loop`, ...) **(unfired)** | 0.95 | |
+| `hook-frida-port` | `bind` or `connect` on frida's default port 27042/27043 | 0.9 | |
+| `hook-frida-port-taken` | the same bind failing with EADDRINUSE - frida-server is already listening **(unfired)** | 0.99 | |
+| `hook-frida-sock` | `connect` to a frida-named socket address (bare `frida` - narrower field than a path, so unanchored is safe) | 0.9 | |
+| `hook-thread-comm-scan` | enumerating every thread name via `/proc/<pid>/task/<tid>/comm` | 0.75 | 20 |
+| `hook-fd-enum` | **unordered**: opening `/proc/<pid>/fd` + `any getdents64` | 0.6 | |
+| `hook-fd-readlink` | sustained `readlink` of `/proc/<pid>/fd/<n>` | 0.6 | 50 |
+| `hook-xposed` | an Xposed / Riru / Zygisk / Substrate artefact, including the renamed `app_process` binaries | 0.9 | |
+| `hook-frida-scan` | **unordered**: a maps/smaps walk + a frida artefact probe on one thread **(unfired)** | 0.95 | |
+
+**emulator**
+
+| id | matches | conf | minOcc |
+|---|---|---|---|
+| `emu-qemu-goldfish` | a QEMU / goldfish / ranchu artefact | 0.9 | |
+| `emu-vendor-images` | a vendor emulator image (Genymotion, BlueStacks, Nox, LDPlayer, Droid4X, VirtualBox) | 0.9 | |
+| `emu-hwinfo` | `/proc/cpuinfo`, `/proc/version`, `/proc/meminfo`, `/sys/module/intel_powerclamp`, `/sys/devices/virtual` - hardware fingerprinting, weak | 0.35 | 2 |
+| `emu-qemu-props` | a qemu system-property context | 0.7 | |
+
+**integrity**
+
+| id | matches | conf | minOcc |
+|---|---|---|---|
+| `integ-self-mem-read` | `any process_vm_readv` - the app reads its own memory to checksum it | 0.85 | 50 |
+| `integ-apk-self` | repeated stat/open of the app's own APK - signature verification. ART also loads the APK legitimately, hence the low confidence | 0.35 | 10 |
+| `integ-dex` | repeated stat/open of the app's own dex/odex/vdex | 0.4 | 5 |
+
+**custom**
+
+| id | matches | conf | minOcc |
+|---|---|---|---|
+| `env-prop-sweep` | a broad sweep of system-property contexts - environment fingerprinting. The SELinux context leaks the property group, not the name | 0.3 | 100 |
+
+Two anchoring lessons are baked into these patterns and should not be undone.
+An unanchored `gadget` token scored 86 false positives on a real capture
+(`android.hardware.usb.gadget` HALs and theme files), and bare `memu` / `andy`
+emulator tokens substring-matched ordinary paths. Equally, `/proc` patterns
+accept the **numeric-pid** form and not only `/proc/self/`: real code uses
+`getpid()` plus `snprintf`, and the rule this replaces recalled 1 of 106
+TracerPid probes on the reference fixture because it anchored on `/proc/self/`.
+The replacement catches all 106.
+
+**Limitations.**
+
+- `op: 'any'` compiles to a bare `syscall IN (...)`, so every row of that
+  syscall reaches the JS heap. It is rejected at validation on eighteen
+  high-frequency syscalls (`close`, `read`, `openat`, ...), and `suggest` logs
+  one advisory warning past a candidate-row budget.
+- A `retval` condition never matches an enter-only record (`retval: null`), so
+  a retval-conditioned rule under-reports on snapshot-mode captures.
+- `maxGap` counts rule-relevant events, not elapsed time - Anubee's syscall
+  records carry no timestamp.
+- An `unordered` rule's steps are assigned greedily by ascending index with no
+  backtracking, so its steps should be **mutually exclusive**. If two steps can
+  match the same event the rule can under-report. The three shipped unordered
+  rules are exclusive by disjoint syscall sets or disjoint path shapes.
+- Attribution quality depends on the capture carrying `lib` records. Without
+  them the path classifier is inert and the basename fallback does all the work.
 
 **Merge across scopes.** Rules resolve from three layers: `BUILTIN_RULES`, a
 global library (`<userData>/rasp-rules.json`, `rasp-rules-store.ts`), and a
@@ -616,16 +748,28 @@ stored global/project scope (not the merged effective list), mutates a copy,
 and calls `rasp:rules:save`.
 
 The editor is `id`, `category`, `confidence`, `rationale`, `correlate`,
-`maxGap`, a **repeating step block** (one block per `RuleStep`: `syscalls`,
-`field`, `op`, `argIndex` - shown only when `op` is `arg_hex_eq` - `value`,
-with its own Remove step button, disabled while only one step remains) plus
-Add step to append another, and an explicit scope radio (Global | Project)
-independent of the row being edited. `draftFromForm`/`validateRule` reject an
-invalid draft inline before anything reaches IPC. In the rule list, a card
-row's predicate line is `sequenceSummary(r)` - each step's predicate, in the
-order the steps must match, joined by `→` - so a two-step rule like
-`hook-frida-scan` shows both steps on one line at a glance; a single-step rule
-renders exactly as before.
+`maxGap`, `mode` (Ordered | Unordered) and `minOccurrences`, plus a **repeating
+step block** (one block per `RuleStep`: `syscalls`, `field`, `op`, `argIndex`,
+`value`, and an optional `retval` operator and value, with its own Remove step
+button, disabled while only one step remains), Add step to append another, and
+an explicit scope radio (Global | Project) independent of the row being edited.
+
+Rows that do not apply to the chosen operator hide themselves and re-sync on
+every change: `field` and `value` disappear for `op: 'any'`, `argIndex` appears
+only for the two hex operators, and the retval value input appears only once a
+retval operator is chosen. `draftFromForm` omits `field`/`value` entirely for an
+`any` step and omits `retval` unless an operator is set, because the validator
+rejects a step carrying either spuriously. `draftFromForm`/`validateRule` reject
+an invalid draft inline before anything reaches IPC, which is also how an `any`
+step naming a denylisted syscall surfaces its error.
+
+The step-list heading tracks the mode live: `step 1 → step 2` when ordered,
+`step 1 + step 2` when unordered. That separator is the only thing telling an
+author that unordered steps are a **set** rather than a sequence, so it updates
+the moment the mode selector changes rather than on reopen. In the rule list a
+card row's predicate line is `sequenceSummary(r)`, joined by the same separator
+for the same reason; a single-step rule renders exactly as before, and an `any`
+step reads as `any process_vm_readv` rather than naming a field it does not have.
 
 **Editing a builtin forks it.** Builtins are read-only in `BUILTIN_RULES`;
 saving an edit to a builtin row writes a same-`id` rule into whichever scope

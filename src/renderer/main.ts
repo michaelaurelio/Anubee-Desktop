@@ -13,7 +13,7 @@ import { badgeText, renderTagEditor } from './tag-view'
 import { applyHighlight, clearHighlight } from './graph-highlight'
 import { showOffsetPopup, closeOffsetPopup, type NodeBox } from './offset-popup'
 import { showNodeMenu, closeNodeMenu, showTagPopup, closeTagPopup } from './node-menu'
-import { renderSuggestions } from './suggestions-view'
+import { renderSuggestions, renderSuggestionsLoading } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
 import { raspNodeStates } from './rasp-node-state'
@@ -329,6 +329,11 @@ function wireColGrips(scroll: HTMLElement): void {
 // reappear under a row that is still open.
 async function renderSuggestionsInto(host: HTMLElement): Promise<void> {
   if (activeRunId === undefined) return
+  // Paint placeholders before awaiting the scan: suggest() re-scores the whole
+  // run, so on a large capture the panel would otherwise sit blank long enough
+  // to look like it found nothing. Confirm / Reject do not come back through
+  // here (they mutate their own row), so the skeleton cannot flash per action.
+  renderSuggestionsLoading(host)
   const all = await window.anubee.suggest(activeRunId)
   const open = openSuggestions(all, tags, dismissed)
   renderSuggestions(host, open,

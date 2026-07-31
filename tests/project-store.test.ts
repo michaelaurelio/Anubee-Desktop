@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseSidecar, serializeSidecar, upsertTag, removeTag, tagsByTarget, orphanedTags,
-  addDismissed, isDismissed, openSuggestions, type Tag, type RaspCategory,
+  addDismissed, isDismissed, openSuggestions, targetLabel, type Tag, type RaspCategory,
 } from '../src/shared/project-store'
 import type { Suggestion } from '../src/shared/rasp-heuristics'
 
@@ -65,6 +65,24 @@ describe('project-store', () => {
     expect(orphanedTags([live, gone], new Set(['nat:libexample.so!removed']))).toEqual([gone])
     expect(orphanedTags([live, gone], new Set())).toEqual([])
   })
+
+  it('never reports a rasp: target as orphaned, even when absent from the node set', () => {
+    const synthetic = tag({ target: 'rasp:unattributed:root' })
+    expect(orphanedTags([synthetic], new Set())).toEqual([])
+    expect(orphanedTags([synthetic], new Set(['rasp:unattributed:root']))).toEqual([])
+  })
+})
+
+describe('targetLabel', () => {
+  it('renders a synthetic target as prose', () => {
+    expect(targetLabel('rasp:unattributed:root')).toBe('unattributed root checks (caller truncated)')
+    expect(targetLabel('rasp:unattributed:hook')).toBe('unattributed hook checks (caller truncated)')
+  })
+
+  it('leaves a real node id untouched', () => {
+    expect(targetLabel('nat:libsentinel.so!check_root')).toBe('nat:libsentinel.so!check_root')
+    expect(targetLabel('java:dev.anubee.detector.RootCheck.run')).toBe('java:dev.anubee.detector.RootCheck.run')
+  })
 })
 
 import { parseSidecar as _parseSidecar, serializeSidecar as _serializeSidecar } from '../src/shared/project-store'
@@ -72,7 +90,8 @@ import type { Rule as _Rule } from '../src/shared/rasp-heuristics'
 
 describe('sidecar rules', () => {
   const projRule: _Rule = { id: 'p-1', category: 'custom', confidence: 0.4, rationale: 'proj', enabled: true, source: 'project',
-    steps: [{ syscalls: ['openat'], field: 'string_args', op: 'equals', value: '/x' }], correlate: 'symbol+tid', maxGap: 50 }
+    steps: [{ syscalls: ['openat'], field: 'string_args', op: 'equals', value: '/x' }], correlate: 'symbol+tid', maxGap: 50,
+    mode: 'ordered', minOccurrences: 1 }
 
   it('round-trips rules and enabledOverrides through serialize/parse', () => {
     const text = _serializeSidecar({ file: 'run.jsonl', ingestedAt: 'now' }, [], [projRule], { 'root-paths': false })
@@ -85,6 +104,21 @@ describe('sidecar rules', () => {
   it('defaults rules/enabledOverrides to empty when the sidecar predates them', () => {
     const back = _parseSidecar(JSON.stringify({ schemaVersion: 1, run: { file: 'r', ingestedAt: 'x' }, tags: [] }))
     expect(back.rules).toEqual([])
+    expect(back.enabledOverrides).toEqual({})
+  })
+
+  it('migrates an override on a renamed built-in id to its replacement', () => {
+    const back = _parseSidecar(JSON.stringify({
+      schemaVersion: 3, run: { file: 'r', ingestedAt: 'x' }, tags: [], enabledOverrides: { 'hook-maps': false },
+    }))
+    expect(back.enabledOverrides).toEqual({ 'hook-maps-open': false })
+  })
+
+  it('drops an override on a deleted built-in id without error', () => {
+    const back = _parseSidecar(JSON.stringify({
+      schemaVersion: 3, run: { file: 'r', ingestedAt: 'x' }, tags: [],
+      enabledOverrides: { 'dbg-status-read': false, 'hook-frida-sock': true },
+    }))
     expect(back.enabledOverrides).toEqual({})
   })
 })
@@ -107,13 +141,13 @@ describe('dismissed suggestions', () => {
 })
 
 describe('sidecar schemaVersion', () => {
-  it('reads a v1 sidecar and writes v2', () => {
+  it('reads a v1 sidecar and writes v3', () => {
     const v1 = JSON.stringify({
       schemaVersion: 1, run: { file: 'r.jsonl', ingestedAt: 'now' }, tags: [], rules: [], enabledOverrides: {},
     })
     expect(parseSidecar(v1).errors).toEqual([])
     const out = JSON.parse(serializeSidecar({ file: 'r.jsonl', ingestedAt: 'now' }, []))
-    expect(out.schemaVersion).toBe(2)
+    expect(out.schemaVersion).toBe(3)
   })
 })
 

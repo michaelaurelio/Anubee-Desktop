@@ -5,11 +5,12 @@ import { filterToSql, type Filter } from '@shared/filter'
 import { capSlice, labelForId, mergeGraphs, setsFromChain, type GraphNode, type GraphEdge, type GraphSlice, type HighlightSets } from '@shared/graph-shape'
 import type { TableRow } from '@shared/table'
 import type { StackRollup } from '@shared/flame-shape'
-import { compileWhere, SequenceMatcher, aggregate, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
+import { compileWhere, SequenceMatcher, aggregate, applyMinOccurrences, resolveRules, BUILTIN_RULES, type Rule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
 import { presenceOf, type DiffRow, type MergedSlice, type MergedNode } from '@shared/diff'
 import { parseHexAddr, moduleRelative, resolveHits, baseKey, type ModuleBases, type OffsetRow } from '@shared/origins'
 import { parseFrameSymbol } from '@shared/frame-symbol'
 import type { LibRow } from '@shared/native-lib'
+import type { ModulePaths } from '@shared/module-origin'
 
 export type { TableRow }
 
@@ -178,6 +179,10 @@ export class GraphStore {
   // the quoted-hex `start` strings.
   private modmap = new Map<number, Map<string, bigint>>()
 
+  // runId -> (module basename -> full load path). Feeds module-origin's
+  // three-way classification; first write wins on a basename collision.
+  private libmap = new Map<number, Map<string, string>>()
+
   moduleBase(runId: number, pid: number, module: string): bigint | undefined {
     return this.modmap.get(runId)?.get(baseKey(pid, module))
   }
@@ -253,6 +258,7 @@ export class GraphStore {
        WHERE run_id = ${runId} AND type = 'lib' AND library IS NOT NULL AND start IS NOT NULL`,
     )
     const rmap = new Map<string, bigint>()
+    const lpaths = new Map<string, string>()
     for (const r of libRows) {
       const start = parseHexAddr(String(r.start))
       if (start === null) continue
@@ -260,8 +266,10 @@ export class GraphStore {
       const key = baseKey(num(r.pid)!, basename)
       const prev = rmap.get(key)
       if (prev === undefined || start < prev) rmap.set(key, start)
+      if (!lpaths.has(basename)) lpaths.set(basename, String(r.library))
     }
     this.modmap.set(runId, rmap)
+    this.libmap.set(runId, lpaths)
 
     // EPIC A: only drop malformed lines now - every other engine's records
     // (func/call/return/coverage/...) are retained, partitioned by `type` for
@@ -762,6 +770,11 @@ export class GraphStore {
   // keeps even a pathologically broad rule library off the JS heap in one lump.
   private get suggestPage(): number { return this.opts.suggestPage ?? 20000 }
 
+  // Warn once when one run's candidate set gets large enough that an over-broad
+  // rule (typically an op:'any' step) is the likely cause. Advisory only: the
+  // scan still completes, it is just no longer silent.
+  private static readonly SUGGEST_ROW_BUDGET = 250_000
+
   // Score the run against a resolved rule set. Main resolves built-in + global +
   // project rules and passes them in; when omitted we default to the enabled
   // built-ins so single-arg callers (tests) keep working. compileWhere bounds the
@@ -772,8 +785,9 @@ export class GraphStore {
     const effective = (rules ?? resolveRules(BUILTIN_RULES, EMPTY_SCOPE, EMPTY_SCOPE)).filter(r => r.enabled)
     if (effective.length === 0) return []
     const where = compileWhere(effective)
-    const matcher = new SequenceMatcher(effective)
+    const matcher = new SequenceMatcher(effective, undefined, { paths: this.modulePaths(rid) })
     let offset = 0
+    let admitted = 0
     for (;;) {
       let rows
       try {
@@ -791,19 +805,31 @@ export class GraphStore {
         const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
         matcher.push(ev as SyscallEvent)
       }
+      admitted += rows.length
       if (rows.length < this.suggestPage) break
       offset += rows.length
+    }
+    if (admitted > GraphStore.SUGGEST_ROW_BUDGET) {
+      console.warn(
+        `suggest: ${admitted} candidate rows admitted (budget ${GraphStore.SUGGEST_ROW_BUDGET}) - ` +
+        `a rule is likely over-broad; check any op:'any' steps`,
+      )
     }
     const { hits, dropped } = matcher.finish()
     if (dropped > 0) {
       console.warn(`suggest: ${dropped} in-flight sequence matches dropped at the cap; suggestions may be incomplete`)
     }
-    return aggregate(resolveHits(hits, this.bases(rid)))
+    return aggregate(resolveHits(applyMinOccurrences(hits, effective), this.bases(rid)))
   }
 
   // The run's load-base table, as plain data for the pure resolver.
   private bases(runId: number): ModuleBases {
     return this.modmap.get(runId) ?? new Map<string, bigint>()
+  }
+
+  // The run's module load-path table, as plain data for the pure classifier.
+  modulePaths(runId: number): ModulePaths {
+    return this.libmap.get(runId) ?? new Map<string, string>()
   }
 
   // Preview a single (draft) rule against a run without persisting it. Bounded by
@@ -821,7 +847,7 @@ export class GraphStore {
       console.error(`previewRule: rule query failed: ${(e as Error).message}`)
       return { events: 0, targets: 0 }
     }
-    const matcher = new SequenceMatcher([rule])
+    const matcher = new SequenceMatcher([rule], undefined, { paths: this.modulePaths(rid) })
     for (const r of rows) {
       const { run_id: _drop, ...ev } = JSON.parse(r.js as string)
       matcher.push(ev as SyscallEvent)
@@ -924,6 +950,7 @@ export class GraphStore {
     this.instance = undefined
     this.runsMap.clear()
     this.modmap.clear()
+    this.libmap.clear()
     this.activeRunId = undefined
     this.nextRunId = 1
   }

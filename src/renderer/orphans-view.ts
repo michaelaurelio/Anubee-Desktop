@@ -30,6 +30,9 @@ export function renderOrphans(
   for (const t of orphans) {
     const row = document.createElement('div')
     row.style.marginTop = '4px'
+    // No targetLabel() here: `orphans` always comes from project-store's
+    // orphanedTags(), which filters every rasp: target out before this
+    // renders, so a synthetic target's prose branch can never fire on this row.
     row.textContent = `${badgeText([t])} ${t.target}${t.offset ? ' @ ' + t.offset : ''}${t.note ? ' - ' + t.note : ''}`
     const drop = document.createElement('button')
     drop.textContent = 'Drop'

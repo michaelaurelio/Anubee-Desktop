@@ -54,16 +54,11 @@ describe('matchSequences over the built-in set', () => {
   it('flags openat /proc/self/status as debugger', () => {
     expect(cats({ ...base, syscall: 'openat', string_args: { '1': '/proc/self/status' } })).toContain('debugger')
   })
-  it('flags read of /proc/self/status as debugger (real fd_args shape)', () => {
-    expect(cats({ ...base, syscall: 'read', fd_args: { '0': 'fd=6 </proc/self/status>' },
-                  backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] }))
-      .toContain('debugger')
-  })
   it('flags openat /proc/self/maps as hook', () => {
     expect(cats({ ...base, syscall: 'openat', string_args: { '1': '/proc/self/maps' } })).toContain('hook')
   })
-  it('flags a connect to a frida socket as hook', () => {
-    expect(cats({ ...base, syscall: 'connect', sock_addr: 'unix:@/frida-zymbiote-abc',
+  it('flags a bind on the frida default port as hook', () => {
+    expect(cats({ ...base, syscall: 'bind', sock_addr: '[::ffff:127.0.0.1]:27042',
       backtrace: [{ frame: 0, addr: '0x1000', symbol: 'libsentinel.so!chk+0x10' }] })).toContain('hook')
   })
   it('returns nothing for a benign event', () => {
@@ -91,14 +86,15 @@ describe('compileWhere', () => {
     expect(w).toContain('regexp_matches')
   })
   it('emits a scalar clause for sock_addr', () => {
-    const r: Rule = BUILTIN_RULES.find(x => x.id === 'hook-frida-sock')!
+    const r: Rule = BUILTIN_RULES.find(x => x.id === 'hook-frida-port')!
     const w = compileWhere([r])
     expect(w).toContain('regexp_matches(sock_addr')
     expect(w).not.toContain('map_values(sock_addr)')
   })
   it('escapes single quotes in a value', () => {
     const r: Rule = { id: 'q', category: 'custom', confidence: 0.5, rationale: '', enabled: true, source: 'global',
-      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'equals', value: "a'b" }], correlate: 'symbol+tid', maxGap: 50 }
+      steps: [{ syscalls: ['openat'], field: 'string_args', op: 'equals', value: "a'b" }], correlate: 'symbol+tid', maxGap: 50,
+      mode: 'ordered', minOccurrences: 1 }
     expect(compileWhere([r])).toContain("'a''b'")
   })
   it('returns false for an empty rule list (matches nothing)', () => {
@@ -112,9 +108,13 @@ describe('target attribution', () => {
     { frame: 1, addr: '0x2000', symbol: 'libart.so!ReadMaps+0x40' },
   ]
   it('does not attribute a platform-only stack to a platform library', () => {
+    // Neither libc.so nor libart.so may be named, and the detection must not be
+    // lost for want of an app-owned caller: it goes to the synthetic target.
     const { hits } = matchSequences(rules, [{ ...base, syscall: 'openat',
       string_args: { '1': '/proc/self/maps' }, backtrace: platform }])
-    expect(hits).toEqual([])
+    expect(hits).toHaveLength(1)
+    expect(hits[0].target).toBe('rasp:unattributed:hook')
+    expect(hits[0].frame).toBeNull()
   })
   it('attributes to the app library when one is present', () => {
     const { hits } = matchSequences(rules, [{ ...base, syscall: 'openat',

@@ -4,7 +4,7 @@
 // optional block refinement, and the RASP behaviour it implements. Node/edge
 // id grammar comes from graph-shape.
 
-import { coerceRules, type Rule, type Suggestion, type OffsetHit } from './rasp-heuristics'
+import { coerceRules, coerceOverrides, type Rule, type Suggestion, type OffsetHit } from './rasp-heuristics'
 
 export type RaspCategory = 'root' | 'debugger' | 'emulator' | 'integrity' | 'hook' | 'custom'
 
@@ -33,7 +33,7 @@ export interface Dismissed {
 }
 
 export interface Sidecar {
-  schemaVersion: 1 | 2
+  schemaVersion: 1 | 2 | 3
   run: { file: string; ingestedAt: string }
   tags: Tag[]
   rules?: Rule[]
@@ -42,6 +42,16 @@ export interface Sidecar {
 }
 
 export const CATEGORIES: RaspCategory[] = ['root', 'debugger', 'emulator', 'integrity', 'hook', 'custom']
+
+// A rasp:unattributed:<category> target is a real, taggable finding with no graph
+// node - it exists because Anubee truncates java_stack, so the app's own caller is
+// not recoverable. Print it as prose; the raw id means nothing to an analyst.
+const UNATTRIBUTED = /^rasp:unattributed:(.+)$/
+
+export function targetLabel(target: string): string {
+  const m = UNATTRIBUTED.exec(target)
+  return m ? `unattributed ${m[1]} checks (caller truncated)` : target
+}
 
 // Validate one entry into a Tag, or return null (caller records the error).
 function coerceTag(v: unknown): Tag | null {
@@ -59,15 +69,6 @@ function coerceTag(v: unknown): Tag | null {
   if (typeof o.confidence === 'number') t.confidence = o.confidence
   if (typeof o.rationale === 'string') t.rationale = o.rationale
   return t
-}
-
-function coerceOverrides(v: unknown): Record<string, boolean> {
-  if (typeof v !== 'object' || v === null) return {}
-  const out: Record<string, boolean> = {}
-  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-    if (typeof val === 'boolean') out[k] = val
-  }
-  return out
 }
 
 function coerceDismissed(v: unknown): Dismissed[] {
@@ -117,7 +118,7 @@ export function serializeSidecar(
   enabledOverrides: Record<string, boolean> = {},
   dismissed: Dismissed[] = [],
 ): string {
-  const sidecar: Sidecar = { schemaVersion: 2, run, tags, rules, enabledOverrides, dismissed }
+  const sidecar: Sidecar = { schemaVersion: 3, run, tags, rules, enabledOverrides, dismissed }
   return JSON.stringify(sidecar, null, 2)
 }
 
@@ -158,8 +159,12 @@ export function tagsByTarget(tags: Tag[], target: string): Tag[] {
 
 // Tags whose target no longer matches any node/edge in the active run - the
 // caller supplies the orphaned-target set (computed against the live run).
+// A rasp: target (e.g. rasp:unattributed:root) is excluded even if it is in
+// that set: it is a synthetic finding target that by design never has a graph
+// node, so it is orphaned-by-construction and must never surface as if a
+// re-ingest broke it.
 export function orphanedTags(tags: Tag[], orphanTargets: Set<string>): Tag[] {
-  return tags.filter(t => orphanTargets.has(t.target))
+  return tags.filter(t => !t.target.startsWith('rasp:') && orphanTargets.has(t.target))
 }
 
 // The Suggestions popup's read-path filter. A row drops off the list once it
