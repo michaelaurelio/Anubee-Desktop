@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  BUILTIN_RULES, validateRule, coerceRules, resolveRules, hexList,
+  BUILTIN_RULES, validateRule, coerceRules, coerceOverrides, migrateRuleId, resolveRules, hexList,
   type Rule, type RuleScope,
 } from '../src/shared/rasp-heuristics'
 
@@ -83,6 +83,39 @@ describe('coerceRules', () => {
     const { rules, errors } = coerceRules([userRule(), { garbage: true }], 'global')
     expect(rules).toHaveLength(1)
     expect(errors).toHaveLength(1)
+  })
+})
+
+// The schema-v3 rule-library overhaul renamed hook-maps -> hook-maps-open,
+// dbg-status-open -> dbg-tracerpid, dbg-ptrace-attach -> dbg-ptrace-selftrace,
+// and deleted dbg-status-read and hook-frida-sock outright. A persisted
+// enabledOverride on any of those old ids has to survive the upgrade rather
+// than silently re-enabling whatever now sits at that id.
+describe('migrateRuleId', () => {
+  it('maps each renamed id to its replacement', () => {
+    expect(migrateRuleId('hook-maps')).toBe('hook-maps-open')
+    expect(migrateRuleId('dbg-status-open')).toBe('dbg-tracerpid')
+    expect(migrateRuleId('dbg-ptrace-attach')).toBe('dbg-ptrace-selftrace')
+  })
+  it('maps each deleted id to null', () => {
+    expect(migrateRuleId('dbg-status-read')).toBeNull()
+    expect(migrateRuleId('hook-frida-sock')).toBeNull()
+  })
+  it('leaves an unrelated id untouched', () => {
+    expect(migrateRuleId('dbg-tracerpid')).toBe('dbg-tracerpid')
+  })
+})
+
+describe('coerceOverrides', () => {
+  it('survives an override on a renamed id, landing on the replacement', () => {
+    expect(coerceOverrides({ 'hook-maps': false })).toEqual({ 'hook-maps-open': false })
+  })
+  it('drops an override on a deleted id without error', () => {
+    expect(coerceOverrides({ 'dbg-status-read': false, 'dbg-tracerpid': true })).toEqual({ 'dbg-tracerpid': true })
+  })
+  it('ignores non-boolean values and non-object input', () => {
+    expect(coerceOverrides({ x: 'not a bool' })).toEqual({})
+    expect(coerceOverrides(null)).toEqual({})
   })
 })
 

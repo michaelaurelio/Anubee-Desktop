@@ -106,6 +106,21 @@ describe('sidecar rules', () => {
     expect(back.rules).toEqual([])
     expect(back.enabledOverrides).toEqual({})
   })
+
+  it('migrates an override on a renamed built-in id to its replacement', () => {
+    const back = _parseSidecar(JSON.stringify({
+      schemaVersion: 3, run: { file: 'r', ingestedAt: 'x' }, tags: [], enabledOverrides: { 'hook-maps': false },
+    }))
+    expect(back.enabledOverrides).toEqual({ 'hook-maps-open': false })
+  })
+
+  it('drops an override on a deleted built-in id without error', () => {
+    const back = _parseSidecar(JSON.stringify({
+      schemaVersion: 3, run: { file: 'r', ingestedAt: 'x' }, tags: [],
+      enabledOverrides: { 'dbg-status-read': false, 'hook-frida-sock': true },
+    }))
+    expect(back.enabledOverrides).toEqual({})
+  })
 })
 
 describe('dismissed suggestions', () => {

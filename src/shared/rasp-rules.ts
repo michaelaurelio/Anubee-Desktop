@@ -191,6 +191,41 @@ export function validateRule(v: unknown, source: RuleSource): { rule: Rule | nul
   return { rule, error: null }
 }
 
+// Built-in ids renamed or removed when the rule library was overhauled for
+// schema v3. A persisted enabledOverride keyed on an old id must still land on
+// its replacement after upgrade, or a user's disable choice on 'hook-maps'
+// silently re-enables its renamed successor 'hook-maps-open' - the schema
+// bump to v3 shipped no such migration. The two removed ids have no
+// replacement, so an override on either is dropped rather than remapped.
+const RENAMED_RULE_IDS: Record<string, string> = {
+  'hook-maps': 'hook-maps-open',
+  'dbg-status-open': 'dbg-tracerpid',
+  'dbg-ptrace-attach': 'dbg-ptrace-selftrace',
+}
+const REMOVED_RULE_IDS = new Set(['dbg-status-read', 'hook-frida-sock'])
+
+// Map a persisted id through the schema-v3 rename, or null if it was removed
+// outright and the entry (a rule, or one enabledOverrides key) should be dropped.
+export function migrateRuleId(id: string): string | null {
+  if (REMOVED_RULE_IDS.has(id)) return null
+  return RENAMED_RULE_IDS[id] ?? id
+}
+
+// Parse a persisted enabledOverrides map, applying the schema-v3 id migration
+// so an override written against a since-renamed or since-removed built-in
+// still resolves correctly. Shared by the global rule store and the project
+// sidecar - both persist and read this shape.
+export function coerceOverrides(v: unknown): Record<string, boolean> {
+  if (typeof v !== 'object' || v === null) return {}
+  const out: Record<string, boolean> = {}
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof val !== 'boolean') continue
+    const id = migrateRuleId(k)
+    if (id !== null) out[id] = val
+  }
+  return out
+}
+
 export function coerceRules(arr: unknown[], source: RuleSource): { rules: Rule[]; errors: string[] } {
   const rules: Rule[] = []
   const errors: string[] = []

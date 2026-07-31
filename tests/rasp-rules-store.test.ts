@@ -82,4 +82,20 @@ describe('rasp-rules-store', () => {
     expect(loadRules(dir).enabledOverrides).toEqual({})
     rmSync(dir, { recursive: true, force: true })
   })
+
+  it('migrates an override on a renamed built-in id to its replacement', () => {
+    const d = dir()
+    writeFileSync(join(d, 'rasp-rules.json'), JSON.stringify({
+      schemaVersion: 3, rules: [], enabledOverrides: { 'hook-maps': false },
+    }))
+    expect(loadRules(d).enabledOverrides).toEqual({ 'hook-maps-open': false })
+  })
+
+  it('drops an override on a deleted built-in id without error', () => {
+    const d = dir()
+    writeFileSync(join(d, 'rasp-rules.json'), JSON.stringify({
+      schemaVersion: 3, rules: [], enabledOverrides: { 'dbg-status-read': false, 'hook-frida-sock': true },
+    }))
+    expect(loadRules(d).enabledOverrides).toEqual({})
+  })
 })

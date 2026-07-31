@@ -3,20 +3,11 @@
 // failure yields an empty library rather than throwing.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { coerceRules, type RuleScope } from '@shared/rasp-heuristics'
+import { coerceRules, coerceOverrides, type RuleScope } from '@shared/rasp-heuristics'
 
 const FILE = 'rasp-rules.json'
 const SCHEMA_VERSION = 3
 const READABLE = new Set([1, 2, 3]) // v1 stored a single `match`; v2 lacked mode/minOccurrences. validateRule upgrades both.
-
-function coerceOverrides(v: unknown): Record<string, boolean> {
-  if (typeof v !== 'object' || v === null) return {}
-  const out: Record<string, boolean> = {}
-  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-    if (typeof val === 'boolean') out[k] = val
-  }
-  return out
-}
 
 export function loadRules(dir: string): RuleScope {
   const p = join(dir, FILE)

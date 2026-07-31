@@ -4,7 +4,7 @@
 // optional block refinement, and the RASP behaviour it implements. Node/edge
 // id grammar comes from graph-shape.
 
-import { coerceRules, type Rule, type Suggestion, type OffsetHit } from './rasp-heuristics'
+import { coerceRules, coerceOverrides, type Rule, type Suggestion, type OffsetHit } from './rasp-heuristics'
 
 export type RaspCategory = 'root' | 'debugger' | 'emulator' | 'integrity' | 'hook' | 'custom'
 
@@ -69,15 +69,6 @@ function coerceTag(v: unknown): Tag | null {
   if (typeof o.confidence === 'number') t.confidence = o.confidence
   if (typeof o.rationale === 'string') t.rationale = o.rationale
   return t
-}
-
-function coerceOverrides(v: unknown): Record<string, boolean> {
-  if (typeof v !== 'object' || v === null) return {}
-  const out: Record<string, boolean> = {}
-  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-    if (typeof val === 'boolean') out[k] = val
-  }
-  return out
 }
 
 function coerceDismissed(v: unknown): Dismissed[] {
