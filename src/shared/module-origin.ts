@@ -54,6 +54,16 @@ export function classifyModule(module: string | null, paths: ModulePaths): Modul
   }
   if (MANAGED_SUFFIX.test(path)) return 'managed'
   if (PLATFORM_ROOTS.some(r => path.startsWith(r))) return 'platform'
-  if (path.startsWith('/data/app/')) return 'app-native'
+  // App install roots: the app's own APK directory, adopted storage (the app
+  // gets relocated to /mnt/expand/<uuid>/... when installed there), and the
+  // per-user data directories. A wrong 'platform' here silently drops a real
+  // finding - same bias as the no-lib-record branch above, and for the same
+  // reason.
+  if (path.startsWith('/data/app/') || path.startsWith('/mnt/expand/') ||
+      path.startsWith('/data/user/') || path.startsWith('/data/user_de/')) return 'app-native'
+  // Anything else with a real load path outside every known root: genuinely
+  // more likely to be platform than app (the app roots above are exhaustive
+  // for how Android places an app's own code), so the fallback here is the
+  // opposite of the no-lib-record branch's bias, and deliberately so.
   return 'platform'
 }

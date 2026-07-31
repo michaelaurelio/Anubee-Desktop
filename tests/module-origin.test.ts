@@ -79,4 +79,19 @@ describe('classifyModule', () => {
   it('classifies mapped paths outside known roots as platform', () => {
     expect(classifyModule('libodd.so', new Map([['libodd.so', '/opt/weird/libodd.so']]))).toBe('platform')
   })
+
+  it('calls a library loaded from adopted storage app-native', () => {
+    const path = '/mnt/expand/1234-5678/app/~~a==/dev.anubee.detector-b==/lib/arm64/libsentinel.so'
+    expect(classifyModule('libsentinel.so', new Map([['libsentinel.so', path]]))).toBe('app-native')
+  })
+
+  it('calls a library loaded from /data/user app-native', () => {
+    const path = '/data/user/0/dev.anubee.detector/lib/libsentinel.so'
+    expect(classifyModule('libsentinel.so', new Map([['libsentinel.so', path]]))).toBe('app-native')
+  })
+
+  it('calls a library loaded from /data/user_de app-native', () => {
+    const path = '/data/user_de/0/dev.anubee.detector/lib/libsentinel.so'
+    expect(classifyModule('libsentinel.so', new Map([['libsentinel.so', path]]))).toBe('app-native')
+  })
 })
