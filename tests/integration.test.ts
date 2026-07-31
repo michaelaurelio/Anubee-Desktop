@@ -391,6 +391,13 @@ describe('compiler lockstep (real DuckDB admits exactly what matchSequences scor
   // built-ins - they are synthetic probes, built through validateRule like any
   // other rule, run through the same lockstep loop below purely to keep 'equals'
   // honest on both compilers.
+  //
+  // sock_addr+equals, args+equals and args+path_matches are reachable from the
+  // rule editor but no built-in uses them either, so they had the same zero
+  // coverage; likewise retval's 'ne' and 'lt' operators (only 'eq' is exercised,
+  // by root-found and hook-frida-port-taken). Each probe below is built to
+  // land on both a true and a false event already in the fixture above, so a
+  // divergence in either direction would fail the loop.
   const PROBE_RULES: Rule[] = (() => {
     const specs = [
       { id: 'probe-fd-equals', category: 'debugger', confidence: 0.5,
@@ -399,6 +406,21 @@ describe('compiler lockstep (real DuckDB admits exactly what matchSequences scor
       { id: 'probe-string-equals', category: 'debugger', confidence: 0.5,
         rationale: 'probe: equals on string_args',
         steps: [{ syscalls: ['openat'], field: 'string_args', op: 'equals', value: '/proc/self/status' }] },
+      { id: 'probe-sock-equals', category: 'hook', confidence: 0.5,
+        rationale: "probe: equals on sock_addr - true on id 6's connect, false on id 16's bind",
+        steps: [{ syscalls: ['connect', 'bind'], field: 'sock_addr', op: 'equals', value: 'unix:@/frida-zymbiote-abc' }] },
+      { id: 'probe-args-equals', category: 'debugger', confidence: 0.5,
+        rationale: "probe: equals on args - true on id 1's ptrace(0x10), false on id 2's/15's",
+        steps: [{ syscalls: ['ptrace'], field: 'args', op: 'equals', value: '0x10' }] },
+      { id: 'probe-args-path-matches', category: 'debugger', confidence: 0.5,
+        rationale: "probe: path_matches on args - true on id 9's prctl(0xdeadbeef), false on id 14's",
+        steps: [{ syscalls: ['prctl'], field: 'args', op: 'path_matches', value: '^0xd' }] },
+      { id: 'probe-retval-ne', category: 'hook', confidence: 0.5,
+        rationale: "probe: retval 'ne' - true on id 16's bind (-98), false on id 17/18's faccessat (0)",
+        steps: [{ syscalls: ['bind', 'faccessat'], op: 'any', retval: { op: 'ne', value: 0 } }] },
+      { id: 'probe-retval-lt', category: 'hook', confidence: 0.5,
+        rationale: "probe: retval 'lt' - true on id 16's bind (-98), false on id 17/18's faccessat (0)",
+        steps: [{ syscalls: ['bind', 'faccessat'], op: 'any', retval: { op: 'lt', value: 0 } }] },
     ]
     return specs.map(s => {
       const { rule, error } = validateRule(s, 'project')
