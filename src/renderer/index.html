@@ -194,11 +194,14 @@
       /* while the skeleton is up (load in flight) the real scroll body is empty - collapse
          it so the skeleton fills the panel instead of splitting the flex space with it. */
       #table:has(#table-skeleton:not(.hidden)) .table-scroll { display:none; }
-      #table-skeleton .sk-row { display:flex; gap:12px; padding:8px 0; border-bottom:1px solid var(--stripe); }
-      #table-skeleton .sk { height:10px; border-radius:3px; display:inline-block;
+      /* Shimmer placeholders. Not scoped to #table-skeleton: the Suggestions modal
+         reuses them while its scan runs, so there is one shimmer definition. */
+      .sk-row { display:flex; gap:12px; padding:8px 0; border-bottom:1px solid var(--stripe); }
+      .sk { height:10px; border-radius:3px; display:inline-block;
         background:linear-gradient(90deg,var(--panel-2) 25%,var(--hover) 50%,var(--panel-2) 75%);
         background-size:200% 100%; animation:sk-shimmer 1.3s linear infinite; }
       @keyframes sk-shimmer { to { background-position:-200% 0; } }
+      @media (prefers-reduced-motion: reduce) { .sk { animation-duration: 3.2s; } }
 
       #graph-overlay { position:absolute; inset:0; z-index:3; display:flex; flex-direction:column;
         align-items:center; justify-content:center; gap:12px; background:#0f0e1155; }
@@ -471,6 +474,15 @@
       /* suggestions (opened from the rail button, into a modal body) */
       .sug-head { font-weight: 600; color: var(--text); margin-bottom: 8px; }
       .sug-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }
+      /* Placeholder rows while the scan runs. Laid out like .sug-row (info block
+         left, button stack right) so the list does not jump when the real rows
+         land. .sk / .sk-row carry the shared shimmer. */
+      .sug-skel-row { align-items: flex-start; padding: 8px 4px; }
+      .sug-skel-info { flex: 1 1 0%; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+      .sug-skel-line { display: flex; gap: 8px; align-items: center; }
+      .sug-skel-btns { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
+      .sug-skel-btn { width: 58px; height: 20px; border-radius: 5px; }
+      .sug-note { color: var(--muted); font-size: 11px; padding: 6px 0 0; }
       .sug-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; padding: 8px 4px;
         border-bottom: 1px solid var(--border-soft); }
       .sug-info { flex: 1 1 0%; min-width: 0; }
