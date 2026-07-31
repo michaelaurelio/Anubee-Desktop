@@ -3,6 +3,84 @@
 Log here: features shipped with a known drawback to resolve later, deferred work,
 and open verification items. Newest concerns first.
 
+## Shipped (2026-07-31) - accurate rule library, new primitives, real attribution
+
+The heuristic engine gained five rule primitives - `decoded_args` as a match
+field, an `arg_hex_in` operator, an `op: 'any'` syscall-only step, a `retval`
+step modifier, and a rule-level `minOccurrences` noise floor - plus an
+`unordered` co-occurrence matching mode beside the existing ordered sequences.
+Attribution now classifies a native module from its real load path (from the
+tracer's `lib` records) instead of a basename denylist, falls back to a
+platform-filtered java frame, and mints a synthetic `rasp:unattributed:<category>`
+target when nothing app-owned survives. The built-in library went from 10 rules
+to 30, with `emulator` and `integrity` covered for the first time. The rule
+editor exposes all of it. See `DOCUMENTATION.md`'s "Heuristic pre-tagging" and
+"RASP rule-authoring UI".
+
+Two measured results worth keeping: on the reference detector fixture the
+TracerPid rule now catches **106 of 106** `/proc/<pid>/status` probes where its
+predecessor caught **1** (it anchored on `/proc/self/` while real code uses
+`getpid()`), and the 17 root-path probes that previously collapsed onto the
+meaningless `nat:base.vdex` now name the app's own Kotlin check.
+
+### Known drawbacks / follow-ups
+- **Unattributable multi-step sequences still match nothing.** A one-step rule
+  needs no correlation key and can reach the synthetic target; a multi-step rule
+  still requires one, so an unattributable sequence stays invisible. Accepted:
+  the alternative, a thread-keyed placeholder correlation base, would group
+  unrelated java checks running on one thread into a single stream and create a
+  false-positive class that does not exist today.
+- **Attribution quality depends on the capture carrying `lib` records.** Without
+  them the path classifier is inert and the basename fallback does all the work,
+  so a platform library absent from that list can be named as the app's own.
+  Observed on the reference detector fixture, which carries zero `lib` records.
+  The deliberate bias is to prefer `app-native` when a module is unknown, because
+  a wrong `platform` silently drops a real finding whereas a wrong `app-native`
+  merely names an odd node the analyst can reject.
+- **Roughly 72% of hits on Java-implemented checks cannot name the app's own
+  caller.** Anubee byte-caps `java_stack` innermost-first, so a deep
+  Kotlin/Compose stack keeps the framework frame and drops the app's class. The
+  synthetic target is the local mitigation; **the real fix is raising that cap in
+  the tracer**, which would convert most of that share into real attribution.
+- **`chainOf` is built twice** for any event with no app-native frame (once in
+  `attributionOf`, once in the java-id helper). Correct but wasteful, and that is
+  the dominant path for exactly the events the attribution work targets.
+- **An unordered rule opens a partial on any matching step**, so a key that
+  repeatedly emits one step's shape burns matcher cap where the ordered form
+  opened nothing. Bounded by evict-oldest and counted in `dropped`, so the
+  matcher cannot go blind.
+- **An unordered rule's steps must be mutually exclusive.** Step assignment is
+  greedy by ascending index with no backtracking, so if two steps can match the
+  same event the rule can under-report. The three shipped unordered rules are
+  exclusive; a rule author gets no warning.
+- **`op: 'any'` widens the DuckDB prefilter** to a bare `syscall IN (...)`. It is
+  denylisted on eighteen high-frequency syscalls and `suggest` warns past a
+  candidate-row budget, but a rule over a moderately busy syscall still costs a
+  full scan of that syscall's rows.
+- **A `retval` condition silently skips enter-only records.** Roughly 29% of
+  events in the reference production capture carry `retval: null`, so
+  `root-found` and `hook-frida-port-taken` under-report on snapshot-mode
+  captures. Neither is the sole rule for its behaviour.
+- **Six built-in rules are authored, not measured.** `root-found`,
+  `root-ksu-prctl`, `dbg-ptrace-traceme`, `hook-frida-artefact`,
+  `hook-frida-port-taken` and `hook-frida-scan` score zero on every available
+  capture because the capture device is clean and unrooted. Re-measure against a
+  rooted or emulator-hosted capture when one exists.
+- **`root-kernel-files` is `/proc/self`-only for `mountinfo`** while every
+  sibling rule accepts `/proc/<pid>/`. That is the exact recall bug this work
+  exists to fix, still present in one pattern.
+- **`hook-xposed`'s tokens are unanchored** (`xposed|riru|zygisk|substrate`),
+  the same shape as the `gadget` token that scored 86 false positives before it
+  was anchored. Far more distinctive, so the risk is low, but unmeasured.
+- **`funcs`-engine records are still invisible to rules.** `suggest` is scoped to
+  `type = 'syscall'`. Matching `call` / `return` records would expose
+  `__system_property_get("ro.kernel.qemu")`, `dlopen` of a hook library, and the
+  native-API surface that never reaches a syscall with a matchable argument.
+  Deferred because no available capture contains `funcs` records, so no such rule
+  could be validated.
+- **The rule-form modal scrolls horizontally by a few pixels**, from `.rf-step`'s
+  negative-margin full-bleed trick. Pre-existing and unchanged by this work.
+
 ## Shipped (2026-07-23) - RASP sequence rules + call-site attribution
 
 The RASP heuristic engine (`src/shared/rasp-heuristics.ts`) moved from a
