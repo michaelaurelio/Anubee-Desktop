@@ -78,6 +78,15 @@ meaningless `nat:base.vdex` now name the app's own Kotlin check.
   native-API surface that never reaches a syscall with a matchable argument.
   Deferred because no available capture contains `funcs` records, so no such rule
   could be validated.
+- **A synthetic target's findings export shows an occurrence count of 0.** The
+  export derives a finding's count and context from the target's graph chains,
+  and `rasp:unattributed:<category>` has no graph node by design, so the line
+  reads `= root check (0x)` even though the analyst confirmed it from a
+  suggestion row showing a real count. The label itself now renders in prose.
+  Fixing the count properly means carrying the suggestion's own occurrence
+  figure onto the tag, which is a wider change to the export path than was
+  worth making at the merge gate.
+
 - **The rule-form modal scrolls horizontally by a few pixels**, from `.rf-step`'s
   negative-margin full-bleed trick. Pre-existing and unchanged by this work.
 - **A `minOccurrences` floor on the synthetic unattributed target counts
