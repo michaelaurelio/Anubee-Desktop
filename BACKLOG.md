@@ -80,6 +80,12 @@ meaningless `nat:base.vdex` now name the app's own Kotlin check.
   could be validated.
 - **The rule-form modal scrolls horizontally by a few pixels**, from `.rf-step`'s
   negative-margin full-bleed trick. Pre-existing and unchanged by this work.
+- **A `minOccurrences` floor on the synthetic unattributed target counts
+  run-wide, not per call site.** Every unattributed hit on a rule shares one
+  target for the whole run, so the floor there answers "did the run contain N
+  in total" instead of "did this call site do it repeatedly". Confirmed on a
+  real capture: `env-prop-sweep` (floor 100) clears it with 780 unattributed
+  hits alone, and five other rules clear their floors the same way.
 
 ## Shipped (2026-07-23) - RASP sequence rules + call-site attribution
 

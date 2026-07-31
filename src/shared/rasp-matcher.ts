@@ -488,9 +488,15 @@ function matchOne(m: RuleStep, e: SyscallEvent): boolean {
 }
 
 // Drop every hit whose (rule, target) pair did not reach the rule's noise floor.
-// Keyed on the pair, not on the target alone: the question is "did THIS call site
-// do it repeatedly", not "did the run contain N in total". Hits are dropped whole,
-// so they reach neither `occurrences` nor a row's per-offset children.
+// Keyed on the pair, not on the target alone: for a real target (one call site)
+// the question is "did THIS call site do it repeatedly", not "did the run
+// contain N in total". That distinction collapses for the synthetic
+// `rasp:unattributed:<category>` target, though: every unattributed hit on a
+// rule shares that one id for the whole run (there is no call site to key on),
+// so for it the floor genuinely does answer "did the run contain N in total" -
+// and because the frame is always null, the per-offset `[unmapped]` bucket
+// cannot split that total back out either. Hits are dropped whole, so they
+// reach neither `occurrences` nor a row's per-offset children.
 export function applyMinOccurrences(hits: RawHit[], rules: Rule[]): RawHit[] {
   const floor = new Map<string, number>()
   for (const r of rules) floor.set(r.id, r.minOccurrences)

@@ -193,4 +193,16 @@ describe('applyMinOccurrences', () => {
     const hits = [{ ...hit('a'), ruleId: 'plain' }]
     expect(applyMinOccurrences(hits, [d])).toEqual(hits)
   })
+
+  // Every unattributed hit on a rule shares one synthetic target for the whole
+  // run (there is no call site to key on), so unlike a real target the floor
+  // here counts the run total, not repetition at one call site - two events on
+  // two different real targets each fail a floor of 3 on their own, but the
+  // same two events both landing on the synthetic target clear it together.
+  it('counts a synthetic unattributed target run-wide, not per call site', () => {
+    const synthetic = 'rasp:unattributed:hook'
+    const hits = [hit(synthetic), hit(synthetic), hit(synthetic), hit('real')]
+    expect(applyMinOccurrences(hits, [r]).map(h => h.target))
+      .toEqual([synthetic, synthetic, synthetic])
+  })
 })
