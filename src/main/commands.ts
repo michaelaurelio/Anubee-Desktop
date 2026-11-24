@@ -1,6 +1,6 @@
 import type { GraphStore } from './graph-store'
 import type { Filter } from '@shared/filter'
-import { writeFileSync } from 'node:fs'
+import { writeFileSync, existsSync } from 'node:fs'
 import { loadTags, saveTags, loadSidecarRules, saveSidecarRules, loadDismissed, saveDismissed } from './sidecar'
 import { loadRules, saveRules } from './rasp-rules-store'
 import { resolveRules, BUILTIN_RULES, validateRule, type RuleScope, type Suggestion } from '@shared/rasp-heuristics'
@@ -150,8 +150,9 @@ export function buildCommands(ctx: CommandCtx): CommandMap {
       if (rid === undefined) return { error: 'no run loaded' }
       return store.previewRule(rid, valid)
     },
-    'findings.export': async ({ runId, format, path }: { runId?: number; format: 'md' | 'json'; path?: string }) => {
+    'findings.export': async ({ runId, format, path, overwrite }: { runId?: number; format: 'md' | 'json'; path?: string; overwrite?: boolean }) => {
       if (!path) throw new Error('findings.export requires an explicit path')
+      if (existsSync(path) && overwrite !== true) throw new Error(`findings.export: ${path} already exists (pass overwrite:true to replace)`)
       const rid = activeRun(runId)
       const { tags } = loadTags(ctx.runFileOf(rid).file)
       const reps: Record<string, SyscallEvent[]> = {}
@@ -201,8 +202,9 @@ export function buildCommands(ctx: CommandCtx): CommandMap {
     'nativelib.stopLive': () => dev().stopLive(),
     'nativelib.verify': ({ pid, bases }: { pid: number; bases: string[] }) => dev().verify(pid, bases),
     'nativelib.dumpLib': ({ pid, base }: { pid: number; base: string }) => dev().dumpLib(pid, base),
-    'nativelib.exportArtifact': ({ path, dest }: { path: string; dest?: string }) => {
+    'nativelib.exportArtifact': ({ path, dest, overwrite }: { path: string; dest?: string; overwrite?: boolean }) => {
       if (!dest) throw new Error('nativelib.exportArtifact requires an explicit dest')
+      if (existsSync(dest) && overwrite !== true) throw new Error(`nativelib.exportArtifact: ${dest} already exists (pass overwrite:true to replace)`)
       return dev().exportArtifact(path, dest)
     },
   }

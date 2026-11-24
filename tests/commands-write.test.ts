@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildCommands, type CommandCtx } from '../src/main/commands'
@@ -87,6 +87,23 @@ describe('write + path-load commands', () => {
     await cmd['run.loadByPath']({ path: fixture() })
     await expect(cmd['findings.export']({ runId: 1, format: 'md' })).rejects.toThrow(/explicit path/)
     expect(() => cmd['nativelib.exportArtifact']({ path: '/x' })).toThrow(/explicit dest/)
+    await store.close()
+  })
+
+  it('findings.export and nativelib.exportArtifact are no-clobber unless overwrite:true', async () => {
+    const store = new GraphStore()
+    const cmd = buildCommands(ctxFor(store))
+    await cmd['run.loadByPath']({ path: fixture() })
+    const d = mkdtempSync(join(tmpdir(), 'exp-'))
+    const out = join(d, 'f.md')
+    await expect(cmd['findings.export']({ runId: 1, format: 'md', path: out })).resolves.toBe(out)
+    writeFileSync(out, 'KEEP')
+    await expect(cmd['findings.export']({ runId: 1, format: 'md', path: out })).rejects.toThrow(/already exists/)
+    expect(readFileSync(out, 'utf8')).toBe('KEEP')
+    await cmd['findings.export']({ runId: 1, format: 'md', path: out, overwrite: true })
+    expect(readFileSync(out, 'utf8')).not.toBe('KEEP')
+    expect(() => cmd['nativelib.exportArtifact']({ path: '/x', dest: out })).toThrow(/already exists/)
+    rmSync(d, { recursive: true, force: true })
     await store.close()
   })
 

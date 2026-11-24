@@ -714,7 +714,7 @@ ipcMain.handle('nativelib:revealArtifact', (_e, path: string) => { shell.showIte
 ipcMain.handle('nativelib:exportArtifact', async (_e, path: string) => {
   const r = await dialog.showSaveDialog(win, { defaultPath: basename(path) })
   if (r.canceled || !r.filePath) return { saved: false }
-  return commands['nativelib.exportArtifact']({ path, dest: r.filePath })
+  return commands['nativelib.exportArtifact']({ path, dest: r.filePath, overwrite: true })
 })
 
 async function nativelibExportArtifact(path: string, dest: string) {
@@ -757,7 +757,7 @@ ipcMain.handle('findings:export', async (_e, runId: number, format: 'md' | 'json
     filters: [{ name: format === 'md' ? 'Markdown' : 'JSON', extensions: [format] }],
   })
   if (r.canceled || !r.filePath) return null
-  return commands['findings.export']({ runId, format, path: r.filePath })
+  return commands['findings.export']({ runId, format, path: r.filePath, overwrite: true })
 })
 
 ipcMain.handle('log:save', async (_e, text: string) => {

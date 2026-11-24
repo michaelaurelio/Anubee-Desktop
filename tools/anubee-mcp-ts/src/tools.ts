@@ -189,8 +189,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'export_findings', command: 'findings.export', description: 'Export findings from the saved tags to an explicit file path (md or json).',
-    inputSchema: { format: z.enum(['md', 'json']), path: z.string(), runId },
-    mapArgs: (i) => ({ runId: i.runId, format: i.format, path: i.path }),
+    inputSchema: { format: z.enum(['md', 'json']), path: z.string(), overwrite: z.boolean().optional(), runId },
+    mapArgs: (i) => ({ runId: i.runId, format: i.format, path: i.path, overwrite: i.overwrite }),
   },
 
   // ---- device (confirmation on the device) ----
@@ -228,6 +228,6 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'export_lib_artifact', command: 'nativelib.exportArtifact', description: 'Export a pulled library artifact to an explicit destination path.' + DEVICE,
-    inputSchema: { path: z.string(), dest: z.string() }, mapArgs: (i) => ({ path: i.path, dest: i.dest }),
+    inputSchema: { path: z.string(), dest: z.string(), overwrite: z.boolean().optional() }, mapArgs: (i) => ({ path: i.path, dest: i.dest, overwrite: i.overwrite }),
   },
 ]

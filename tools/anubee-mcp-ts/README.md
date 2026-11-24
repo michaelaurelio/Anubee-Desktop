@@ -106,3 +106,5 @@ The MCP never calls a decompiler.
 - Access needs a per-session token, stored in a handshake file with mode `0o600`.
 - MCP control is off by default and must be enabled in the app.
 - Device actions are confirmation-gated in the app.
+
+While MCP control is on, the state-write tools (including `export_findings` and the artifact export) write to caller-supplied filesystem paths. These are token-gated, off-by-default, and recorded in the MCP action log, and they now refuse to overwrite an existing file unless `overwrite` is set. Enable MCP control only for a trusted client.
