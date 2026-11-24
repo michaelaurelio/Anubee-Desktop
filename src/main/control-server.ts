@@ -1,5 +1,6 @@
 // Loopback HTTP control server for the MCP bridge. Plain Node, no Electron.
 // POST /call { command, args } with header x-anubee-token.
+import crypto from 'node:crypto'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { CommandMap } from './commands'
@@ -48,11 +49,50 @@ function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
+function tokenOk(header: string | string[] | undefined, token: string): boolean {
+  if (typeof header !== 'string') return false
+  const a = Buffer.from(header)
+  const b = Buffer.from(token)
+  if (a.length !== b.length) return false
+  return crypto.timingSafeEqual(a, b)
+}
+
 export function createControlServer(opts: ControlServerOpts): ControlServer {
+  if (typeof opts.token !== 'string' || opts.token.length === 0) {
+    throw new Error('control server requires a non-empty token')
+  }
+  const streams = new Map<string, Set<http.ServerResponse>>()
+
   const server = http.createServer(async (req, res) => {
     // Auth before anything else, including routing.
-    if (req.headers['x-anubee-token'] !== opts.token) {
+    if (!tokenOk(req.headers['x-anubee-token'], opts.token)) {
       send(res, 401, { ok: false, error: 'unauthorized' })
+      return
+    }
+    if (req.method === 'GET' && req.url?.startsWith('/stream/')) {
+      let name = ''
+      try {
+        name = decodeURIComponent(req.url.slice('/stream/'.length).split('?')[0])
+      } catch {
+        // fall through to 404
+      }
+      if (!name) {
+        send(res, 404, { ok: false, error: 'not found' })
+        return
+      }
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      })
+      res.write(': connected\n\n')
+      let set = streams.get(name)
+      if (!set) streams.set(name, (set = new Set()))
+      set.add(res)
+      req.on('close', () => {
+        set!.delete(res)
+        if (set!.size === 0 && streams.get(name) === set) streams.delete(name)
+      })
       return
     }
     if (req.method !== 'POST' || req.url !== '/call') {
@@ -69,8 +109,13 @@ export function createControlServer(opts: ControlServerOpts): ControlServer {
       send(res, 400, { ok: false, error: `bad request: ${msg(e)}` })
       return
     }
-    const log = (result: 'ok' | 'error', detail?: string): void =>
-      appendMcpLog({ at: Date.now(), tool: command, args: safeStringify(args), result, detail })
+    const log = (result: 'ok' | 'error', detail?: string): void => {
+      try {
+        appendMcpLog({ at: Date.now(), tool: command, args: safeStringify(args), result, detail })
+      } catch {
+        // logging must never break the response
+      }
+    }
 
     const fn = Object.prototype.hasOwnProperty.call(opts.commands, command) ? opts.commands[command] : undefined
     if (!fn) {
@@ -106,8 +151,17 @@ export function createControlServer(opts: ControlServerOpts): ControlServer {
         server.closeAllConnections()
       })
     },
-    emit() {
-      // SSE streaming is added in Task 5.
+    emit(name, data) {
+      const set = streams.get(name)
+      if (!set) return
+      const payload = `data: ${JSON.stringify(data)}\n\n`
+      for (const res of set) {
+        try {
+          res.write(payload)
+        } catch {
+          set.delete(res)
+        }
+      }
     },
   }
 }
