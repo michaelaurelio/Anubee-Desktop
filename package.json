@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "shots": "node scripts/screenshot.mjs",
     "dist": "electron-vite build && electron-builder --linux dir",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps && node node_modules/electron/install.js"
   },
   "keywords": [],
   "author": "",
