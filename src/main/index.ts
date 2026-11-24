@@ -6,14 +6,11 @@ import { buildCommands } from './commands'
 import { loadThroughput, saveThroughput } from './ingest-calibration'
 import { updateThroughput } from '@shared/ingest-estimate'
 import type { Filter } from '@shared/filter'
-import { loadTags, saveTags, loadSidecarRules, saveSidecarRules, loadDismissed, saveDismissed, sidecarPath } from './sidecar'
+import { loadTags, loadSidecarRules, loadDismissed, sidecarPath } from './sidecar'
 import type { Tag, Dismissed } from '@shared/project-store'
 import { serializeSidecar } from '@shared/project-store'
 import { serializeProject, parseProject, type ProjectBundle } from '@shared/project-file'
-import { loadRules, saveRules } from './rasp-rules-store'
-import { resolveRules, BUILTIN_RULES, validateRule, type Rule, type RuleScope } from '@shared/rasp-heuristics'
-import { buildFindings, renderMarkdown, renderJSON } from '@shared/findings'
-import type { SyscallEvent } from '@shared/events'
+import type { RuleScope } from '@shared/rasp-heuristics'
 import type { DiffRow } from '@shared/diff'
 
 // --- feature 9: tracer control -------------------------------------------
@@ -220,9 +217,11 @@ ipcMain.handle('tracer:config:get', () => loadConfig(app.getPath('userData')))
 ipcMain.handle('tracer:config:set', (_e, cfg: { anubeeBinary: string; specsDir: string }) => {
   saveConfig(app.getPath('userData'), cfg)
 })
-ipcMain.handle('tracer:preflight', (_e, pkg: string) =>
-  preflight(adb, loadConfig(app.getPath('userData')), pkg, fileMd5,
-    c => win.webContents.send('tracer:preflight-check', c)))
+function devicePreflight(pkg: string) {
+  return preflight(adb, loadConfig(app.getPath('userData')), pkg, fileMd5,
+    c => win.webContents.send('tracer:preflight-check', c))
+}
+ipcMain.handle('tracer:preflight', (_e, pkg: string) => commands['capture.preflight']({ pkg }))
 
 // Validate the host paths the form currently holds so the Capture view can show
 // green/red dots BEFORE a run. Pure decisions live in path-check; this does the
@@ -305,7 +304,10 @@ ipcMain.handle('tracer:pickSpecsDir', async () => {
 const LINE_FLUSH_MS = 16
 const LINE_BATCH_MAX = 500
 
-ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) => {
+ipcMain.handle('tracer:start', (_e, capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) =>
+  commands['capture.start']({ capId, vals, timeoutSecs, savePath }))
+
+async function captureStart(capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) {
   const cap = capById(capId)
   if (!cap) throw new Error(`unknown capability ${capId}`)
   // The renderer's own SAFE_TOKEN/validateInputs gate (Capture form) is the
@@ -393,9 +395,11 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
     win.webContents.send('tracer:done', { code, kind: cap.outputKind, runId, error })
   }
   return { code, kind: cap.outputKind, runId, error }
-})
+}
 
-ipcMain.handle('tracer:stop', async (_e, discard?: boolean) => {
+ipcMain.handle('tracer:stop', (_e, discard?: boolean) => commands['capture.stop']({ discard }))
+
+async function captureStop(discard?: boolean): Promise<void> {
   // Only acts in the 'device' phase: once the process has exited and
   // pull/ingest has taken over ('finishing'), there is nothing left to stop -
   // writing discardActive here would leak it into the NEXT capture and
@@ -403,7 +407,7 @@ ipcMain.handle('tracer:stop', async (_e, discard?: boolean) => {
   const handle = runLifecycle.requestStop(discard === true)
   if (!handle) return
   await handle.stop()
-})
+}
 
 ipcMain.handle('tracer:isRunning', () => ({
   running: runLifecycle.phase() !== 'idle', argv: runLifecycle.argv(), phase: runLifecycle.phase(),
@@ -457,7 +461,22 @@ ipcMain.on('app:closeResponse', (_e, action: 'close' | 'cancel') => {
   win.close()
 })
 ipcMain.on('app:requestClose', () => { win.close() })
-const commands = buildCommands({ store, runFileOf, userDataDir: () => app.getPath('userData') })
+const commands = buildCommands({
+  store, runFileOf, userDataDir: () => app.getPath('userData'),
+  loadPath: ingestPath,
+  pickSavePath: async (defaultName, ext) => {
+    const r = await dialog.showSaveDialog(win, {
+      defaultPath: defaultName,
+      filters: [{ name: ext === 'md' ? 'Markdown' : 'JSON', extensions: [ext] }],
+    })
+    return r.canceled || !r.filePath ? null : r.filePath
+  },
+  device: {
+    preflight: devicePreflight, start: captureStart, stop: captureStop,
+    startLive: nativelibStartLive, stopLive: nativelibStopLive,
+    verify: nativelibVerify, dumpLib: nativelibDumpLib, exportArtifact: nativelibExportArtifact,
+  },
+})
 ipcMain.handle('graph:runs', () => commands['graph.runs']())
 ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }, runId?: number) => commands['graph.table']({ filter, page, runId }))
 ipcMain.handle('graph:count', (_e, filter: Filter, runId?: number) => commands['graph.count']({ filter, runId }))
@@ -535,7 +554,9 @@ async function runCheck(pid: number, bases: string[]): Promise<void> {
 // startWatch also guards internally (defence in depth for a pure module), but
 // that guard fires from inside the [lib] stdout callback below - throwing there
 // would surface as an unhandled error mid-stream, not a clean IPC rejection.
-ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => {
+ipcMain.handle('nativelib:startLive', (_e, pkg: string, glob?: string) => commands['nativelib.startLive']({ pkg, glob }))
+
+async function nativelibStartLive(pkg: string, glob?: string): Promise<void> {
   if (glob && !isSafePattern(glob)) throw new Error(`unsafe on-map glob: ${glob}`)
   // The watcher dir does not depend on the pid (unlike dumpLib's per-base
   // dir), so it is created here, up front - not inside the [lib] callback
@@ -599,21 +620,25 @@ ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => 
     if (activeWatch) { await activeWatch.stop(); activeWatch = null }
     await pullAndPushWatchArtifacts()
   }).catch(() => {})
-})
+}
 
-ipcMain.handle('nativelib:stopLive', async () => {
+ipcMain.handle('nativelib:stopLive', () => commands['nativelib.stopLive']())
+
+async function nativelibStopLive(): Promise<void> {
   teardownCheck()
   if (activeLive) await activeLive.stop()
   if (activeWatch) { await activeWatch.stop(); activeWatch = null }
   await pullAndPushWatchArtifacts()
-})
+}
 
 // On-demand re-check of specific bases (Verify button / re-check all). A
 // memory-vs-disk check is point-in-time and does not need a live stream, so
 // unlike runCheck (the auto-check path, which reuses the streaming
 // liveCheckDir), this allocates its own check dir on every call - mirroring
 // nativelib:dumpLib below - and works whether or not a stream is active.
-ipcMain.handle('nativelib:verify', async (_e, pid: number, bases: string[]) => {
+ipcMain.handle('nativelib:verify', (_e, pid: number, bases: string[]) => commands['nativelib.verify']({ pid, bases }))
+
+async function nativelibVerify(pid: number, bases: string[]): Promise<void> {
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
   const deviceDir = `/data/local/tmp/anubee-check-${ts}`
   const hostDir = resolve(runsDir(), `anubee-check-${ts}`)
@@ -629,24 +654,33 @@ ipcMain.handle('nativelib:verify', async (_e, pid: number, bases: string[]) => {
   } catch (e) {
     win.webContents.send('nativelib:line', `verify failed: ${e instanceof Error ? e.message : String(e)}`)
   }
-})
+}
 
-ipcMain.handle('nativelib:dumpLib', async (_e, pid: number, base: string) => {
+ipcMain.handle('nativelib:dumpLib', (_e, pid: number, base: string) => commands['nativelib.dumpLib']({ pid, base }))
+
+function nativelibDumpLib(pid: number, base: string) {
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
   const deviceDir = `/data/local/tmp/anubee-dump-${ts}`
   const hostDir = resolve(runsDir(), `anubee-dump-${ts}`)
   return dumpByBase(spawner, adb, pid, base, deviceDir, hostDir,
     line => win.webContents.send('nativelib:line', line))
-})
+}
 
 ipcMain.handle('nativelib:revealArtifact', (_e, path: string) => { shell.showItemInFolder(path) })
 
-ipcMain.handle('nativelib:exportArtifact', async (_e, path: string) => {
-  const r = await dialog.showSaveDialog(win, { defaultPath: basename(path) })
-  if (r.canceled || !r.filePath) return { saved: false }
-  await copyFile(path, r.filePath)
-  return { saved: true, path: r.filePath }
-})
+ipcMain.handle('nativelib:exportArtifact', (_e, path: string) => commands['nativelib.exportArtifact']({ path }))
+
+// dest given (command/MCP path): copy there. Absent (renderer): ask via the save dialog.
+async function nativelibExportArtifact(path: string, dest?: string) {
+  let target = dest
+  if (!target) {
+    const r = await dialog.showSaveDialog(win, { defaultPath: basename(path) })
+    if (r.canceled || !r.filePath) return { saved: false }
+    target = r.filePath
+  }
+  await copyFile(path, target)
+  return { saved: true, path: target }
+}
 
 // Copy via the main-process clipboard: navigator.clipboard is unreliable in the
 // Electron renderer (permission/focus), so the popup + node menus route here.
@@ -654,24 +688,10 @@ ipcMain.handle('clipboard:write', (_e, text: string) => clipboard.writeText(text
 ipcMain.handle('rasp:suggest', (_e, runId?: number) => commands['rasp.suggest']({ runId }))
 ipcMain.handle('rasp:rules:get', (_e, runId?: number) => commands['rasp.rules.get']({ runId }))
 
-ipcMain.handle('rasp:rules:save', (_e, scope: 'global' | 'project', ruleScope: RuleScope, runId?: number) => {
-  if (scope === 'global') {
-    saveRules(app.getPath('userData'), ruleScope)
-    return
-  }
-  const rid = runId ?? store.runs().at(-1)?.runId
-  if (rid === undefined) throw new Error('no active run for project-scope rules')
-  const { file, ingestedAt } = runFileOf(rid)
-  saveSidecarRules(file, ingestedAt, ruleScope.rules, ruleScope.enabledOverrides)
-})
+ipcMain.handle('rasp:rules:save', (_e, scope: 'global' | 'project', ruleScope: RuleScope, runId?: number) =>
+  commands['rasp.rules.save']({ scope, ruleScope, runId }))
 
-ipcMain.handle('rasp:rules:preview', async (_e, rule: unknown, runId?: number) => {
-  const { rule: valid, error } = validateRule(rule, 'project')
-  if (!valid) return { error: error ?? 'invalid rule' }
-  const rid = runId ?? store.runs().at(-1)?.runId
-  if (rid === undefined) return { error: 'no run loaded' }
-  return store.previewRule(rid, valid)
-})
+ipcMain.handle('rasp:rules:preview', (_e, rule: unknown, runId?: number) => commands['rasp.rules.preview']({ rule, runId }))
 
 ipcMain.handle('graph:diffTable', (_e, runA: number, runB: number, filter: Filter, cap?: number) =>
   commands['graph.diffTable']({ runA, runB, filter, cap }))
@@ -685,42 +705,14 @@ function runFileOf(runId: number): { file: string; ingestedAt: string } {
 }
 
 ipcMain.handle('tags:load', (_e, runId: number) => commands['tags.load']({ runId }))
-ipcMain.handle('tags:save', (_e, runId: number, tags: Tag[]) => {
-  const { file, ingestedAt } = runFileOf(runId)
-  saveTags(file, ingestedAt, tags)
-})
+ipcMain.handle('tags:save', (_e, runId: number, tags: Tag[]) => commands['tags.save']({ runId, tags }))
 ipcMain.handle('tags:orphans', (_e, runId: number, targets: string[]) => commands['tags.orphans']({ runId, targets }))
 ipcMain.handle('suggest:dismissed:get', (_e, runId: number) => commands['suggest.dismissed.get']({ runId }))
-ipcMain.handle('suggest:dismissed:save', (_e, runId: number, dismissed: Dismissed[]) => {
-  const { file, ingestedAt } = runFileOf(runId)
-  saveDismissed(file, ingestedAt, dismissed)
-})
+ipcMain.handle('suggest:dismissed:save', (_e, runId: number, dismissed: Dismissed[]) =>
+  commands['suggest.dismissed.save']({ runId, dismissed }))
 
-ipcMain.handle('findings:export', async (_e, runId: number, format: 'md' | 'json') => {
-  const { file } = runFileOf(runId)
-  const { tags } = loadTags(file)
-  const reps: Record<string, SyscallEvent[]> = {}
-  for (const t of tags) {
-    if (reps[t.target]) continue
-    // A rasp:-prefixed target is synthetic (see project-store.ts): it never has
-    // a graph node, so a chain scan for it can never match. Skip the query
-    // rather than pay for a full-run scan that is guaranteed to return nothing.
-    if (t.target.startsWith('rasp:')) { reps[t.target] = []; continue }
-    // findings export is a syscall-only view today; a funcs run's calls are
-    // filtered out here (same shape reps has always had).
-    reps[t.target] = (await store.nodeEvents(t.target, {}, 50, runId))
-      .filter((e): e is SyscallEvent => e.type === 'syscall')
-  }
-  const findings = buildFindings(tags, reps)
-  const text = format === 'md' ? renderMarkdown(findings) : renderJSON(findings)
-  const r = await dialog.showSaveDialog(win, {
-    defaultPath: `findings.${format}`,
-    filters: [{ name: format === 'md' ? 'Markdown' : 'JSON', extensions: [format] }],
-  })
-  if (r.canceled || !r.filePath) return null
-  writeFileSync(r.filePath, text)
-  return r.filePath
-})
+ipcMain.handle('findings:export', (_e, runId: number, format: 'md' | 'json') =>
+  commands['findings.export']({ runId, format }))
 
 ipcMain.handle('log:save', async (_e, text: string) => {
   const now = new Date()
