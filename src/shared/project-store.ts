@@ -122,6 +122,19 @@ export function serializeSidecar(
   return JSON.stringify(sidecar, null, 2)
 }
 
+// A confirmed suggestion becomes a heuristic-sourced tag (keeps its confidence
+// + rationale so the export can cite why it was flagged). An offset narrows the
+// tag to one call site; omitting it tags the whole symbol. Shared by the renderer
+// Confirm buttons and the suggest.confirm command.
+export function suggestionToTag(s: Suggestion, now: string, offset?: string): Tag {
+  const t: Tag = {
+    target: s.target, category: s.category, source: 'heuristic',
+    confidence: s.confidence, rationale: s.rationale, createdAt: now,
+  }
+  if (offset !== undefined) t.offset = offset
+  return t
+}
+
 export function isDismissed(list: Dismissed[], target: string, category: RaspCategory, offset?: string): boolean {
   return list.some(d =>
     d.target === target && d.category === category &&

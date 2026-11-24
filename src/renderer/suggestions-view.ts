@@ -1,17 +1,9 @@
-import { targetLabel, type Tag } from '@shared/project-store'
+import { targetLabel, suggestionToTag, type Tag } from '@shared/project-store'
 import type { Suggestion } from '@shared/rasp-heuristics'
 
-// A confirmed suggestion becomes a heuristic-sourced tag (keeps its confidence
-// + rationale so the export can cite why it was flagged). An offset narrows the
-// tag to one call site; omitting it tags the whole symbol.
-export function suggestionToTag(s: Suggestion, now: string, offset?: string): Tag {
-  const t: Tag = {
-    target: s.target, category: s.category, source: 'heuristic',
-    confidence: s.confidence, rationale: s.rationale, createdAt: now,
-  }
-  if (offset !== undefined) t.offset = offset
-  return t
-}
+// suggestionToTag lives in @shared/project-store so the renderer and the
+// MCP-facing suggest.confirm command mint tags through one function.
+export { suggestionToTag }
 
 // Painted into the popup before the scan starts. Scoring a run is a paged DuckDB
 // pass plus the sequence matcher over every candidate event, so on a large
