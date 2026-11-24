@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, clipboard, shell } from 'ele
 import { resolve } from 'path'
 import { writeFileSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { GraphStore } from './graph-store'
+import { buildCommands } from './commands'
 import { loadThroughput, saveThroughput } from './ingest-calibration'
 import { updateThroughput } from '@shared/ingest-estimate'
 import type { Filter } from '@shared/filter'
@@ -456,24 +457,25 @@ ipcMain.on('app:closeResponse', (_e, action: 'close' | 'cancel') => {
   win.close()
 })
 ipcMain.on('app:requestClose', () => { win.close() })
-ipcMain.handle('graph:runs', () => store.runs())
-ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }, runId?: number) => store.table(filter, page, runId))
-ipcMain.handle('graph:count', (_e, filter: Filter, runId?: number) => store.count(filter, runId))
-ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number, runId?: number) => store.slice(filter, cap, runId))
+const commands = buildCommands({ store, runFileOf, userDataDir: () => app.getPath('userData') })
+ipcMain.handle('graph:runs', () => commands['graph.runs']())
+ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }, runId?: number) => commands['graph.table']({ filter, page, runId }))
+ipcMain.handle('graph:count', (_e, filter: Filter, runId?: number) => commands['graph.count']({ filter, runId }))
+ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number, runId?: number) => commands['graph.slice']({ filter, cap, runId }))
 ipcMain.handle('graph:stackRollup', (_e, filter: Filter, maxChains?: number, runId?: number) =>
-  store.stackRollup(filter, maxChains, runId))
-ipcMain.handle('graph:eventById', (_e, id: number, runId?: number) => store.eventById(id, runId))
-ipcMain.handle('graph:coverage', (_e, runId?: number) => store.coverage(runId))
+  commands['graph.stackRollup']({ filter, maxChains, runId }))
+ipcMain.handle('graph:eventById', (_e, id: number, runId?: number) => commands['graph.eventById']({ id, runId }))
+ipcMain.handle('graph:coverage', (_e, runId?: number) => commands['graph.coverage']({ runId }))
 ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter, page: { limit: number; offset: number }, runId?: number) =>
-  store.nodeEvents(nodeId, filter, page.limit, runId, page.offset))
+  commands['graph.nodeEvents']({ nodeId, filter, page, runId }))
 ipcMain.handle('graph:nodeEventCount', (_e, nodeId: string, filter: Filter, runId?: number) =>
-  store.nodeEventCount(nodeId, filter, runId))
-ipcMain.handle('graph:highlightSets', (_e, nodeId: string, filter: Filter, runId?: number) => store.highlightSets(nodeId, filter, runId))
-ipcMain.handle('graph:recordChain', (_e, id: number, runId?: number) => store.recordChain(id, runId))
+  commands['graph.nodeEventCount']({ nodeId, filter, runId }))
+ipcMain.handle('graph:highlightSets', (_e, nodeId: string, filter: Filter, runId?: number) => commands['graph.highlightSets']({ nodeId, filter, runId }))
+ipcMain.handle('graph:recordChain', (_e, id: number, runId?: number) => commands['graph.recordChain']({ id, runId }))
 ipcMain.handle('graph:nodeOffsets', (_e, nodeId: string, filter: Filter, runId?: number) =>
-  store.nodeOffsets(nodeId, filter, runId))
+  commands['graph.nodeOffsets']({ nodeId, filter, runId }))
 
-ipcMain.handle('nativelib:table', (_e, runId?: number) => store.libTable(runId))
+ipcMain.handle('nativelib:table', (_e, runId?: number) => commands['nativelib.table']({ runId }))
 
 // Stop the watcher (if any) then pull + triage its device output dir and push
 // whatever it caught to the renderer. activeWatchDirs is cleared synchronously
@@ -649,23 +651,8 @@ ipcMain.handle('nativelib:exportArtifact', async (_e, path: string) => {
 // Copy via the main-process clipboard: navigator.clipboard is unreliable in the
 // Electron renderer (permission/focus), so the popup + node menus route here.
 ipcMain.handle('clipboard:write', (_e, text: string) => clipboard.writeText(text))
-ipcMain.handle('rasp:suggest', (_e, runId?: number) => {
-  const rid = runId ?? store.runs().at(-1)?.runId
-  if (rid === undefined) return []
-  const global = loadRules(app.getPath('userData'))
-  const project = loadSidecarRules(runFileOf(rid).file)
-  const effective = resolveRules(BUILTIN_RULES, global, project)
-  return store.suggest(rid, effective)
-})
-ipcMain.handle('rasp:rules:get', (_e, runId?: number) => {
-  const rid = runId ?? store.runs().at(-1)?.runId
-  const global = loadRules(app.getPath('userData'))
-  const project = rid !== undefined
-    ? loadSidecarRules(runFileOf(rid).file)
-    : { rules: [], enabledOverrides: {} }
-  const effective = resolveRules(BUILTIN_RULES, global, project)
-  return { builtin: BUILTIN_RULES, global, project, effective }
-})
+ipcMain.handle('rasp:suggest', (_e, runId?: number) => commands['rasp.suggest']({ runId }))
+ipcMain.handle('rasp:rules:get', (_e, runId?: number) => commands['rasp.rules.get']({ runId }))
 
 ipcMain.handle('rasp:rules:save', (_e, scope: 'global' | 'project', ruleScope: RuleScope, runId?: number) => {
   if (scope === 'global') {
@@ -687,9 +674,9 @@ ipcMain.handle('rasp:rules:preview', async (_e, rule: unknown, runId?: number) =
 })
 
 ipcMain.handle('graph:diffTable', (_e, runA: number, runB: number, filter: Filter, cap?: number) =>
-  store.diffTable(runA, runB, filter, cap))
+  commands['graph.diffTable']({ runA, runB, filter, cap }))
 ipcMain.handle('graph:diffSlice', (_e, runA: number, runB: number, nodeId: string, filter: Filter) =>
-  store.diffSlice(runA, runB, nodeId, filter))
+  commands['graph.diffSlice']({ runA, runB, nodeId, filter }))
 
 function runFileOf(runId: number): { file: string; ingestedAt: string } {
   const info = store.runs().find(r => r.runId === runId)
@@ -697,13 +684,13 @@ function runFileOf(runId: number): { file: string; ingestedAt: string } {
   return { file: info.file, ingestedAt: info.ingestedAt }
 }
 
-ipcMain.handle('tags:load', (_e, runId: number) => loadTags(runFileOf(runId).file))
+ipcMain.handle('tags:load', (_e, runId: number) => commands['tags.load']({ runId }))
 ipcMain.handle('tags:save', (_e, runId: number, tags: Tag[]) => {
   const { file, ingestedAt } = runFileOf(runId)
   saveTags(file, ingestedAt, tags)
 })
-ipcMain.handle('tags:orphans', (_e, runId: number, targets: string[]) => store.orphanTargets(targets, runId))
-ipcMain.handle('suggest:dismissed:get', (_e, runId: number) => loadDismissed(runFileOf(runId).file))
+ipcMain.handle('tags:orphans', (_e, runId: number, targets: string[]) => commands['tags.orphans']({ runId, targets }))
+ipcMain.handle('suggest:dismissed:get', (_e, runId: number) => commands['suggest.dismissed.get']({ runId }))
 ipcMain.handle('suggest:dismissed:save', (_e, runId: number, dismissed: Dismissed[]) => {
   const { file, ingestedAt } = runFileOf(runId)
   saveDismissed(file, ingestedAt, dismissed)
