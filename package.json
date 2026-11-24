@@ -33,7 +33,7 @@
   "devDependencies": {
     "@types/cytoscape": "^3.21.9",
     "@types/node": "^26.1.0",
-    "electron": "^42.5.2",
+    "electron": "^42.11.18",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "jsdom": "^29.1.1",
