@@ -27,7 +27,7 @@ function ctxFor(store: GraphStore): CommandCtx {
       if (!r) throw new Error('unknown run')
       return { file: r.file, ingestedAt: r.ingestedAt } as { file: string }
     },
-    loadPath: (path: string, _broadcast: boolean) => store.ingest(path),
+    loadPath: (path: string, broadcast: boolean) => store.ingest(path, undefined, broadcast),
   }
 }
 
@@ -61,6 +61,32 @@ describe('write + path-load commands', () => {
     expect(tags[0]).toMatchObject({ target: s.target, offset: '0xa10', source: 'heuristic', confidence: 0.9 })
     await cmd['suggest.reject']({ runId: 1, suggestion: s })
     expect(await cmd['suggest.dismissed.get']({ runId: 1 })).toEqual([{ target: s.target, category: 'root' }])
+    await store.close()
+  })
+
+  it('a no-runId write lands on the primary run, not a loaded compare run', async () => {
+    const store = new GraphStore()
+    const cmd = buildCommands(ctxFor(store))
+    const a = fixture()
+    await cmd['run.loadByPath']({ path: a })
+    const d2 = mkdtempSync(join(tmpdir(), 'anubee-cmdw2-'))
+    const b = join(d2, 'cmp.jsonl')
+    writeFileSync(b, LINES.join('\n') + '\n')
+    const cmp = await cmd['run.loadCompareByPath']({ path: b }) as any
+    expect(cmp.runId).toBe(2)
+    await cmd['tags.save']({ tags: [{ target: 'sys:openat', category: 'root', source: 'manual', createdAt: 'T' }] })
+    expect(((await cmd['tags.load']({ runId: 1 })) as any).tags).toHaveLength(1)
+    expect(((await cmd['tags.load']({ runId: 2 })) as any).tags).toHaveLength(0)
+    rmSync(d2, { recursive: true, force: true })
+    await store.close()
+  })
+
+  it('findings.export and nativelib.exportArtifact refuse to run without an explicit destination', async () => {
+    const store = new GraphStore()
+    const cmd = buildCommands(ctxFor(store))
+    await cmd['run.loadByPath']({ path: fixture() })
+    await expect(cmd['findings.export']({ runId: 1, format: 'md' })).rejects.toThrow(/explicit path/)
+    expect(() => cmd['nativelib.exportArtifact']({ path: '/x' })).toThrow(/explicit dest/)
     await store.close()
   })
 

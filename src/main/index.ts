@@ -184,7 +184,7 @@ async function ingestPath(
   // keeps logging on the caller side.
   let summary: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }
   try {
-    summary = await store.ingest(path, pct => win.webContents.send('trace:progress', pct))
+    summary = await store.ingest(path, pct => win.webContents.send('trace:progress', pct), broadcast)
   } catch (e) {
     if (broadcast) win.webContents.send('trace:fail', { message: e instanceof Error ? e.message : String(e), file: basename(path) })
     throw e
@@ -464,13 +464,6 @@ ipcMain.on('app:requestClose', () => { win.close() })
 const commands = buildCommands({
   store, runFileOf, userDataDir: () => app.getPath('userData'),
   loadPath: ingestPath,
-  pickSavePath: async (defaultName, ext) => {
-    const r = await dialog.showSaveDialog(win, {
-      defaultPath: defaultName,
-      filters: [{ name: ext === 'md' ? 'Markdown' : 'JSON', extensions: [ext] }],
-    })
-    return r.canceled || !r.filePath ? null : r.filePath
-  },
   device: {
     preflight: devicePreflight, start: captureStart, stop: captureStop,
     startLive: nativelibStartLive, stopLive: nativelibStopLive,
@@ -668,18 +661,16 @@ function nativelibDumpLib(pid: number, base: string) {
 
 ipcMain.handle('nativelib:revealArtifact', (_e, path: string) => { shell.showItemInFolder(path) })
 
-ipcMain.handle('nativelib:exportArtifact', (_e, path: string) => commands['nativelib.exportArtifact']({ path }))
+// The renderer picks the destination via the save dialog; the command only copies.
+ipcMain.handle('nativelib:exportArtifact', async (_e, path: string) => {
+  const r = await dialog.showSaveDialog(win, { defaultPath: basename(path) })
+  if (r.canceled || !r.filePath) return { saved: false }
+  return commands['nativelib.exportArtifact']({ path, dest: r.filePath })
+})
 
-// dest given (command/MCP path): copy there. Absent (renderer): ask via the save dialog.
-async function nativelibExportArtifact(path: string, dest?: string) {
-  let target = dest
-  if (!target) {
-    const r = await dialog.showSaveDialog(win, { defaultPath: basename(path) })
-    if (r.canceled || !r.filePath) return { saved: false }
-    target = r.filePath
-  }
-  await copyFile(path, target)
-  return { saved: true, path: target }
+async function nativelibExportArtifact(path: string, dest: string) {
+  await copyFile(path, dest)
+  return { saved: true, path: dest }
 }
 
 // Copy via the main-process clipboard: navigator.clipboard is unreliable in the
@@ -711,8 +702,14 @@ ipcMain.handle('suggest:dismissed:get', (_e, runId: number) => commands['suggest
 ipcMain.handle('suggest:dismissed:save', (_e, runId: number, dismissed: Dismissed[]) =>
   commands['suggest.dismissed.save']({ runId, dismissed }))
 
-ipcMain.handle('findings:export', (_e, runId: number, format: 'md' | 'json') =>
-  commands['findings.export']({ runId, format }))
+ipcMain.handle('findings:export', async (_e, runId: number, format: 'md' | 'json') => {
+  const r = await dialog.showSaveDialog(win, {
+    defaultPath: `findings.${format}`,
+    filters: [{ name: format === 'md' ? 'Markdown' : 'JSON', extensions: [format] }],
+  })
+  if (r.canceled || !r.filePath) return null
+  return commands['findings.export']({ runId, format, path: r.filePath })
+})
 
 ipcMain.handle('log:save', async (_e, text: string) => {
   const now = new Date()

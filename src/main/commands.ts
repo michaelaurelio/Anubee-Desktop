@@ -22,7 +22,7 @@ export interface DeviceOps {
   stopLive(): unknown
   verify(pid: number, bases: string[]): unknown
   dumpLib(pid: number, base: string): unknown
-  exportArtifact(path: string, dest?: string): unknown
+  exportArtifact(path: string, dest: string): unknown
 }
 
 export type NativeFrame = { kind: 'native'; module: string; symbol: string | null; load_base: string | null; module_relative_offset: string }
@@ -37,8 +37,6 @@ export interface CommandCtx {
   userDataDir?: () => string
   /** Existing ingest path (index.ts). broadcast=true drives the renderer as the primary run. */
   loadPath?: (path: string, broadcast: boolean) => Promise<RunSummary>
-  /** Native save dialog for findings.export when no explicit path is given. */
-  pickSavePath?: (defaultName: string, ext: 'md' | 'json') => Promise<string | null>
   device?: DeviceOps
 }
 
@@ -51,7 +49,7 @@ export function buildCommands(ctx: CommandCtx): CommandMap {
     return ctx.userDataDir()
   }
   const activeRun = (runId?: number): number => {
-    const rid = runId ?? store.runs().at(-1)?.runId
+    const rid = runId ?? store.activeRun()
     if (rid === undefined) throw new Error('no run loaded')
     return rid
   }
@@ -98,7 +96,7 @@ export function buildCommands(ctx: CommandCtx): CommandMap {
     'graph.diffSlice': ({ runA, runB, nodeId, filter }: { runA: number; runB: number; nodeId: string; filter: Filter }) =>
       store.diffSlice(runA, runB, nodeId, filter),
     'rasp.suggest': ({ runId }: { runId?: number } = {}) => {
-      const rid = runId ?? store.runs().at(-1)?.runId
+      const rid = runId ?? store.activeRun()
       if (rid === undefined) return []
       const global = loadRules(userData())
       const project = loadSidecarRules(ctx.runFileOf(rid).file)
@@ -106,7 +104,7 @@ export function buildCommands(ctx: CommandCtx): CommandMap {
       return store.suggest(rid, effective)
     },
     'rasp.rules.get': ({ runId }: { runId?: number } = {}) => {
-      const rid = runId ?? store.runs().at(-1)?.runId
+      const rid = runId ?? store.activeRun()
       const global = loadRules(userData())
       const project = rid !== undefined
         ? loadSidecarRules(ctx.runFileOf(rid).file)
@@ -140,7 +138,7 @@ export function buildCommands(ctx: CommandCtx): CommandMap {
     },
     'rasp.rules.save': ({ scope, ruleScope, runId }: { scope: 'global' | 'project'; ruleScope: RuleScope; runId?: number }) => {
       if (scope === 'global') { saveRules(userData(), ruleScope); return }
-      const rid = runId ?? store.runs().at(-1)?.runId
+      const rid = runId ?? store.activeRun()
       if (rid === undefined) throw new Error('no active run for project-scope rules')
       const { file, ingestedAt } = runInfo(rid)
       saveSidecarRules(file, ingestedAt, ruleScope.rules, ruleScope.enabledOverrides)
@@ -148,11 +146,12 @@ export function buildCommands(ctx: CommandCtx): CommandMap {
     'rasp.rules.preview': async ({ rule, runId }: { rule: unknown; runId?: number }) => {
       const { rule: valid, error } = validateRule(rule, 'project')
       if (!valid) return { error: error ?? 'invalid rule' }
-      const rid = runId ?? store.runs().at(-1)?.runId
+      const rid = runId ?? store.activeRun()
       if (rid === undefined) return { error: 'no run loaded' }
       return store.previewRule(rid, valid)
     },
     'findings.export': async ({ runId, format, path }: { runId?: number; format: 'md' | 'json'; path?: string }) => {
+      if (!path) throw new Error('findings.export requires an explicit path')
       const rid = activeRun(runId)
       const { tags } = loadTags(ctx.runFileOf(rid).file)
       const reps: Record<string, SyscallEvent[]> = {}
@@ -165,10 +164,8 @@ export function buildCommands(ctx: CommandCtx): CommandMap {
       }
       const findings = buildFindings(tags, reps)
       const text = format === 'md' ? renderMarkdown(findings) : renderJSON(findings)
-      const out = path ?? (ctx.pickSavePath ? await ctx.pickSavePath(`findings.${format}`, format) : null)
-      if (!out) return null
-      writeFileSync(out, text)
-      return out
+      writeFileSync(path, text)
+      return path
     },
 
     // ---- RE pivot: coordinates only, no decompiler ----
@@ -204,6 +201,9 @@ export function buildCommands(ctx: CommandCtx): CommandMap {
     'nativelib.stopLive': () => dev().stopLive(),
     'nativelib.verify': ({ pid, bases }: { pid: number; bases: string[] }) => dev().verify(pid, bases),
     'nativelib.dumpLib': ({ pid, base }: { pid: number; base: string }) => dev().dumpLib(pid, base),
-    'nativelib.exportArtifact': ({ path, dest }: { path: string; dest?: string }) => dev().exportArtifact(path, dest),
+    'nativelib.exportArtifact': ({ path, dest }: { path: string; dest?: string }) => {
+      if (!dest) throw new Error('nativelib.exportArtifact requires an explicit dest')
+      return dev().exportArtifact(path, dest)
+    },
   }
 }
