@@ -9,7 +9,13 @@ export async function call<T>(conn: Conn, command: string, args?: unknown): Prom
     headers: { 'content-type': 'application/json', 'x-anubee-token': conn.token },
     body: JSON.stringify({ command, args }),
   })
-  const body = (await res.json()) as { ok: boolean; result?: T; error?: string }
+  const text = await res.text()
+  let body: { ok: boolean; result?: T; error?: string }
+  try {
+    body = JSON.parse(text)
+  } catch {
+    throw new Error(`call ${command} failed (${res.status}): non-JSON response`)
+  }
   if (!body.ok) throw new Error(body.error ?? `call ${command} failed (${res.status})`)
   return body.result as T
 }
@@ -18,6 +24,7 @@ export function openStream(
   conn: Conn,
   name: string,
   onEvent: (data: unknown) => void,
+  onError?: (err: Error) => void,
 ): () => void {
   const ac = new AbortController()
   void (async () => {
@@ -26,7 +33,10 @@ export function openStream(
         headers: { 'x-anubee-token': conn.token, accept: 'text/event-stream' },
         signal: ac.signal,
       })
-      if (!res.ok || !res.body) return
+      if (!res.ok || !res.body) {
+        onError?.(new Error(`stream ${name} failed (${res.status})`))
+        return
+      }
       const reader = res.body.getReader()
       const dec = new TextDecoder()
       let buf = ''

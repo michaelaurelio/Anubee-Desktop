@@ -12,6 +12,8 @@ let server: Server
 let port: number
 let seen: { token?: string; body?: any }
 let nextResponse: unknown
+let nextRaw: string | undefined
+let nextStatus = 200
 
 function writeHandshake(pid: number, p = port): void {
   writeFileSync(
@@ -25,6 +27,10 @@ beforeAll(async () => {
   process.env.ANUBEE_DESKTOP_USERDATA = dir
   server = createServer((req, res) => {
     seen.token = req.headers['x-anubee-token'] as string | undefined
+    if (req.method === 'GET' && req.url === '/stream/denied') {
+      res.writeHead(401).end('nope')
+      return
+    }
     if (req.method === 'GET' && req.url === '/stream/graph') {
       res.writeHead(200, { 'content-type': 'text/event-stream' })
       res.write('data: {"n":1}\n\n')
@@ -34,8 +40,8 @@ beforeAll(async () => {
     req.on('data', (c) => (raw += c))
     req.on('end', () => {
       seen.body = raw ? JSON.parse(raw) : undefined
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify(nextResponse))
+      res.writeHead(nextStatus, { 'content-type': 'application/json' })
+      res.end(nextRaw ?? JSON.stringify(nextResponse))
     })
   })
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
@@ -50,6 +56,8 @@ afterAll(() => {
 
 beforeEach(() => {
   seen = {}
+  nextRaw = undefined
+  nextStatus = 200
   rmSync(join(dir, 'mcp-control.json'), { force: true })
 })
 
@@ -83,7 +91,23 @@ describe('call', () => {
   })
 })
 
+describe('call hardening', () => {
+  it('throws a status-bearing error on a non-JSON body', async () => {
+    writeHandshake(process.pid)
+    nextRaw = '<html>bad gateway</html>'
+    nextStatus = 502
+    await expect(call(resolveApp(), 'graph.runs')).rejects.toThrow(/502/)
+  })
+})
+
 describe('openStream', () => {
+  it('reports a non-OK response through onError', async () => {
+    writeHandshake(process.pid)
+    const err = await new Promise<Error>((resolve) => {
+      openStream(resolveApp(), 'denied', () => {}, resolve)
+    })
+    expect(err.message).toMatch(/401/)
+  })
   it('sends the token header and delivers data events', async () => {
     writeHandshake(process.pid)
     const got = await new Promise<unknown>((resolve) => {
