@@ -14,9 +14,20 @@ export const MCP_LOG_CAP = 2000
 const buffer: McpLogEntry[] = []
 let deviceGranted = false
 
+const listeners = new Set<(e: McpLogEntry) => void>()
+
+// Subscribe to appended entries (used to push live log rows to the renderer).
+export function onMcpLog(cb: (e: McpLogEntry) => void): () => void {
+  listeners.add(cb)
+  return () => { listeners.delete(cb) }
+}
+
 export function appendMcpLog(e: McpLogEntry): void {
   buffer.push(e)
   if (buffer.length > MCP_LOG_CAP) buffer.shift()
+  for (const cb of listeners) {
+    try { cb(e) } catch { /* a listener must never break logging */ }
+  }
 }
 
 export function getMcpLog(): McpLogEntry[] {

@@ -3,6 +3,9 @@ import { resolve } from 'path'
 import { writeFileSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { GraphStore } from './graph-store'
 import { buildCommands } from './commands'
+import { createMcpControl } from './mcp-control'
+import { removeHandshake } from './mcp-handshake'
+import { revokeDeviceGrant } from './mcp-log'
 import { loadThroughput, saveThroughput } from './ingest-calibration'
 import { updateThroughput } from '@shared/ingest-estimate'
 import type { Filter } from '@shared/filter'
@@ -32,6 +35,29 @@ import { basename } from 'node:path'
 // renderer only ever asks for a table page, a bounded slice, or one record by id.
 const store = new GraphStore()
 let win!: BrowserWindow
+
+// MCP control plane. Off at launch; the (Task 11) panel toggles it via mcp:setEnabled.
+const toRenderer = (channel: string, data?: unknown): void => {
+  if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(channel, data)
+}
+const control = createMcpControl({
+  buildCommandMap: () => commands,
+  userDataDir: () => app.getPath('userData'),
+  emitToRenderer: toRenderer,
+  // Live-refresh: an AI write via the server persists to the sidecar but the
+  // renderer holds tags/dismissals in memory, so tell it to reload them.
+  onWrite: () => toRenderer('project:changed'),
+  // TODO(Task 12): replace this rejecting stub with the renderer
+  // mcp:deviceRequest round-trip. isDeviceGranted() already short-circuits in
+  // the server, so only the not-yet-granted prompt path is denied for now.
+  deviceGate: async () => false,
+})
+// Stream channel to renderer and, when MCP control is on, to SSE subscribers
+// (dotted name: 'trace:loaded' -> 'trace.loaded').
+function send(channel: string, data?: unknown): void {
+  toRenderer(channel, data)
+  control.emit(channel.replace(/:/g, '.'), data)
+}
 
 const adb = realAdb()
 const spawner = realSpawner()
@@ -184,7 +210,7 @@ async function ingestPath(
   // keeps logging on the caller side.
   let summary: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }
   try {
-    summary = await store.ingest(path, pct => win.webContents.send('trace:progress', pct), broadcast)
+    summary = await store.ingest(path, pct => send('trace:progress', pct), broadcast)
   } catch (e) {
     if (broadcast) win.webContents.send('trace:fail', { message: e instanceof Error ? e.message : String(e), file: basename(path) })
     throw e
@@ -194,7 +220,7 @@ async function ingestPath(
     const next = updateThroughput(throughput, fileBytes, actualMs)
     saveThroughput(userData, next)
   }
-  if (broadcast) win.webContents.send('trace:loaded', summary)
+  if (broadcast) send('trace:loaded', summary)
   return summary
 }
 
@@ -219,7 +245,7 @@ ipcMain.handle('tracer:config:set', (_e, cfg: { anubeeBinary: string; specsDir: 
 })
 function devicePreflight(pkg: string) {
   return preflight(adb, loadConfig(app.getPath('userData')), pkg, fileMd5,
-    c => win.webContents.send('tracer:preflight-check', c))
+    c => send('tracer:preflight-check', c))
 }
 ipcMain.handle('tracer:preflight', (_e, pkg: string) => commands['capture.preflight']({ pkg }))
 
@@ -331,7 +357,7 @@ async function captureStart(capId: string, vals: Record<string, unknown>, timeou
   const flushDeviceLines = (): void => {
     if (lineTimer !== undefined) { clearTimeout(lineTimer); lineTimer = undefined }
     if (lineBuf.length === 0) return
-    win.webContents.send('tracer:lines', lineBuf.splice(0, lineBuf.length))
+    send('tracer:lines', lineBuf.splice(0, lineBuf.length))
   }
   const onDeviceLine = (line: string): void => {
     lineBuf.push(line)
@@ -370,7 +396,7 @@ async function captureStart(capId: string, vals: Record<string, unknown>, timeou
     // there is no live process left to signal. Sent on the discard path too:
     // that path skips the pull below, but the UI still needs to stop offering
     // Stop buttons that can no longer act, and previously got no phase at all.
-    win.webContents.send('tracer:phase', { phase: 'finishing' })
+    send('tracer:phase', { phase: 'finishing' })
     // Stop & discard: the analyst threw the run away, so do not pull or ingest.
     if (cap.outputKind === 'jsonl' && jsonlPath && !wasDiscarded) {
       const hostPath = resolveSavePath(savePath, resolve(runsDir(), `anubee-${ts}.jsonl`))
@@ -392,7 +418,7 @@ async function captureStart(capId: string, vals: Record<string, unknown>, timeou
     // Broadcast completion so whichever Capture modal instance is live can
     // finalize - the instance that started this run may have been closed and
     // replaced by a reattached one by the time this resolves.
-    win.webContents.send('tracer:done', { code, kind: cap.outputKind, runId, error })
+    send('tracer:done', { code, kind: cap.outputKind, runId, error })
   }
   return { code, kind: cap.outputKind, runId, error }
 }
@@ -504,9 +530,9 @@ async function pullAndPushWatchArtifacts(): Promise<void> {
   activeWatchDirs = null
   try {
     const arts = await pullWatchArtifacts(adb, deviceDir, hostDir)
-    if (arts.length > 0) win.webContents.send('nativelib:watchArtifacts', arts)
+    if (arts.length > 0) send('nativelib:watchArtifacts', arts)
   } catch (e) {
-    win.webContents.send('nativelib:line', `on-map artifact pull failed: ${e instanceof Error ? e.message : String(e)}`)
+    send('nativelib:line', `on-map artifact pull failed: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
@@ -536,10 +562,10 @@ async function runCheck(pid: number, bases: string[]): Promise<void> {
   const t0 = liveT0
   try {
     const results = await checkByBases(spawner, adb, pid, bases, deviceDir, hostDir,
-      line => win.webContents.send('nativelib:line', line))
-    win.webContents.send('nativelib:checkResults', { results, atMs: Date.now() - t0 })
+      line => send('nativelib:line', line))
+    send('nativelib:checkResults', { results, atMs: Date.now() - t0 })
   } catch (e) {
-    win.webContents.send('nativelib:line', `auto-check failed: ${e instanceof Error ? e.message : String(e)}`)
+    send('nativelib:line', `auto-check failed: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
@@ -584,9 +610,9 @@ async function nativelibStartLive(pkg: string, glob?: string): Promise<void> {
   // rejected start does not orphan this run's freshly-mkdir'd dir - the next
   // run's teardown would otherwise pull a stale, unrelated directory.
   activeLive = startLive(spawner, adb, pkg, (ev: LiveEvent) => {
-    if ('raw' in ev) win.webContents.send('nativelib:line', ev.raw)
+    if ('raw' in ev) send('nativelib:line', ev.raw)
     else if (ev.line.kind === 'lib') {
-      win.webContents.send('nativelib:mapped', { ...ev.line, atMs: ev.atMs })
+      send('nativelib:mapped', { ...ev.line, atMs: ev.atMs })
       // The pid becomes known on the first [lib] line, same as the watcher below.
       livePid = ev.line.pid
       // Queue only dumpable rows: a bracketed pseudo-path has no on-disk file
@@ -594,9 +620,9 @@ async function nativelibStartLive(pkg: string, glob?: string): Promise<void> {
       if (ev.line.library?.startsWith('/')) checkBatcher.add(ev.line.start)
       // Attach the watcher on the first [lib] line: that is where the pid becomes known.
       if (glob && watchDeviceDir && !activeWatch) {
-        activeWatch = startWatch(spawner, adb, ev.line.pid, glob, watchDeviceDir, line => win.webContents.send('nativelib:watchLine', line))
+        activeWatch = startWatch(spawner, adb, ev.line.pid, glob, watchDeviceDir, line => send('nativelib:watchLine', line))
       }
-    } else win.webContents.send('nativelib:unmapped', { ...ev.line, atMs: ev.atMs })
+    } else send('nativelib:unmapped', { ...ev.line, atMs: ev.atMs })
   })
   activeWatchDirs = watchDirs ?? null
   liveCheckDir = checkDirs
@@ -609,7 +635,7 @@ async function nativelibStartLive(pkg: string, glob?: string): Promise<void> {
     // on streamEnd waiting for the watcher stop + adb pull below. Sending it here
     // also means a rejection in either await (both under the catch below) can no
     // longer strand the view in "streaming" with no way to recover.
-    win.webContents.send('nativelib:streamEnd')
+    send('nativelib:streamEnd')
     if (activeWatch) { await activeWatch.stop(); activeWatch = null }
     await pullAndPushWatchArtifacts()
   }).catch(() => {})
@@ -642,10 +668,10 @@ async function nativelibVerify(pid: number, bases: string[]): Promise<void> {
   const t0 = liveT0
   try {
     const results = await checkByBases(spawner, adb, pid, bases, deviceDir, hostDir,
-      line => win.webContents.send('nativelib:line', line))
-    win.webContents.send('nativelib:checkResults', { results, atMs: Date.now() - t0 })
+      line => send('nativelib:line', line))
+    send('nativelib:checkResults', { results, atMs: Date.now() - t0 })
   } catch (e) {
-    win.webContents.send('nativelib:line', `verify failed: ${e instanceof Error ? e.message : String(e)}`)
+    send('nativelib:line', `verify failed: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
@@ -656,7 +682,7 @@ function nativelibDumpLib(pid: number, base: string) {
   const deviceDir = `/data/local/tmp/anubee-dump-${ts}`
   const hostDir = resolve(runsDir(), `anubee-dump-${ts}`)
   return dumpByBase(spawner, adb, pid, base, deviceDir, hostDir,
-    line => win.webContents.send('nativelib:line', line))
+    line => send('nativelib:line', line))
 }
 
 ipcMain.handle('nativelib:revealArtifact', (_e, path: string) => { shell.showItemInFolder(path) })
@@ -725,8 +751,21 @@ ipcMain.handle('log:save', async (_e, text: string) => {
   return r.filePath
 })
 
+ipcMain.handle('mcp:getState', () => control.getState())
+ipcMain.handle('mcp:setEnabled', async (_e, on: boolean) => {
+  if (on) await control.enable()
+  else await control.disable()
+  return control.getState()
+})
+ipcMain.handle('mcp:revokeGrant', () => {
+  revokeDeviceGrant()
+  toRenderer('mcp:state', control.getState())
+  return control.getState()
+})
+
 app.whenReady().then(createWindow)
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 app.on('before-quit', () => void store.close())
+app.on('will-quit', () => { removeHandshake(app.getPath('userData')) })

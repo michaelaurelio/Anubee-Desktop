@@ -1185,6 +1185,15 @@ window.anubee.onLoaded(s => {
   void window.anubee.coverage(s.runId).then(cov => { coverageChip = coverageChipText(cov) })
     .catch(() => { coverageChip = '' })
 })
+// An external writer (MCP control) changed tags/dismissals/rules on disk: reload
+// them and repaint the panels that show them, without touching the loaded run.
+window.anubee.onProjectChanged(() => {
+  void refreshTags().then(() => {
+    redrawBadges()
+    void refreshSuggestions()
+    void refreshOrphans()
+  })
+})
 // Centralized ingest failure: covers all four broadcasting load paths (run-open,
 // project-open, capture-ingest, preload auto-load). restoreEmpty only when no
 // run is loaded, so a failed re-open does not blank an existing run's table.
