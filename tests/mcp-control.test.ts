@@ -2,7 +2,8 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { mkdtempSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createMcpControl } from '../src/main/mcp-control'
+import { buildCommands } from '../src/main/commands'
+import { createMcpControl, WRITE_COMMANDS, DEVICE_COMMANDS } from '../src/main/mcp-control'
 import { readHandshake, handshakePath } from '../src/main/mcp-handshake'
 import { resetMcpState } from '../src/main/mcp-log'
 
@@ -72,12 +73,30 @@ describe('mcp control lifecycle', () => {
     await ctl.disable()
   })
 
-  it('emit is a no-op while off and enable is idempotent', async () => {
+  it('concurrent enables share one server; disable mid-enable ends off', async () => {
+    const { dir, ctl } = setup()
+    await Promise.all([ctl.enable(), ctl.enable()])
+    const hs = readHandshake(dir)!
+    await ctl.enable()
+    expect(readHandshake(dir)!.port).toBe(hs.port)
+    expect(await call(hs.port, hs.token, 'graph.runs')).toMatchObject({ ok: true })
+    await Promise.all([ctl.disable(), ctl.enable(), ctl.disable()])
+    expect(ctl.isOn()).toBe(false)
+    expect(existsSync(handshakePath(dir))).toBe(false)
+    await expect(call(hs.port, hs.token, 'graph.runs')).rejects.toThrow()
+  })
+
+  it('emit is a no-op while off and double disable is safe', async () => {
     const { ctl } = setup()
-    ctl.emit('trace.loaded', {})
-    await ctl.enable()
+    expect(() => ctl.emit('trace.loaded', {})).not.toThrow()
     await ctl.enable()
     await ctl.disable()
     await ctl.disable()
+    expect(ctl.isOn()).toBe(false)
+  })
+
+  it('every WRITE/DEVICE command name is a real command key', () => {
+    const map = buildCommands({ store: {} as any, runFileOf: () => ({} as any), device: {} as any })
+    for (const n of [...WRITE_COMMANDS, ...DEVICE_COMMANDS]) expect(Object.keys(map)).toContain(n)
   })
 })

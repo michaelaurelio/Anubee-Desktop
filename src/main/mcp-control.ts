@@ -72,42 +72,58 @@ export function createMcpControl(opts: McpControlOpts): McpControl {
     return out
   }
 
-  return {
-    async enable() {
-      if (server) return
-      const token = crypto.randomBytes(32).toString('hex')
-      const srv = createControlServer({
-        commands: wrap(opts.buildCommandMap()),
-        token,
-        deviceCommands: new Set(DEVICE_COMMANDS),
-        deviceGate: opts.deviceGate ?? (async () => false),
-      })
-      const port = await srv.start()
-      dir = opts.userDataDir()
-      try {
-        writeHandshake(dir, { port, token, pid: process.pid, startedAt: Date.now() })
-      } catch (e) {
-        await srv.stop()
-        throw e
-      }
-      server = srv
-      let first = true
-      unsubLog = onMcpLog(entry => {
-        opts.emitToRenderer('mcp:log', entry)
-        if (first) { first = false; pushState() } // attached flipped
-      })
-      pushState()
-    },
-    async disable() {
-      const srv = server
-      server = null
-      unsubLog?.()
-      unsubLog = null
+  // Serialize enable/disable so concurrent toggles cannot double-start or
+  // orphan a server.
+  let chain: Promise<unknown> = Promise.resolve()
+  const serial = <T>(fn: () => Promise<T>): Promise<T> => {
+    const run = chain.then(fn, fn)
+    chain = run.catch(() => undefined)
+    return run
+  }
+
+  const doEnable = async (): Promise<void> => {
+    if (server) return
+    const token = crypto.randomBytes(32).toString('hex')
+    const srv = createControlServer({
+      commands: wrap(opts.buildCommandMap()),
+      token,
+      deviceCommands: new Set(DEVICE_COMMANDS),
+      deviceGate: opts.deviceGate ?? (async () => false),
+    })
+    const port = await srv.start()
+    dir = opts.userDataDir()
+    try {
+      writeHandshake(dir, { port, token, pid: process.pid, startedAt: Date.now() })
+    } catch (e) {
+      await srv.stop()
+      throw e
+    }
+    server = srv
+    let first = true
+    unsubLog = onMcpLog(entry => {
+      opts.emitToRenderer('mcp:log', entry)
+      if (first) { first = false; pushState() } // attached flipped
+    })
+    pushState()
+  }
+
+  const doDisable = async (): Promise<void> => {
+    const srv = server
+    server = null
+    unsubLog?.()
+    unsubLog = null
+    try {
       if (srv) await srv.stop()
+    } finally {
       removeHandshake(dir || opts.userDataDir())
       resetMcpState()
       pushState()
-    },
+    }
+  }
+
+  return {
+    enable: () => serial(doEnable),
+    disable: () => serial(doDisable),
     isOn: () => server !== null,
     getState,
     emit(name, data) { server?.emit(name, data) },

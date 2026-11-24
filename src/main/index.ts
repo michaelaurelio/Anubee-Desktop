@@ -201,7 +201,7 @@ async function ingestPath(
   if (broadcast) {
     try { fileBytes = statSync(path).size } catch { fileBytes = 0 }
     throughput = loadThroughput(userData)
-    win.webContents.send('trace:estimate', { fileBytes, throughput })
+    send('trace:estimate', { fileBytes, throughput })
   }
   const t0 = performance.now()
   // Centralize ingest failure here so all four broadcasting entry points
@@ -212,7 +212,7 @@ async function ingestPath(
   try {
     summary = await store.ingest(path, pct => send('trace:progress', pct), broadcast)
   } catch (e) {
-    if (broadcast) win.webContents.send('trace:fail', { message: e instanceof Error ? e.message : String(e), file: basename(path) })
+    if (broadcast) send('trace:fail', { message: e instanceof Error ? e.message : String(e), file: basename(path) })
     throw e
   }
   const actualMs = performance.now() - t0
@@ -768,4 +768,6 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 app.on('before-quit', () => void store.close())
-app.on('will-quit', () => { removeHandshake(app.getPath('userData')) })
+// Only the instance that owns the handshake (MCP on) removes it, so a second
+// instance sharing userData cannot delete a live one.
+app.on('will-quit', () => { if (control.isOn()) removeHandshake(app.getPath('userData')) })
