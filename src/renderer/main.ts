@@ -1233,7 +1233,7 @@ window.anubee.onMcpDeviceRequest(r => {
 })
 window.anubee.onMcpState(s => paintMcp(s))
 window.anubee.onMcpLog(e => {
-  mcpState = { ...mcpState, log: [...mcpState.log, e] }
+  mcpState = { ...mcpState, log: [...mcpState.log, e].slice(-2000) }
   paintMcp()
 })
 document.getElementById('mcp-btn')?.addEventListener('click', () => {
