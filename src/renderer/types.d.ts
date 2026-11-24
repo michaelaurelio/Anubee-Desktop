@@ -2,6 +2,8 @@ import type { Filter } from '@shared/filter'
 import type { GraphSlice, HighlightSets } from '@shared/graph-shape'
 import type { StackRollup } from '@shared/flame-shape'
 import type { TableRow } from '@shared/table'
+import type { McpLogEntry } from '../main/mcp-log'
+import type { McpState } from '../main/mcp-control'
 import type { SyscallEvent, CoverageEvent, FuncEvent } from '@shared/events'
 
 declare global {
@@ -58,6 +60,14 @@ declare global {
       onEstimate(cb: (e: { fileBytes: number; throughput: number }) => void): void
       onIngestFail(cb: (e: { message: string; file: string }) => void): void
       onLoaded(cb: (s: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }) => void): void
+      onProjectChanged(cb: () => void): void
+      mcpGetState(): Promise<McpState>
+      mcpSetEnabled(on: boolean): Promise<McpState>
+      mcpRevokeGrant(): Promise<McpState>
+      onMcpDeviceRequest(cb: (r: { id: string; action: string }) => void): void
+      respondMcpDeviceRequest(id: string, choice: 'once' | 'session' | 'deny'): void
+      onMcpLog(cb: (e: McpLogEntry) => void): void
+      onMcpState(cb: (s: McpState) => void): void
       getTracerConfig(): Promise<{ anubeeBinary: string; specsDir: string }>
       setTracerConfig(cfg: { anubeeBinary: string; specsDir: string }): Promise<void>
       tracerPreflight(pkg: string): Promise<{ id: string; label: string; ok: boolean; detail: string }[]>

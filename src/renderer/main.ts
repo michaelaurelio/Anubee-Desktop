@@ -16,6 +16,9 @@ import { showNodeMenu, closeNodeMenu, showTagPopup, closeTagPopup } from './node
 import { renderSuggestions, renderSuggestionsLoading } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
+import { renderMcpPanel } from './mcp-view'
+import { requestDeviceGrant } from './mcp-grant'
+import type { McpState } from '../main/mcp-control'
 import { raspNodeStates } from './rasp-node-state'
 import { upsertTag, removeTag, tagsByTarget, orphanedTags, isDismissed, addDismissed, openSuggestions, type Tag, type Dismissed, type RaspCategory } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
@@ -1185,6 +1188,15 @@ window.anubee.onLoaded(s => {
   void window.anubee.coverage(s.runId).then(cov => { coverageChip = coverageChipText(cov) })
     .catch(() => { coverageChip = '' })
 })
+// An external writer (MCP control) changed tags/dismissals/rules on disk: reload
+// them and repaint the panels that show them, without touching the loaded run.
+window.anubee.onProjectChanged(() => {
+  void refreshTags().then(() => {
+    redrawBadges()
+    void refreshSuggestions()
+    void refreshOrphans()
+  })
+})
 // Centralized ingest failure: covers all four broadcasting load paths (run-open,
 // project-open, capture-ingest, preload auto-load). restoreEmpty only when no
 // run is loaded, so a failed re-open does not blank an existing run's table.
@@ -1201,6 +1213,39 @@ document.getElementById('rules-btn')?.addEventListener('click', () => {
     title: 'Rules',
     width: 640,
     render: host => { void renderRules(host, activeRunId, () => { dirty = true; logAppend('info', 'rules', 'Rules updated'); void recolorRasp(); void refreshSuggestions() }) },
+  })
+})
+// MCP panel: control toggle + grant + live AI action log. The push listeners
+// are registered once (preload has no unsubscribe); they only paint while the
+// modal is open (mcpHost set), and onClose clears it.
+let mcpHost: HTMLElement | undefined
+let mcpState: McpState = { on: false, attached: false, granted: false, log: [] }
+const mcpActions = {
+  toggle: (on: boolean) => { void window.anubee.mcpSetEnabled(on).then(paintMcp) },
+  revoke: () => { void window.anubee.mcpRevokeGrant().then(paintMcp) },
+}
+function paintMcp(s?: McpState): void {
+  if (s) mcpState = s
+  if (mcpHost) renderMcpPanel(mcpHost, mcpState, mcpActions)
+}
+window.anubee.onMcpDeviceRequest(r => {
+  void requestDeviceGrant(r.action).then(choice => window.anubee.respondMcpDeviceRequest(r.id, choice))
+})
+window.anubee.onMcpState(s => paintMcp(s))
+window.anubee.onMcpLog(e => {
+  mcpState = { ...mcpState, log: [...mcpState.log, e].slice(-2000) }
+  paintMcp()
+})
+document.getElementById('mcp-btn')?.addEventListener('click', () => {
+  showModal({
+    title: 'MCP',
+    width: 640,
+    render: host => {
+      mcpHost = host
+      paintMcp()
+      void window.anubee.mcpGetState().then(paintMcp)
+    },
+    onClose: () => { mcpHost = undefined },
   })
 })
 document.getElementById('pager-prev')?.addEventListener('click', () => {

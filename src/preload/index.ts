@@ -62,6 +62,16 @@ contextBridge.exposeInMainWorld('anubee', {
     ipcRenderer.on('trace:fail', (_e, e) => cb(e as { message: string; file: string })),
   onLoaded: (cb: (s: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }) => void) =>
     ipcRenderer.on('trace:loaded', (_e, s) => cb(s as { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] })),
+  onProjectChanged: (cb: () => void) => ipcRenderer.on('project:changed', () => cb()),
+  mcpGetState: () => ipcRenderer.invoke('mcp:getState'),
+  mcpSetEnabled: (on: boolean) => ipcRenderer.invoke('mcp:setEnabled', on),
+  mcpRevokeGrant: () => ipcRenderer.invoke('mcp:revokeGrant'),
+  onMcpLog: (cb: (e: unknown) => void) => ipcRenderer.on('mcp:log', (_e, x) => cb(x)),
+  onMcpDeviceRequest: (cb: (r: { id: string; action: string }) => void) =>
+    ipcRenderer.on('mcp:deviceRequest', (_e, r) => cb(r as { id: string; action: string })),
+  respondMcpDeviceRequest: (id: string, choice: 'once' | 'session' | 'deny') =>
+    ipcRenderer.send('mcp:deviceReply', { id, choice }),
+  onMcpState: (cb: (s: unknown) => void) => ipcRenderer.on('mcp:state', (_e, x) => cb(x)),
   getTracerConfig: () => ipcRenderer.invoke('tracer:config:get'),
   setTracerConfig: (cfg: { anubeeBinary: string; specsDir: string }) =>
     ipcRenderer.invoke('tracer:config:set', cfg),

@@ -208,6 +208,8 @@ export class GraphStore {
   async ingest(
     path: string,
     onProgress?: (pct: number) => void,
+    // A compare load passes makeActive=false so it never displaces the primary run.
+    makeActive = true,
   ): Promise<{ runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }> {
     if (!this.instance) {
       this.instance = await DuckDBInstance.create(':memory:')
@@ -286,7 +288,7 @@ export class GraphStore {
       eventCount,
       kinds,
     })
-    this.activeRunId = runId
+    if (makeActive || this.activeRunId === undefined) this.activeRunId = runId
     onProgress?.(100)
     return { runId, eventCount, errors, kinds }
   }
@@ -294,6 +296,9 @@ export class GraphStore {
   runs(): RunInfo[] {
     return [...this.runsMap.values()]
   }
+
+  /** The primary run: what an omitted runId resolves to. */
+  activeRun(): number | undefined { return this.activeRunId }
 
   private resolveRun(runId?: number): number {
     const id = runId ?? this.activeRunId

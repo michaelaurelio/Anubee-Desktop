@@ -20,3 +20,9 @@ npm run dev      # launch the app
 npm test         # unit + integration (vitest)
 npm run typecheck
 ```
+
+## MCP server
+
+A TypeScript MCP server in `tools/anubee-mcp-ts/` lets an MCP client drive a
+running app (requires MCP control to be enabled in the app). See
+[tools/anubee-mcp-ts/README.md](tools/anubee-mcp-ts/README.md).

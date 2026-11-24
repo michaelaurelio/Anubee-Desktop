@@ -2,17 +2,20 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, clipboard, shell } from 'ele
 import { resolve } from 'path'
 import { writeFileSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { GraphStore } from './graph-store'
+import { buildCommands } from './commands'
+import { createMcpControl } from './mcp-control'
+import { removeHandshake } from './mcp-handshake'
+import { revokeDeviceGrant } from './mcp-log'
+import { createDeviceGate, type GrantReply } from './mcp-device-gate'
+import { randomUUID } from 'node:crypto'
 import { loadThroughput, saveThroughput } from './ingest-calibration'
 import { updateThroughput } from '@shared/ingest-estimate'
 import type { Filter } from '@shared/filter'
-import { loadTags, saveTags, loadSidecarRules, saveSidecarRules, loadDismissed, saveDismissed, sidecarPath } from './sidecar'
+import { loadTags, loadSidecarRules, loadDismissed, sidecarPath } from './sidecar'
 import type { Tag, Dismissed } from '@shared/project-store'
 import { serializeSidecar } from '@shared/project-store'
 import { serializeProject, parseProject, type ProjectBundle } from '@shared/project-file'
-import { loadRules, saveRules } from './rasp-rules-store'
-import { resolveRules, BUILTIN_RULES, validateRule, type Rule, type RuleScope } from '@shared/rasp-heuristics'
-import { buildFindings, renderMarkdown, renderJSON } from '@shared/findings'
-import type { SyscallEvent } from '@shared/events'
+import type { RuleScope } from '@shared/rasp-heuristics'
 import type { DiffRow } from '@shared/diff'
 
 // --- feature 9: tracer control -------------------------------------------
@@ -34,6 +37,50 @@ import { basename } from 'node:path'
 // renderer only ever asks for a table page, a bounded slice, or one record by id.
 const store = new GraphStore()
 let win!: BrowserWindow
+
+// MCP control plane. Off at launch; the (Task 11) panel toggles it via mcp:setEnabled.
+const toRenderer = (channel: string, data?: unknown): void => {
+  if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(channel, data)
+}
+// Round-trip: send mcp:deviceRequest {id, action}; the renderer answers on
+// mcp:deviceReply {id, choice}. Replies are correlated by id; no reply within
+// the timeout (or no window) is a deny.
+const GRANT_TIMEOUT_MS = 120_000
+const pendingGrants = new Map<string, (c: GrantReply) => void>()
+ipcMain.on('mcp:deviceReply', (_e, m: { id?: unknown; choice?: unknown }) => {
+  const done = typeof m?.id === 'string' ? pendingGrants.get(m.id) : undefined
+  if (!done) return
+  done(m.choice === 'once' || m.choice === 'session' ? m.choice : 'deny')
+})
+function askRendererForGrant(action: string): Promise<GrantReply> {
+  return new Promise<GrantReply>(resolve => {
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return resolve('deny')
+    const id = randomUUID()
+    const finish = (c: GrantReply): void => {
+      clearTimeout(timer); pendingGrants.delete(id); resolve(c)
+    }
+    const timer = setTimeout(() => finish('deny'), GRANT_TIMEOUT_MS)
+    pendingGrants.set(id, finish)
+    try { win.webContents.send('mcp:deviceRequest', { id, action }) } catch { finish('deny') }
+  })
+}
+const control = createMcpControl({
+  buildCommandMap: () => commands,
+  userDataDir: () => app.getPath('userData'),
+  emitToRenderer: toRenderer,
+  // Live-refresh: an AI write via the server persists to the sidecar but the
+  // renderer holds tags/dismissals in memory, so tell it to reload them.
+  onWrite: () => toRenderer('project:changed'),
+  // Reached only when the session is not already granted (the server checks
+  // isDeviceGranted() first). Fails closed on error/timeout/no window.
+  deviceGate: createDeviceGate({ ask: askRendererForGrant }),
+})
+// Stream channel to renderer and, when MCP control is on, to SSE subscribers
+// (dotted name: 'trace:loaded' -> 'trace.loaded').
+function send(channel: string, data?: unknown): void {
+  toRenderer(channel, data)
+  control.emit(channel.replace(/:/g, '.'), data)
+}
 
 const adb = realAdb()
 const spawner = realSpawner()
@@ -177,7 +224,7 @@ async function ingestPath(
   if (broadcast) {
     try { fileBytes = statSync(path).size } catch { fileBytes = 0 }
     throughput = loadThroughput(userData)
-    win.webContents.send('trace:estimate', { fileBytes, throughput })
+    send('trace:estimate', { fileBytes, throughput })
   }
   const t0 = performance.now()
   // Centralize ingest failure here so all four broadcasting entry points
@@ -186,9 +233,9 @@ async function ingestPath(
   // keeps logging on the caller side.
   let summary: { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }
   try {
-    summary = await store.ingest(path, pct => win.webContents.send('trace:progress', pct))
+    summary = await store.ingest(path, pct => send('trace:progress', pct), broadcast)
   } catch (e) {
-    if (broadcast) win.webContents.send('trace:fail', { message: e instanceof Error ? e.message : String(e), file: basename(path) })
+    if (broadcast) send('trace:fail', { message: e instanceof Error ? e.message : String(e), file: basename(path) })
     throw e
   }
   const actualMs = performance.now() - t0
@@ -196,7 +243,7 @@ async function ingestPath(
     const next = updateThroughput(throughput, fileBytes, actualMs)
     saveThroughput(userData, next)
   }
-  if (broadcast) win.webContents.send('trace:loaded', summary)
+  if (broadcast) send('trace:loaded', summary)
   return summary
 }
 
@@ -219,9 +266,11 @@ ipcMain.handle('tracer:config:get', () => loadConfig(app.getPath('userData')))
 ipcMain.handle('tracer:config:set', (_e, cfg: { anubeeBinary: string; specsDir: string }) => {
   saveConfig(app.getPath('userData'), cfg)
 })
-ipcMain.handle('tracer:preflight', (_e, pkg: string) =>
-  preflight(adb, loadConfig(app.getPath('userData')), pkg, fileMd5,
-    c => win.webContents.send('tracer:preflight-check', c)))
+function devicePreflight(pkg: string) {
+  return preflight(adb, loadConfig(app.getPath('userData')), pkg, fileMd5,
+    c => send('tracer:preflight-check', c))
+}
+ipcMain.handle('tracer:preflight', (_e, pkg: string) => commands['capture.preflight']({ pkg }))
 
 // Validate the host paths the form currently holds so the Capture view can show
 // green/red dots BEFORE a run. Pure decisions live in path-check; this does the
@@ -304,7 +353,10 @@ ipcMain.handle('tracer:pickSpecsDir', async () => {
 const LINE_FLUSH_MS = 16
 const LINE_BATCH_MAX = 500
 
-ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) => {
+ipcMain.handle('tracer:start', (_e, capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) =>
+  commands['capture.start']({ capId, vals, timeoutSecs, savePath }))
+
+async function captureStart(capId: string, vals: Record<string, unknown>, timeoutSecs?: number, savePath?: string) {
   const cap = capById(capId)
   if (!cap) throw new Error(`unknown capability ${capId}`)
   // The renderer's own SAFE_TOKEN/validateInputs gate (Capture form) is the
@@ -328,7 +380,7 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
   const flushDeviceLines = (): void => {
     if (lineTimer !== undefined) { clearTimeout(lineTimer); lineTimer = undefined }
     if (lineBuf.length === 0) return
-    win.webContents.send('tracer:lines', lineBuf.splice(0, lineBuf.length))
+    send('tracer:lines', lineBuf.splice(0, lineBuf.length))
   }
   const onDeviceLine = (line: string): void => {
     lineBuf.push(line)
@@ -367,7 +419,7 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
     // there is no live process left to signal. Sent on the discard path too:
     // that path skips the pull below, but the UI still needs to stop offering
     // Stop buttons that can no longer act, and previously got no phase at all.
-    win.webContents.send('tracer:phase', { phase: 'finishing' })
+    send('tracer:phase', { phase: 'finishing' })
     // Stop & discard: the analyst threw the run away, so do not pull or ingest.
     if (cap.outputKind === 'jsonl' && jsonlPath && !wasDiscarded) {
       const hostPath = resolveSavePath(savePath, resolve(runsDir(), `anubee-${ts}.jsonl`))
@@ -389,12 +441,14 @@ ipcMain.handle('tracer:start', async (_e, capId: string, vals: Record<string, un
     // Broadcast completion so whichever Capture modal instance is live can
     // finalize - the instance that started this run may have been closed and
     // replaced by a reattached one by the time this resolves.
-    win.webContents.send('tracer:done', { code, kind: cap.outputKind, runId, error })
+    send('tracer:done', { code, kind: cap.outputKind, runId, error })
   }
   return { code, kind: cap.outputKind, runId, error }
-})
+}
 
-ipcMain.handle('tracer:stop', async (_e, discard?: boolean) => {
+ipcMain.handle('tracer:stop', (_e, discard?: boolean) => commands['capture.stop']({ discard }))
+
+async function captureStop(discard?: boolean): Promise<void> {
   // Only acts in the 'device' phase: once the process has exited and
   // pull/ingest has taken over ('finishing'), there is nothing left to stop -
   // writing discardActive here would leak it into the NEXT capture and
@@ -402,7 +456,7 @@ ipcMain.handle('tracer:stop', async (_e, discard?: boolean) => {
   const handle = runLifecycle.requestStop(discard === true)
   if (!handle) return
   await handle.stop()
-})
+}
 
 ipcMain.handle('tracer:isRunning', () => ({
   running: runLifecycle.phase() !== 'idle', argv: runLifecycle.argv(), phase: runLifecycle.phase(),
@@ -456,24 +510,33 @@ ipcMain.on('app:closeResponse', (_e, action: 'close' | 'cancel') => {
   win.close()
 })
 ipcMain.on('app:requestClose', () => { win.close() })
-ipcMain.handle('graph:runs', () => store.runs())
-ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }, runId?: number) => store.table(filter, page, runId))
-ipcMain.handle('graph:count', (_e, filter: Filter, runId?: number) => store.count(filter, runId))
-ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number, runId?: number) => store.slice(filter, cap, runId))
+const commands = buildCommands({
+  store, runFileOf, userDataDir: () => app.getPath('userData'),
+  loadPath: ingestPath,
+  device: {
+    preflight: devicePreflight, start: captureStart, stop: captureStop,
+    startLive: nativelibStartLive, stopLive: nativelibStopLive,
+    verify: nativelibVerify, dumpLib: nativelibDumpLib, exportArtifact: nativelibExportArtifact,
+  },
+})
+ipcMain.handle('graph:runs', () => commands['graph.runs']())
+ipcMain.handle('graph:table', (_e, filter: Filter, page: { limit: number; offset: number }, runId?: number) => commands['graph.table']({ filter, page, runId }))
+ipcMain.handle('graph:count', (_e, filter: Filter, runId?: number) => commands['graph.count']({ filter, runId }))
+ipcMain.handle('graph:slice', (_e, filter: Filter, cap?: number, runId?: number) => commands['graph.slice']({ filter, cap, runId }))
 ipcMain.handle('graph:stackRollup', (_e, filter: Filter, maxChains?: number, runId?: number) =>
-  store.stackRollup(filter, maxChains, runId))
-ipcMain.handle('graph:eventById', (_e, id: number, runId?: number) => store.eventById(id, runId))
-ipcMain.handle('graph:coverage', (_e, runId?: number) => store.coverage(runId))
+  commands['graph.stackRollup']({ filter, maxChains, runId }))
+ipcMain.handle('graph:eventById', (_e, id: number, runId?: number) => commands['graph.eventById']({ id, runId }))
+ipcMain.handle('graph:coverage', (_e, runId?: number) => commands['graph.coverage']({ runId }))
 ipcMain.handle('graph:nodeEvents', (_e, nodeId: string, filter: Filter, page: { limit: number; offset: number }, runId?: number) =>
-  store.nodeEvents(nodeId, filter, page.limit, runId, page.offset))
+  commands['graph.nodeEvents']({ nodeId, filter, page, runId }))
 ipcMain.handle('graph:nodeEventCount', (_e, nodeId: string, filter: Filter, runId?: number) =>
-  store.nodeEventCount(nodeId, filter, runId))
-ipcMain.handle('graph:highlightSets', (_e, nodeId: string, filter: Filter, runId?: number) => store.highlightSets(nodeId, filter, runId))
-ipcMain.handle('graph:recordChain', (_e, id: number, runId?: number) => store.recordChain(id, runId))
+  commands['graph.nodeEventCount']({ nodeId, filter, runId }))
+ipcMain.handle('graph:highlightSets', (_e, nodeId: string, filter: Filter, runId?: number) => commands['graph.highlightSets']({ nodeId, filter, runId }))
+ipcMain.handle('graph:recordChain', (_e, id: number, runId?: number) => commands['graph.recordChain']({ id, runId }))
 ipcMain.handle('graph:nodeOffsets', (_e, nodeId: string, filter: Filter, runId?: number) =>
-  store.nodeOffsets(nodeId, filter, runId))
+  commands['graph.nodeOffsets']({ nodeId, filter, runId }))
 
-ipcMain.handle('nativelib:table', (_e, runId?: number) => store.libTable(runId))
+ipcMain.handle('nativelib:table', (_e, runId?: number) => commands['nativelib.table']({ runId }))
 
 // Stop the watcher (if any) then pull + triage its device output dir and push
 // whatever it caught to the renderer. activeWatchDirs is cleared synchronously
@@ -490,9 +553,9 @@ async function pullAndPushWatchArtifacts(): Promise<void> {
   activeWatchDirs = null
   try {
     const arts = await pullWatchArtifacts(adb, deviceDir, hostDir)
-    if (arts.length > 0) win.webContents.send('nativelib:watchArtifacts', arts)
+    if (arts.length > 0) send('nativelib:watchArtifacts', arts)
   } catch (e) {
-    win.webContents.send('nativelib:line', `on-map artifact pull failed: ${e instanceof Error ? e.message : String(e)}`)
+    send('nativelib:line', `on-map artifact pull failed: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
@@ -522,10 +585,10 @@ async function runCheck(pid: number, bases: string[]): Promise<void> {
   const t0 = liveT0
   try {
     const results = await checkByBases(spawner, adb, pid, bases, deviceDir, hostDir,
-      line => win.webContents.send('nativelib:line', line))
-    win.webContents.send('nativelib:checkResults', { results, atMs: Date.now() - t0 })
+      line => send('nativelib:line', line))
+    send('nativelib:checkResults', { results, atMs: Date.now() - t0 })
   } catch (e) {
-    win.webContents.send('nativelib:line', `auto-check failed: ${e instanceof Error ? e.message : String(e)}`)
+    send('nativelib:line', `auto-check failed: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
@@ -533,7 +596,9 @@ async function runCheck(pid: number, bases: string[]): Promise<void> {
 // startWatch also guards internally (defence in depth for a pure module), but
 // that guard fires from inside the [lib] stdout callback below - throwing there
 // would surface as an unhandled error mid-stream, not a clean IPC rejection.
-ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => {
+ipcMain.handle('nativelib:startLive', (_e, pkg: string, glob?: string) => commands['nativelib.startLive']({ pkg, glob }))
+
+async function nativelibStartLive(pkg: string, glob?: string): Promise<void> {
   if (glob && !isSafePattern(glob)) throw new Error(`unsafe on-map glob: ${glob}`)
   // The watcher dir does not depend on the pid (unlike dumpLib's per-base
   // dir), so it is created here, up front - not inside the [lib] callback
@@ -568,9 +633,9 @@ ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => 
   // rejected start does not orphan this run's freshly-mkdir'd dir - the next
   // run's teardown would otherwise pull a stale, unrelated directory.
   activeLive = startLive(spawner, adb, pkg, (ev: LiveEvent) => {
-    if ('raw' in ev) win.webContents.send('nativelib:line', ev.raw)
+    if ('raw' in ev) send('nativelib:line', ev.raw)
     else if (ev.line.kind === 'lib') {
-      win.webContents.send('nativelib:mapped', { ...ev.line, atMs: ev.atMs })
+      send('nativelib:mapped', { ...ev.line, atMs: ev.atMs })
       // The pid becomes known on the first [lib] line, same as the watcher below.
       livePid = ev.line.pid
       // Queue only dumpable rows: a bracketed pseudo-path has no on-disk file
@@ -578,9 +643,9 @@ ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => 
       if (ev.line.library?.startsWith('/')) checkBatcher.add(ev.line.start)
       // Attach the watcher on the first [lib] line: that is where the pid becomes known.
       if (glob && watchDeviceDir && !activeWatch) {
-        activeWatch = startWatch(spawner, adb, ev.line.pid, glob, watchDeviceDir, line => win.webContents.send('nativelib:watchLine', line))
+        activeWatch = startWatch(spawner, adb, ev.line.pid, glob, watchDeviceDir, line => send('nativelib:watchLine', line))
       }
-    } else win.webContents.send('nativelib:unmapped', { ...ev.line, atMs: ev.atMs })
+    } else send('nativelib:unmapped', { ...ev.line, atMs: ev.atMs })
   })
   activeWatchDirs = watchDirs ?? null
   liveCheckDir = checkDirs
@@ -593,25 +658,29 @@ ipcMain.handle('nativelib:startLive', async (_e, pkg: string, glob?: string) => 
     // on streamEnd waiting for the watcher stop + adb pull below. Sending it here
     // also means a rejection in either await (both under the catch below) can no
     // longer strand the view in "streaming" with no way to recover.
-    win.webContents.send('nativelib:streamEnd')
+    send('nativelib:streamEnd')
     if (activeWatch) { await activeWatch.stop(); activeWatch = null }
     await pullAndPushWatchArtifacts()
   }).catch(() => {})
-})
+}
 
-ipcMain.handle('nativelib:stopLive', async () => {
+ipcMain.handle('nativelib:stopLive', () => commands['nativelib.stopLive']())
+
+async function nativelibStopLive(): Promise<void> {
   teardownCheck()
   if (activeLive) await activeLive.stop()
   if (activeWatch) { await activeWatch.stop(); activeWatch = null }
   await pullAndPushWatchArtifacts()
-})
+}
 
 // On-demand re-check of specific bases (Verify button / re-check all). A
 // memory-vs-disk check is point-in-time and does not need a live stream, so
 // unlike runCheck (the auto-check path, which reuses the streaming
 // liveCheckDir), this allocates its own check dir on every call - mirroring
 // nativelib:dumpLib below - and works whether or not a stream is active.
-ipcMain.handle('nativelib:verify', async (_e, pid: number, bases: string[]) => {
+ipcMain.handle('nativelib:verify', (_e, pid: number, bases: string[]) => commands['nativelib.verify']({ pid, bases }))
+
+async function nativelibVerify(pid: number, bases: string[]): Promise<void> {
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
   const deviceDir = `/data/local/tmp/anubee-check-${ts}`
   const hostDir = resolve(runsDir(), `anubee-check-${ts}`)
@@ -622,74 +691,52 @@ ipcMain.handle('nativelib:verify', async (_e, pid: number, bases: string[]) => {
   const t0 = liveT0
   try {
     const results = await checkByBases(spawner, adb, pid, bases, deviceDir, hostDir,
-      line => win.webContents.send('nativelib:line', line))
-    win.webContents.send('nativelib:checkResults', { results, atMs: Date.now() - t0 })
+      line => send('nativelib:line', line))
+    send('nativelib:checkResults', { results, atMs: Date.now() - t0 })
   } catch (e) {
-    win.webContents.send('nativelib:line', `verify failed: ${e instanceof Error ? e.message : String(e)}`)
+    send('nativelib:line', `verify failed: ${e instanceof Error ? e.message : String(e)}`)
   }
-})
+}
 
-ipcMain.handle('nativelib:dumpLib', async (_e, pid: number, base: string) => {
+ipcMain.handle('nativelib:dumpLib', (_e, pid: number, base: string) => commands['nativelib.dumpLib']({ pid, base }))
+
+function nativelibDumpLib(pid: number, base: string) {
   const ts = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
   const deviceDir = `/data/local/tmp/anubee-dump-${ts}`
   const hostDir = resolve(runsDir(), `anubee-dump-${ts}`)
   return dumpByBase(spawner, adb, pid, base, deviceDir, hostDir,
-    line => win.webContents.send('nativelib:line', line))
-})
+    line => send('nativelib:line', line))
+}
 
 ipcMain.handle('nativelib:revealArtifact', (_e, path: string) => { shell.showItemInFolder(path) })
 
+// The renderer picks the destination via the save dialog; the command only copies.
 ipcMain.handle('nativelib:exportArtifact', async (_e, path: string) => {
   const r = await dialog.showSaveDialog(win, { defaultPath: basename(path) })
   if (r.canceled || !r.filePath) return { saved: false }
-  await copyFile(path, r.filePath)
-  return { saved: true, path: r.filePath }
+  return commands['nativelib.exportArtifact']({ path, dest: r.filePath, overwrite: true })
 })
+
+async function nativelibExportArtifact(path: string, dest: string) {
+  await copyFile(path, dest)
+  return { saved: true, path: dest }
+}
 
 // Copy via the main-process clipboard: navigator.clipboard is unreliable in the
 // Electron renderer (permission/focus), so the popup + node menus route here.
 ipcMain.handle('clipboard:write', (_e, text: string) => clipboard.writeText(text))
-ipcMain.handle('rasp:suggest', (_e, runId?: number) => {
-  const rid = runId ?? store.runs().at(-1)?.runId
-  if (rid === undefined) return []
-  const global = loadRules(app.getPath('userData'))
-  const project = loadSidecarRules(runFileOf(rid).file)
-  const effective = resolveRules(BUILTIN_RULES, global, project)
-  return store.suggest(rid, effective)
-})
-ipcMain.handle('rasp:rules:get', (_e, runId?: number) => {
-  const rid = runId ?? store.runs().at(-1)?.runId
-  const global = loadRules(app.getPath('userData'))
-  const project = rid !== undefined
-    ? loadSidecarRules(runFileOf(rid).file)
-    : { rules: [], enabledOverrides: {} }
-  const effective = resolveRules(BUILTIN_RULES, global, project)
-  return { builtin: BUILTIN_RULES, global, project, effective }
-})
+ipcMain.handle('rasp:suggest', (_e, runId?: number) => commands['rasp.suggest']({ runId }))
+ipcMain.handle('rasp:rules:get', (_e, runId?: number) => commands['rasp.rules.get']({ runId }))
 
-ipcMain.handle('rasp:rules:save', (_e, scope: 'global' | 'project', ruleScope: RuleScope, runId?: number) => {
-  if (scope === 'global') {
-    saveRules(app.getPath('userData'), ruleScope)
-    return
-  }
-  const rid = runId ?? store.runs().at(-1)?.runId
-  if (rid === undefined) throw new Error('no active run for project-scope rules')
-  const { file, ingestedAt } = runFileOf(rid)
-  saveSidecarRules(file, ingestedAt, ruleScope.rules, ruleScope.enabledOverrides)
-})
+ipcMain.handle('rasp:rules:save', (_e, scope: 'global' | 'project', ruleScope: RuleScope, runId?: number) =>
+  commands['rasp.rules.save']({ scope, ruleScope, runId }))
 
-ipcMain.handle('rasp:rules:preview', async (_e, rule: unknown, runId?: number) => {
-  const { rule: valid, error } = validateRule(rule, 'project')
-  if (!valid) return { error: error ?? 'invalid rule' }
-  const rid = runId ?? store.runs().at(-1)?.runId
-  if (rid === undefined) return { error: 'no run loaded' }
-  return store.previewRule(rid, valid)
-})
+ipcMain.handle('rasp:rules:preview', (_e, rule: unknown, runId?: number) => commands['rasp.rules.preview']({ rule, runId }))
 
 ipcMain.handle('graph:diffTable', (_e, runA: number, runB: number, filter: Filter, cap?: number) =>
-  store.diffTable(runA, runB, filter, cap))
+  commands['graph.diffTable']({ runA, runB, filter, cap }))
 ipcMain.handle('graph:diffSlice', (_e, runA: number, runB: number, nodeId: string, filter: Filter) =>
-  store.diffSlice(runA, runB, nodeId, filter))
+  commands['graph.diffSlice']({ runA, runB, nodeId, filter }))
 
 function runFileOf(runId: number): { file: string; ingestedAt: string } {
   const info = store.runs().find(r => r.runId === runId)
@@ -697,42 +744,20 @@ function runFileOf(runId: number): { file: string; ingestedAt: string } {
   return { file: info.file, ingestedAt: info.ingestedAt }
 }
 
-ipcMain.handle('tags:load', (_e, runId: number) => loadTags(runFileOf(runId).file))
-ipcMain.handle('tags:save', (_e, runId: number, tags: Tag[]) => {
-  const { file, ingestedAt } = runFileOf(runId)
-  saveTags(file, ingestedAt, tags)
-})
-ipcMain.handle('tags:orphans', (_e, runId: number, targets: string[]) => store.orphanTargets(targets, runId))
-ipcMain.handle('suggest:dismissed:get', (_e, runId: number) => loadDismissed(runFileOf(runId).file))
-ipcMain.handle('suggest:dismissed:save', (_e, runId: number, dismissed: Dismissed[]) => {
-  const { file, ingestedAt } = runFileOf(runId)
-  saveDismissed(file, ingestedAt, dismissed)
-})
+ipcMain.handle('tags:load', (_e, runId: number) => commands['tags.load']({ runId }))
+ipcMain.handle('tags:save', (_e, runId: number, tags: Tag[]) => commands['tags.save']({ runId, tags }))
+ipcMain.handle('tags:orphans', (_e, runId: number, targets: string[]) => commands['tags.orphans']({ runId, targets }))
+ipcMain.handle('suggest:dismissed:get', (_e, runId: number) => commands['suggest.dismissed.get']({ runId }))
+ipcMain.handle('suggest:dismissed:save', (_e, runId: number, dismissed: Dismissed[]) =>
+  commands['suggest.dismissed.save']({ runId, dismissed }))
 
 ipcMain.handle('findings:export', async (_e, runId: number, format: 'md' | 'json') => {
-  const { file } = runFileOf(runId)
-  const { tags } = loadTags(file)
-  const reps: Record<string, SyscallEvent[]> = {}
-  for (const t of tags) {
-    if (reps[t.target]) continue
-    // A rasp:-prefixed target is synthetic (see project-store.ts): it never has
-    // a graph node, so a chain scan for it can never match. Skip the query
-    // rather than pay for a full-run scan that is guaranteed to return nothing.
-    if (t.target.startsWith('rasp:')) { reps[t.target] = []; continue }
-    // findings export is a syscall-only view today; a funcs run's calls are
-    // filtered out here (same shape reps has always had).
-    reps[t.target] = (await store.nodeEvents(t.target, {}, 50, runId))
-      .filter((e): e is SyscallEvent => e.type === 'syscall')
-  }
-  const findings = buildFindings(tags, reps)
-  const text = format === 'md' ? renderMarkdown(findings) : renderJSON(findings)
   const r = await dialog.showSaveDialog(win, {
     defaultPath: `findings.${format}`,
     filters: [{ name: format === 'md' ? 'Markdown' : 'JSON', extensions: [format] }],
   })
   if (r.canceled || !r.filePath) return null
-  writeFileSync(r.filePath, text)
-  return r.filePath
+  return commands['findings.export']({ runId, format, path: r.filePath, overwrite: true })
 })
 
 ipcMain.handle('log:save', async (_e, text: string) => {
@@ -749,8 +774,23 @@ ipcMain.handle('log:save', async (_e, text: string) => {
   return r.filePath
 })
 
+ipcMain.handle('mcp:getState', () => control.getState())
+ipcMain.handle('mcp:setEnabled', async (_e, on: boolean) => {
+  if (on) await control.enable()
+  else await control.disable()
+  return control.getState()
+})
+ipcMain.handle('mcp:revokeGrant', () => {
+  revokeDeviceGrant()
+  toRenderer('mcp:state', control.getState())
+  return control.getState()
+})
+
 app.whenReady().then(createWindow)
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 app.on('before-quit', () => void store.close())
+// Only the instance that owns the handshake (MCP on) removes it, so a second
+// instance sharing userData cannot delete a live one.
+app.on('will-quit', () => { if (control.isOn()) removeHandshake(app.getPath('userData')) })

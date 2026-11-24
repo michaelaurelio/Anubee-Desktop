@@ -73,3 +73,19 @@ function offsetOf(h: RawHit, bases: ModuleBases): string {
   if (addr === null) return '[unmapped]'
   return moduleRelative(addr, base)
 }
+
+// A java_stack entry -> class/method (+ optional dex pc). Accepts both
+// 'com.x.Cls.method+0x1a' and 'com.x.Cls.method(+0x1a)'. Coordinates only.
+export interface JavaFrame { kind: 'java'; class: string; method: string; dexpc?: string }
+
+export function parseJavaFrame(s: string): JavaFrame {
+  const m = /^(.*?)\(?(\+0x[0-9a-fA-F]+)?\)?$/.exec(s.trim())
+  const body = m ? m[1] : s
+  const dexpc = m?.[2] ? m[2].slice(1) : undefined
+  const dot = body.lastIndexOf('.')
+  const f: JavaFrame = dot < 0
+    ? { kind: 'java', class: '', method: body }
+    : { kind: 'java', class: body.slice(0, dot), method: body.slice(dot + 1) }
+  if (dexpc !== undefined) f.dexpc = dexpc
+  return f
+}
