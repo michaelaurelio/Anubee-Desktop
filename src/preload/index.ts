@@ -67,6 +67,10 @@ contextBridge.exposeInMainWorld('anubee', {
   mcpSetEnabled: (on: boolean) => ipcRenderer.invoke('mcp:setEnabled', on),
   mcpRevokeGrant: () => ipcRenderer.invoke('mcp:revokeGrant'),
   onMcpLog: (cb: (e: unknown) => void) => ipcRenderer.on('mcp:log', (_e, x) => cb(x)),
+  onMcpDeviceRequest: (cb: (r: { id: string; action: string }) => void) =>
+    ipcRenderer.on('mcp:deviceRequest', (_e, r) => cb(r as { id: string; action: string })),
+  respondMcpDeviceRequest: (id: string, choice: 'once' | 'session' | 'deny') =>
+    ipcRenderer.send('mcp:deviceReply', { id, choice }),
   onMcpState: (cb: (s: unknown) => void) => ipcRenderer.on('mcp:state', (_e, x) => cb(x)),
   getTracerConfig: () => ipcRenderer.invoke('tracer:config:get'),
   setTracerConfig: (cfg: { anubeeBinary: string; specsDir: string }) =>

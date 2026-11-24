@@ -6,6 +6,8 @@ import { buildCommands } from './commands'
 import { createMcpControl } from './mcp-control'
 import { removeHandshake } from './mcp-handshake'
 import { revokeDeviceGrant } from './mcp-log'
+import { createDeviceGate, type GrantReply } from './mcp-device-gate'
+import { randomUUID } from 'node:crypto'
 import { loadThroughput, saveThroughput } from './ingest-calibration'
 import { updateThroughput } from '@shared/ingest-estimate'
 import type { Filter } from '@shared/filter'
@@ -40,6 +42,28 @@ let win!: BrowserWindow
 const toRenderer = (channel: string, data?: unknown): void => {
   if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(channel, data)
 }
+// Round-trip: send mcp:deviceRequest {id, action}; the renderer answers on
+// mcp:deviceReply {id, choice}. Replies are correlated by id; no reply within
+// the timeout (or no window) is a deny.
+const GRANT_TIMEOUT_MS = 120_000
+const pendingGrants = new Map<string, (c: GrantReply) => void>()
+ipcMain.on('mcp:deviceReply', (_e, m: { id?: unknown; choice?: unknown }) => {
+  const done = typeof m?.id === 'string' ? pendingGrants.get(m.id) : undefined
+  if (!done) return
+  done(m.choice === 'once' || m.choice === 'session' ? m.choice : 'deny')
+})
+function askRendererForGrant(action: string): Promise<GrantReply> {
+  return new Promise<GrantReply>(resolve => {
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return resolve('deny')
+    const id = randomUUID()
+    const finish = (c: GrantReply): void => {
+      clearTimeout(timer); pendingGrants.delete(id); resolve(c)
+    }
+    const timer = setTimeout(() => finish('deny'), GRANT_TIMEOUT_MS)
+    pendingGrants.set(id, finish)
+    try { win.webContents.send('mcp:deviceRequest', { id, action }) } catch { finish('deny') }
+  })
+}
 const control = createMcpControl({
   buildCommandMap: () => commands,
   userDataDir: () => app.getPath('userData'),
@@ -47,10 +71,9 @@ const control = createMcpControl({
   // Live-refresh: an AI write via the server persists to the sidecar but the
   // renderer holds tags/dismissals in memory, so tell it to reload them.
   onWrite: () => toRenderer('project:changed'),
-  // TODO(Task 12): replace this rejecting stub with the renderer
-  // mcp:deviceRequest round-trip. isDeviceGranted() already short-circuits in
-  // the server, so only the not-yet-granted prompt path is denied for now.
-  deviceGate: async () => false,
+  // Reached only when the session is not already granted (the server checks
+  // isDeviceGranted() first). Fails closed on error/timeout/no window.
+  deviceGate: createDeviceGate({ ask: askRendererForGrant }),
 })
 // Stream channel to renderer and, when MCP control is on, to SSE subscribers
 // (dotted name: 'trace:loaded' -> 'trace.loaded').

@@ -17,6 +17,7 @@ import { renderSuggestions, renderSuggestionsLoading } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
 import { renderMcpPanel } from './mcp-view'
+import { requestDeviceGrant } from './mcp-grant'
 import type { McpState } from '../main/mcp-control'
 import { raspNodeStates } from './rasp-node-state'
 import { upsertTag, removeTag, tagsByTarget, orphanedTags, isDismissed, addDismissed, openSuggestions, type Tag, type Dismissed, type RaspCategory } from '@shared/project-store'
@@ -1227,6 +1228,9 @@ function paintMcp(s?: McpState): void {
   if (s) mcpState = s
   if (mcpHost) renderMcpPanel(mcpHost, mcpState, mcpActions)
 }
+window.anubee.onMcpDeviceRequest(r => {
+  void requestDeviceGrant(r.action).then(choice => window.anubee.respondMcpDeviceRequest(r.id, choice))
+})
 window.anubee.onMcpState(s => paintMcp(s))
 window.anubee.onMcpLog(e => {
   mcpState = { ...mcpState, log: [...mcpState.log, e] }

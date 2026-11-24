@@ -64,6 +64,8 @@ declare global {
       mcpGetState(): Promise<McpState>
       mcpSetEnabled(on: boolean): Promise<McpState>
       mcpRevokeGrant(): Promise<McpState>
+      onMcpDeviceRequest(cb: (r: { id: string; action: string }) => void): void
+      respondMcpDeviceRequest(id: string, choice: 'once' | 'session' | 'deny'): void
       onMcpLog(cb: (e: McpLogEntry) => void): void
       onMcpState(cb: (s: McpState) => void): void
       getTracerConfig(): Promise<{ anubeeBinary: string; specsDir: string }>
