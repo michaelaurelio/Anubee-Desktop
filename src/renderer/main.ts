@@ -16,6 +16,8 @@ import { showNodeMenu, closeNodeMenu, showTagPopup, closeTagPopup } from './node
 import { renderSuggestions, renderSuggestionsLoading } from './suggestions-view'
 import { renderOrphans } from './orphans-view'
 import { renderRules } from './rules-view'
+import { renderMcpPanel } from './mcp-view'
+import type { McpState } from '../main/mcp-control'
 import { raspNodeStates } from './rasp-node-state'
 import { upsertTag, removeTag, tagsByTarget, orphanedTags, isDismissed, addDismissed, openSuggestions, type Tag, type Dismissed, type RaspCategory } from '@shared/project-store'
 import type { TableRow } from '@shared/table'
@@ -1210,6 +1212,36 @@ document.getElementById('rules-btn')?.addEventListener('click', () => {
     title: 'Rules',
     width: 640,
     render: host => { void renderRules(host, activeRunId, () => { dirty = true; logAppend('info', 'rules', 'Rules updated'); void recolorRasp(); void refreshSuggestions() }) },
+  })
+})
+// MCP panel: control toggle + grant + live AI action log. The push listeners
+// are registered once (preload has no unsubscribe); they only paint while the
+// modal is open (mcpHost set), and onClose clears it.
+let mcpHost: HTMLElement | undefined
+let mcpState: McpState = { on: false, attached: false, granted: false, log: [] }
+const mcpActions = {
+  toggle: (on: boolean) => { void window.anubee.mcpSetEnabled(on).then(paintMcp) },
+  revoke: () => { void window.anubee.mcpRevokeGrant().then(paintMcp) },
+}
+function paintMcp(s?: McpState): void {
+  if (s) mcpState = s
+  if (mcpHost) renderMcpPanel(mcpHost, mcpState, mcpActions)
+}
+window.anubee.onMcpState(s => paintMcp(s))
+window.anubee.onMcpLog(e => {
+  mcpState = { ...mcpState, log: [...mcpState.log, e] }
+  paintMcp()
+})
+document.getElementById('mcp-btn')?.addEventListener('click', () => {
+  showModal({
+    title: 'MCP',
+    width: 640,
+    render: host => {
+      mcpHost = host
+      paintMcp()
+      void window.anubee.mcpGetState().then(paintMcp)
+    },
+    onClose: () => { mcpHost = undefined },
   })
 })
 document.getElementById('pager-prev')?.addEventListener('click', () => {
