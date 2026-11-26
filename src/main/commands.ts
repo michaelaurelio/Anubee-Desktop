@@ -9,6 +9,7 @@ import { buildFindings, renderMarkdown, renderJSON } from '@shared/findings'
 import { parseFrameSymbol } from '@shared/frame-symbol'
 import { parseHexAddr, moduleRelative, parseJavaFrame, type JavaFrame } from '@shared/origins'
 import type { SyscallEvent } from '@shared/events'
+import type { RendererView, ViewSnapshot } from '@shared/view-snapshot'
 
 export interface RunSummary { runId: number; eventCount: number; errors: number; kinds: ('syscall' | 'funcs')[] }
 
@@ -38,6 +39,8 @@ export interface CommandCtx {
   /** Existing ingest path (index.ts). broadcast=true drives the renderer as the primary run. */
   loadPath?: (path: string, broadcast: boolean) => Promise<RunSummary>
   device?: DeviceOps
+  /** Renderer round-trip for what the user is looking at (index.ts injects it). */
+  view?: () => Promise<RendererView>
 }
 
 type Page = { limit: number; offset: number }
@@ -191,6 +194,17 @@ export function buildCommands(ctx: CommandCtx): CommandMap {
         })
       }
       return { frames }
+    },
+
+    // ---- what the user is looking at (asked of the renderer on demand) ----
+    'view.get': async (): Promise<ViewSnapshot> => {
+      if (!ctx.view) throw new Error('view not available')
+      const v = await ctx.view()
+      let activeRunFile: string | null = null
+      if (v.activeRunId !== null) {
+        try { activeRunFile = ctx.runFileOf(v.activeRunId).file } catch { /* run gone: report no file */ }
+      }
+      return { ...v, activeRunFile }
     },
 
     // ---- Tier 3: device (bodies injected from index.ts) ----
