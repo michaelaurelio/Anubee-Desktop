@@ -1,5 +1,7 @@
 # Anubee-Desktop
 
+[![License: GPLv2](https://img.shields.io/badge/License-GPLv2-blue.svg)](LICENSE)
+
 Cross-platform (Windows + Linux) desktop apps for [Anubee](https://github.com/michaelaurelio/Anubee) tracing tools.
 Renders the **syscall → native → Java** call-chain mapping so an analyst can see
 which block of a custom native library implements a given RASP behavior (root /
@@ -26,3 +28,7 @@ npm run typecheck
 A TypeScript MCP server in `tools/anubee-mcp-ts/` lets an MCP client drive a
 running app (requires MCP control to be enabled in the app). See
 [tools/anubee-mcp-ts/README.md](tools/anubee-mcp-ts/README.md).
+
+## License
+
+See [LICENSE](LICENSE).

@@ -14,7 +14,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "GPL-2.0-only",
   "type": "commonjs",
   "build": {
     "appId": "com.anubee.desktop",
