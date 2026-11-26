@@ -462,7 +462,6 @@ async function renderSlice(slice: GraphSlice): Promise<void> {
 async function selectRow(row: TableRow): Promise<void> {
   const e = selEpoch.bump()
   selectedRowId = row.id
-  currentNode = undefined // the inspector switches to this record; no node is open now
   highlightTableRow(row.id)
   showSide(true)
   graph.begin() // top-bar sweep + overlay spinner; the newest selection owns them
@@ -471,6 +470,7 @@ async function selectRow(row: TableRow): Promise<void> {
     const ev = await window.anubee.eventById(row.id, activeRunId)
     if (!selEpoch.isCurrent(e)) return // a newer selection superseded this row; it owns the loader now
     if (host && ev) {
+      currentNode = undefined // the record detail replaces the node inspector
       if (activeEngine === 'func') showFuncsRecordDetail(host, ev as FuncEvent)
       else showRecordDetail(host, ev as SyscallEvent)
     }
@@ -663,7 +663,6 @@ async function refreshDiff(): Promise<void> {
       cy.add(els.nodes)
       cy.add(els.edges)
       graphDrawn = true
-      currentNode = undefined // the graph was redrawn; the old node is gone
       await runElkLayout(cy)
       cy.fit(undefined, 48)
     })
