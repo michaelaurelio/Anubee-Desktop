@@ -5,6 +5,7 @@ import type { TableRow } from '@shared/table'
 import type { McpLogEntry } from '../main/mcp-log'
 import type { McpState } from '../main/mcp-control'
 import type { SyscallEvent, CoverageEvent, FuncEvent } from '@shared/events'
+import type { RendererView } from '@shared/view-snapshot'
 
 declare global {
   interface Window {
@@ -66,6 +67,8 @@ declare global {
       mcpRevokeGrant(): Promise<McpState>
       onMcpDeviceRequest(cb: (r: { id: string; action: string }) => void): void
       respondMcpDeviceRequest(id: string, choice: 'once' | 'session' | 'deny'): void
+      onMcpViewRequest(cb: (r: { id: string }) => void): void
+      respondMcpViewRequest(id: string, view: RendererView): void
       onMcpLog(cb: (e: McpLogEntry) => void): void
       onMcpState(cb: (s: McpState) => void): void
       getTracerConfig(): Promise<{ anubeeBinary: string; specsDir: string }>

@@ -7,6 +7,7 @@ import { createMcpControl } from './mcp-control'
 import { removeHandshake } from './mcp-handshake'
 import { revokeDeviceGrant } from './mcp-log'
 import { createDeviceGate, type GrantReply } from './mcp-device-gate'
+import { createViewRequester } from './view-request'
 import { randomUUID } from 'node:crypto'
 import { loadThroughput, saveThroughput } from './ingest-calibration'
 import { updateThroughput } from '@shared/ingest-estimate'
@@ -64,6 +65,16 @@ function askRendererForGrant(action: string): Promise<GrantReply> {
     try { win.webContents.send('mcp:deviceRequest', { id, action }) } catch { finish('deny') }
   })
 }
+// MCP get_view: ask the renderer what the user is looking at, on demand only
+// (mcp:viewRequest {id} -> mcp:viewReply {id, view}; see view-request.ts).
+const viewRequester = createViewRequester({
+  send: id => {
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return false
+    win.webContents.send('mcp:viewRequest', { id })
+    return true
+  },
+})
+ipcMain.on('mcp:viewReply', (_e, m: unknown) => viewRequester.reply(m))
 const control = createMcpControl({
   buildCommandMap: () => commands,
   userDataDir: () => app.getPath('userData'),
@@ -513,6 +524,7 @@ ipcMain.on('app:requestClose', () => { win.close() })
 const commands = buildCommands({
   store, runFileOf, userDataDir: () => app.getPath('userData'),
   loadPath: ingestPath,
+  view: () => viewRequester.request(),
   device: {
     preflight: devicePreflight, start: captureStart, stop: captureStop,
     startLive: nativelibStartLive, stopLive: nativelibStopLive,

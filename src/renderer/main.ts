@@ -6,7 +6,8 @@ import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
 import { serializeLayout, parseLayout, columnCatalogue, engineColumnKeys, engineDefaultColumns, type ColumnLayout, type ColumnKey } from './columns'
 import { applyWidths, nextWidth } from './column-resize'
-import { currentFilter, wireFilterControls, setTagResolver } from './filter-controls'
+import { currentFilter, currentFilterText, wireFilterControls, setTagResolver } from './filter-controls'
+import { buildViewSnapshot } from './view-snapshot'
 import { resolveTagTargets } from '@shared/tag-targets'
 import { showNodeInspector, showRecordDetail, showFuncsNodeInspector, showFuncsRecordDetail, type InspectorPage } from './inspector'
 import { badgeText, renderTagEditor } from './tag-view'
@@ -249,6 +250,7 @@ let currentNode: { id: string; kind?: string; cats: string[]; filter: Filter } |
 // records, offsets) keys off this, not currentFilter(), so it stays strictly tied
 // to what is drawn - the graph only re-renders on row selection.
 let graphFilter: Filter = {}
+let graphDrawn = false // a slice is on the canvas, so graphFilter describes what is shown
 const selEpoch = makeEpoch() // guards stale-async paints across row-select / node-tap / canvas-clear
 let currentLayout: ColumnLayout = parseLayout(activeEngine, savedColumns(activeEngine))
 
@@ -447,6 +449,7 @@ async function renderSlice(slice: GraphSlice): Promise<void> {
   cy.add(els.edges)
   await runElkLayout(cy)
   cy.fit(undefined, 48) // frame the slice with padding; consistent zoom per selection
+  graphDrawn = true
   document.getElementById('graph-empty')?.classList.add('hidden')
   // gate on truncation||coverage: an empty message (no truncation, no coverage
   // text yet) hides the chip regardless of the `show` flag - see showBanner.
@@ -459,6 +462,7 @@ async function renderSlice(slice: GraphSlice): Promise<void> {
 async function selectRow(row: TableRow): Promise<void> {
   const e = selEpoch.bump()
   selectedRowId = row.id
+  currentNode = undefined // the inspector switches to this record; no node is open now
   highlightTableRow(row.id)
   showSide(true)
   graph.begin() // top-bar sweep + overlay spinner; the newest selection owns them
@@ -658,6 +662,8 @@ async function refreshDiff(): Promise<void> {
       cy.elements().remove()
       cy.add(els.nodes)
       cy.add(els.edges)
+      graphDrawn = true
+      currentNode = undefined // the graph was redrawn; the old node is gone
       await runElkLayout(cy)
       cy.fit(undefined, 48)
     })
@@ -1168,6 +1174,9 @@ window.anubee.onLoaded(s => {
   activeEngine = s.kinds.includes('funcs') && !s.kinds.includes('syscall') ? 'func' : 'syscall'
   tableOffset = 0 // a fresh run starts at page 1; a stale offset could land past its row count
   selectedRowId = undefined
+  currentNode = undefined // a prior run's open node / drawn graph no longer applies
+  graphDrawn = false
+  graphFilter = {}
   document.getElementById('empty-state')?.classList.add('hidden')
   showTablePanel(true)
   document.getElementById('graph-empty')?.classList.remove('hidden')
@@ -1230,6 +1239,16 @@ function paintMcp(s?: McpState): void {
 }
 window.anubee.onMcpDeviceRequest(r => {
   void requestDeviceGrant(r.action).then(choice => window.anubee.respondMcpDeviceRequest(r.id, choice))
+})
+// MCP get_view: answer with what is on screen right now. Never gated on a
+// modal or focus, so an open dialog cannot stall the client's call.
+window.anubee.onMcpViewRequest(r => {
+  window.anubee.respondMcpViewRequest(r.id, buildViewSnapshot({
+    activeRunId, engine: activeEngine, view: currentView, runB, diffMode,
+    filter: currentFilter(), filterText: currentFilterText(),
+    graphFilter, graphDrawn, selectedRowId, currentNode,
+    tableOffset, tableLimit: TABLE_PAGE,
+  }))
 })
 window.anubee.onMcpState(s => paintMcp(s))
 window.anubee.onMcpLog(e => {

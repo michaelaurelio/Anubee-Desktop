@@ -3,6 +3,7 @@ import type { Filter } from '@shared/filter'
 import type { Tag } from '@shared/project-store'
 import type { Rule, RuleScope } from '@shared/rasp-heuristics'
 import type { LibLine, Artifact, Modcmp } from '@shared/native-lib'
+import type { RendererView } from '@shared/view-snapshot'
 
 // The typed surface the renderer sees as `window.anubee`. Raw events never cross
 // this bridge except the single record fetched by id for the inspector.
@@ -71,6 +72,10 @@ contextBridge.exposeInMainWorld('anubee', {
     ipcRenderer.on('mcp:deviceRequest', (_e, r) => cb(r as { id: string; action: string })),
   respondMcpDeviceRequest: (id: string, choice: 'once' | 'session' | 'deny') =>
     ipcRenderer.send('mcp:deviceReply', { id, choice }),
+  onMcpViewRequest: (cb: (r: { id: string }) => void) =>
+    ipcRenderer.on('mcp:viewRequest', (_e, r) => cb(r as { id: string })),
+  respondMcpViewRequest: (id: string, view: RendererView) =>
+    ipcRenderer.send('mcp:viewReply', { id, view }),
   onMcpState: (cb: (s: unknown) => void) => ipcRenderer.on('mcp:state', (_e, x) => cb(x)),
   getTracerConfig: () => ipcRenderer.invoke('tracer:config:get'),
   setTracerConfig: (cfg: { anubeeBinary: string; specsDir: string }) =>
