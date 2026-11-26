@@ -1,10 +1,8 @@
-# anubee-mcp (TypeScript)
+# anubee-mcp
 
-MCP server that lets an MCP client (for example Claude Code) drive a running
-Anubee Desktop app: query loaded runs, tag and triage findings, and start
-device captures.
+MCP server that lets your agent interact with Anubee-Desktop
 
-## Prerequisite - this is a live client
+## Prerequisite
 
 This server does not read run files on its own. It talks to the **running**
 Anubee Desktop app over a loopback control server.
@@ -29,13 +27,8 @@ The handshake file lives in the app's user-data directory (override with the
 cd tools/anubee-mcp-ts
 npm install
 npm run build        # tsc -> dist/index.js
-claude mcp add anubee -- node /ABS/PATH/tools/anubee-mcp-ts/dist/index.js
+claude mcp add anubee -- node /<path-to-directory>/Anubee-Desktop/tools/anubee-mcp-ts/dist/index.js
 ```
-
-Replace `/ABS/PATH` with the absolute path to your checkout. The server speaks
-MCP over stdio. It can start before the app is up; tools then return the error
-above until MCP control is enabled.
-
 ## Tools
 
 Tools are grouped by tier. Most take an optional `runId` (defaults to the
@@ -93,19 +86,3 @@ runs.
 - `verify_libs` - verify native library load bases in a process
 - `dump_lib` - dump a loaded native library from process memory
 - `export_lib_artifact` - export a pulled library artifact to a destination path
-
-## Pivoting into Ghidra and jadx
-
-`backtraces` returns coordinates only: for native frames the module, symbol,
-load base and module-relative ("ghidra") offset; for Java frames the
-`class.method(+dexpc)`. Take these into Ghidra (native) or jadx (Java) yourself.
-The MCP never calls a decompiler.
-
-## Security
-
-- The control server binds to loopback only.
-- Access needs a per-session token, stored in a handshake file with mode `0o600`.
-- MCP control is off by default and must be enabled in the app.
-- Device actions are confirmation-gated in the app.
-
-While MCP control is on, the state-write tools (including `export_findings` and the artifact export) write to caller-supplied filesystem paths. These are token-gated, off-by-default, and recorded in the MCP action log, and they now refuse to overwrite an existing file unless `overwrite` is set. Enable MCP control only for a trusted client.
