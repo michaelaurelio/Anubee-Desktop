@@ -5,7 +5,7 @@ const COMMANDS = [
   'graph.runs', 'graph.coverage', 'graph.table', 'graph.count', 'graph.eventById', 'graph.recordChain',
   'graph.nodeEvents', 'graph.nodeEventCount', 'graph.slice', 'graph.stackRollup', 'graph.nodeOffsets',
   'graph.highlightSets', 'graph.diffTable', 'graph.diffSlice', 'rasp.suggest', 'rasp.rules.get', 'tags.load',
-  'tags.orphans', 'suggest.dismissed.get', 'nativelib.table', 'backtraces',
+  'tags.orphans', 'suggest.dismissed.get', 'nativelib.table', 'backtraces', 'view.get',
   'run.loadByPath', 'run.loadCompareByPath', 'tags.save', 'suggest.dismissed.save', 'suggest.confirm',
   'suggest.reject', 'rasp.rules.save', 'rasp.rules.preview', 'findings.export',
   'capture.preflight', 'capture.start', 'capture.stop', 'nativelib.startLive', 'nativelib.stopLive',
@@ -27,7 +27,7 @@ describe('TOOLS', () => {
   })
   it('has the key tool names', () => {
     const names = new Set(TOOLS.map((t) => t.name))
-    for (const n of ['query', 'confirm_suggestion', 'backtraces', 'start_capture']) expect(names.has(n)).toBe(true)
+    for (const n of ['query', 'confirm_suggestion', 'backtraces', 'start_capture', 'get_view']) expect(names.has(n)).toBe(true)
   })
   it('forwards args through a mock call', async () => {
     const calls: { command: string; args: unknown }[] = []

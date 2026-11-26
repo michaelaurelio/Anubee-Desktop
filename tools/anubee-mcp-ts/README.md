@@ -64,6 +64,7 @@ active run) and an optional `filter` object.
 - `dismissed_get` - load dismissed suggestions for a run
 - `native_libs` - table of native libraries seen in a run
 - `backtraces` - resolved backtrace frames for an event id or a node id
+- `get_view` - what the user is looking at now (run, tab, filters, selected record and node)
 
 ### State-writes
 

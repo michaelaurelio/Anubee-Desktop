@@ -146,6 +146,16 @@ export const TOOLS: ToolDef[] = [
     inputSchema: { id: z.number().int().optional(), nodeId: z.string().optional(), runId },
     mapArgs: (i) => ({ id: i.id, nodeId: i.nodeId, runId: i.runId }),
   },
+  {
+    name: 'get_view', command: 'view.get',
+    description:
+      'What the user is looking at in Anubee Desktop right now: active run (activeRunId, activeRunFile), engine, open tab, ' +
+      'compare run and diff mode, the toolbar filter (filter, plus filterText as shown), the filter the on-screen graph was ' +
+      'drawn with (graphFilter; can differ from filter because the graph redraws only on row selection), the selected record ' +
+      'id and graph node, and the table page. Pass filter with runId: activeRunId straight to query or count to work on the ' +
+      "records the user narrowed down. Use get_event for a record's contents.",
+    inputSchema: {}, mapArgs: () => undefined,
+  },
 
   // ---- writes ----
   {
