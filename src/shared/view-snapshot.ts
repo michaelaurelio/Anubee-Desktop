@@ -7,8 +7,8 @@ export interface RendererView {
   engine: 'syscall' | 'func'
   view: 'graph' | 'flame' | 'libs'
   compare: { runId: number; diffMode: 'all' | 'only-in-A' | 'only-in-B' | 'tagged' } | null
-  filter: Filter                      // toolbar filter: pass to query/count as-is
-  filterText: string                  // the omni bar as the user sees it
+  filter: Filter                      // filter the table shows: pass to query/count as-is
+  filterText: string                  // the omni bar as typed; may hold edits not yet applied
   graphFilter: Filter | null          // filter the drawn graph used; null if no graph
   selectedRecordId: number | null
   selectedNode: { id: string; kind?: string } | null

@@ -150,7 +150,8 @@ export const TOOLS: ToolDef[] = [
     name: 'get_view', command: 'view.get',
     description:
       'What the user is looking at in Anubee Desktop right now: active run (activeRunId, activeRunFile), engine, open tab, ' +
-      'compare run and diff mode, the toolbar filter (filter, plus filterText as shown), the filter the on-screen graph was ' +
+      'compare run and diff mode, the filter the table currently shows (filter), the omni bar text as typed (filterText; may ' +
+      'include edits not yet applied with Enter), the filter the on-screen graph was ' +
       'drawn with (graphFilter; can differ from filter because the graph redraws only on row selection), the selected record ' +
       'id and graph node, and the table page. Pass filter with runId: activeRunId straight to query or count to work on the ' +
       "records the user narrowed down. Use get_event for a record's contents.",

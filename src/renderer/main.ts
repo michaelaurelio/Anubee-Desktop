@@ -251,6 +251,9 @@ let currentNode: { id: string; kind?: string; cats: string[]; filter: Filter } |
 // to what is drawn - the graph only re-renders on row selection.
 let graphFilter: Filter = {}
 let graphDrawn = false // a slice is on the canvas, so graphFilter describes what is shown
+// The filter the table last rendered with. currentFilter() also includes omni-bar
+// edits not yet applied (a Space-made chip does not re-query), so get_view reports this.
+let tableFilter: Filter = {}
 const selEpoch = makeEpoch() // guards stale-async paints across row-select / node-tap / canvas-clear
 let currentLayout: ColumnLayout = parseLayout(activeEngine, savedColumns(activeEngine))
 
@@ -282,6 +285,7 @@ async function refreshTable(): Promise<void> {
     window.anubee.table(filter, { limit: TABLE_PAGE, offset: tableOffset }, activeRunId),
     window.anubee.count(filter, activeRunId),
   ])
+  tableFilter = filter
   currentLayout = parseLayout(activeEngine, savedColumns(activeEngine))
   const elapsedMax = rows.reduce((m, r) => Math.max(m, r.elapsed ?? 0), 0)
   renderTable(rows, currentLayout.columns, selectRow, tableBadgeFor, elapsedMax)
@@ -1244,7 +1248,7 @@ window.anubee.onMcpDeviceRequest(r => {
 window.anubee.onMcpViewRequest(r => {
   window.anubee.respondMcpViewRequest(r.id, buildViewSnapshot({
     activeRunId, engine: activeEngine, view: currentView, runB, diffMode,
-    filter: currentFilter(), filterText: currentFilterText(),
+    filter: tableFilter, filterText: currentFilterText(),
     graphFilter, graphDrawn, selectedRowId, currentNode,
     tableOffset, tableLimit: TABLE_PAGE,
   }))
