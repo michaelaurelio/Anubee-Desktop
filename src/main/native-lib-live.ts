@@ -62,6 +62,33 @@ export function startWatch(sp: Spawner, adb: Adb, pid: number, glob: string, dir
   return startRun(sp, adb, watchArg(pid, glob, dir), onLine, stopArgWatch(pid))
 }
 
+// Stop the on-map watcher AND wait for its device process to exit, bounded by
+// timeoutMs. RunHandle.stop() only sends SIGINT; the dump manifest is written
+// by the sink close during anubee's graceful exit, so pulling the output dir
+// before exit copies an empty manifest.jsonl and triageDir reports nothing
+// (the .so files themselves are already on disk, written at map time).
+// Resolves true once the process exited, false on timeout - the caller still
+// pulls on false (best effort) rather than hanging teardown forever.
+export async function stopAndWait(handle: RunHandle, timeoutMs = 10_000): Promise<boolean> {
+  await handle.stop()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timedOut = new Promise<false>(r => { timer = setTimeout(() => r(false), timeoutMs) })
+  try {
+    return await Promise.race([handle.done.then(() => true as const), timedOut])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// Memoize an async body: the first call starts it, every later call gets that
+// same promise. A live session has two teardown paths (Stop, and the stream's
+// own exit) that both fire on a Stop click; each must AWAIT the one stop-wait-
+// pull sequence rather than no-op its way past the wait and pull early.
+export function onceAsync(fn: () => Promise<void>): () => Promise<void> {
+  let p: Promise<void> | undefined
+  return () => (p ??= fn())
+}
+
 // Snapshot one module by base, pull the output dir, triage every rebuilt .so.
 // --now exits 0 on success and non-zero on real failure, so `code !== 0` is a
 // correct error test - unlike the old dump-on-exit path, which only ended when
