@@ -69,8 +69,23 @@ describe('watchArg / startWatch', () => {
     // through the outer shell, via the '\'' close-escape-reopen idiom. -d/-o are
     // required too: the default outdir is cwd, and root (`/`) is read-only.
     expect(watchArg(25659, 'libexample*', '/data/local/tmp/anubee-onmap-20260101000000'))
-      .toBe("su -c '/data/local/tmp/anubee dump -p 25659 --on-map -l '\\''libexample*'\\''" +
+      .toBe("su -c '/data/local/tmp/anubee dump -p 25659 --on-map --siblings -l '\\''libexample*'\\''" +
         " -d /data/local/tmp/anubee-onmap-20260101000000 -o /data/local/tmp/anubee-onmap-20260101000000/manifest.jsonl'")
+  })
+
+  it('watchArg widens to same-UID siblings, so a relaunched app process is still watched', () => {
+    // Observed on device: the first [lib] line came from pid 28460, which died;
+    // the app re-spawned from zygote as 28483 (ppid zygote64, not a fork of
+    // 28460) and mapped libm84d there. Plain -p gates on the exact TGID, so the
+    // watcher saw nothing. --siblings also arms the pid's UID.
+    expect(watchArg(25659, 'libexample*', '/d')).toContain(' --siblings ')
+  })
+
+  it('watchArg keeps the stopArgWatch prefix intact, so Stop still reaches the watcher', () => {
+    // stopArgWatch pkills on "^<bin> dump -p <pid> --on-map"; any flag inserted
+    // before --on-map would orphan a root dump process on the device.
+    const inner = watchArg(25659, 'libexample*', '/d').slice("su -c '".length)
+    expect(inner.startsWith('/data/local/tmp/anubee dump -p 25659 --on-map')).toBe(true)
   })
 
   it('watchArg emits balanced quotes, so the device shell can parse it', () => {

@@ -53,8 +53,13 @@ export function startLive(sp: Spawner, adb: Adb, pkg: string, onEvent: (e: LiveE
 // second_stage_resources storage sys system system_dlkm system_ext`: one wrong
 // -l plus six stray positional args that dump.c folds in as extra patterns via
 // ARGP_KEY_ARG, silently, with no error. Quoted, anubee receives the glob intact.
+// --siblings also arms the pid's UID: the first [lib] line's pid is not always
+// the process that survives (observed: it died and the app re-spawned from
+// zygote under a new pid that mapped the target), and plain -p gates on the
+// exact TGID. It must stay AFTER --on-map: stopArgWatch pkills on the
+// "dump -p <pid> --on-map" prefix. anubee never arms uid 0 (uid > 0 check).
 export function watchArg(pid: number, glob: string, dir: string): string {
-  return `su -c '${DEVICE_BIN} dump -p ${pid} --on-map -l '\\''${glob}'\\'' -d ${dir} -o ${dir}/manifest.jsonl'`
+  return `su -c '${DEVICE_BIN} dump -p ${pid} --on-map --siblings -l '\\''${glob}'\\'' -d ${dir} -o ${dir}/manifest.jsonl'`
 }
 
 export function startWatch(sp: Spawner, adb: Adb, pid: number, glob: string, dir: string, onLine: (l: string) => void): RunHandle {
