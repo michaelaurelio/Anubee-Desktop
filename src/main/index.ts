@@ -24,7 +24,7 @@ import { createHash } from 'node:crypto'
 import { readFile, open } from 'node:fs/promises'
 import { preflight, startRun, pullResult, realAdb, realSpawner, type RunHandle } from './tracer-control'
 import { createRunLifecycle } from './run-lifecycle'
-import { startLive, dumpByBase, startWatch, pullWatchArtifacts, checkByBases, type LiveEvent } from './native-lib-live'
+import { startLive, dumpByBase, startWatch, stopAndWait, onceAsync, pullWatchArtifacts, checkByBases, type LiveEvent } from './native-lib-live'
 import { makeBatcher, type Batcher } from '@shared/batcher'
 import { loadConfig, saveConfig } from './tracer-config'
 import { capById, composeRunArg, outJsonlPath, resolveSavePath, isSafePattern, validateStartRequest, type CapValues } from '@shared/tracer-caps'
@@ -538,11 +538,28 @@ ipcMain.handle('graph:nodeOffsets', (_e, nodeId: string, filter: Filter, runId?:
 
 ipcMain.handle('nativelib:table', (_e, runId?: number) => commands['nativelib.table']({ runId }))
 
-// Stop the watcher (if any) then pull + triage its device output dir and push
-// whatever it caught to the renderer. activeWatchDirs is cleared synchronously
-// before the pull's await, so a concurrent call from the other teardown path
-// (stopLive vs. activeLive.done) sees it already null and no-ops - no double
-// pull, no double push. pullWatchArtifacts itself never throws (the device dir
+// The current live session's watcher teardown: stop the on-map watcher, wait
+// for its device process to exit, THEN pull. The manifest is only flushed on
+// anubee's graceful exit, so pulling earlier copies an empty manifest.jsonl
+// and no artifact reaches the dock. Built per session with onceAsync, so the
+// two teardown paths (Stop, and activeLive.done) share one run: the second
+// caller awaits the first's wait instead of skipping it and pulling early.
+let finishWatch: () => Promise<void> = async () => {}
+function makeFinishWatch(): () => Promise<void> {
+  return onceAsync(async () => {
+    // Cleared only after the wait: a late [lib] line during Stop must still
+    // see a watcher, or the startLive callback would spawn a fresh, unstopped one.
+    const w = activeWatch
+    if (w && !await stopAndWait(w)) send('nativelib:line', 'on-map watcher did not exit within 10s; pulling what is there')
+    activeWatch = null
+    await pullAndPushWatchArtifacts()
+  })
+}
+
+// Pull + triage the watcher's device output dir and push whatever it caught
+// to the renderer (finishWatch has already stopped it and waited for exit).
+// activeWatchDirs is cleared synchronously before the pull's await, so it can
+// never pull or push twice. pullWatchArtifacts itself never throws (the device dir
 // is mkdir'd up front in nativelib:startLive, so a failed pull means a real
 // device/adb fault, not "nothing matched"), but this still wraps the call so
 // a rejection anywhere in the chain (e.g. adb.run itself rejecting) cannot
@@ -648,6 +665,7 @@ async function nativelibStartLive(pkg: string, glob?: string): Promise<void> {
     } else send('nativelib:unmapped', { ...ev.line, atMs: ev.atMs })
   })
   activeWatchDirs = watchDirs ?? null
+  finishWatch = makeFinishWatch()
   liveCheckDir = checkDirs
   activeCheckBatcher = checkBatcher
   activeLive.done.then(async () => {
@@ -659,8 +677,7 @@ async function nativelibStartLive(pkg: string, glob?: string): Promise<void> {
     // also means a rejection in either await (both under the catch below) can no
     // longer strand the view in "streaming" with no way to recover.
     send('nativelib:streamEnd')
-    if (activeWatch) { await activeWatch.stop(); activeWatch = null }
-    await pullAndPushWatchArtifacts()
+    await finishWatch()
   }).catch(() => {})
 }
 
@@ -669,8 +686,7 @@ ipcMain.handle('nativelib:stopLive', () => commands['nativelib.stopLive']())
 async function nativelibStopLive(): Promise<void> {
   teardownCheck()
   if (activeLive) await activeLive.stop()
-  if (activeWatch) { await activeWatch.stop(); activeWatch = null }
-  await pullAndPushWatchArtifacts()
+  await finishWatch()
 }
 
 // On-demand re-check of specific bases (Verify button / re-check all). A

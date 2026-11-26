@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { liveLibArg, dumpArg, startLive, triageDir, dumpByBase, watchArg, startWatch, pullWatchArtifacts, checkArg, checkByBases } from '../src/main/native-lib-live'
+import { liveLibArg, dumpArg, startLive, triageDir, dumpByBase, watchArg, startWatch, pullWatchArtifacts, checkArg, checkByBases, stopAndWait, onceAsync } from '../src/main/native-lib-live'
 import type { Adb, Spawner } from '../src/main/tracer-control'
 import type { LibLine } from '@shared/native-lib'
 
@@ -69,8 +69,23 @@ describe('watchArg / startWatch', () => {
     // through the outer shell, via the '\'' close-escape-reopen idiom. -d/-o are
     // required too: the default outdir is cwd, and root (`/`) is read-only.
     expect(watchArg(25659, 'libexample*', '/data/local/tmp/anubee-onmap-20260101000000'))
-      .toBe("su -c '/data/local/tmp/anubee dump -p 25659 --on-map -l '\\''libexample*'\\''" +
+      .toBe("su -c '/data/local/tmp/anubee dump -p 25659 --on-map --siblings -l '\\''libexample*'\\''" +
         " -d /data/local/tmp/anubee-onmap-20260101000000 -o /data/local/tmp/anubee-onmap-20260101000000/manifest.jsonl'")
+  })
+
+  it('watchArg widens to same-UID siblings, so a relaunched app process is still watched', () => {
+    // Observed on device: the first [lib] line came from pid 28460, which died;
+    // the app re-spawned from zygote as 28483 (ppid zygote64, not a fork of
+    // 28460) and mapped libm84d there. Plain -p gates on the exact TGID, so the
+    // watcher saw nothing. --siblings also arms the pid's UID.
+    expect(watchArg(25659, 'libexample*', '/d')).toContain(' --siblings ')
+  })
+
+  it('watchArg keeps the stopArgWatch prefix intact, so Stop still reaches the watcher', () => {
+    // stopArgWatch pkills on "^<bin> dump -p <pid> --on-map"; any flag inserted
+    // before --on-map would orphan a root dump process on the device.
+    const inner = watchArg(25659, 'libexample*', '/d').slice("su -c '".length)
+    expect(inner.startsWith('/data/local/tmp/anubee dump -p 25659 --on-map')).toBe(true)
   })
 
   it('watchArg emits balanced quotes, so the device shell can parse it', () => {
@@ -96,6 +111,29 @@ describe('watchArg / startWatch', () => {
     const calls = (adb.run as unknown as { mock: { calls: string[][][] } }).mock.calls.map(c => c[0].join(' '))
     expect(calls.some(c => c.includes('dump -p 25659 --on-map'))).toBe(true)
     expect(calls.some(c => c.includes("pkill -INT -f /data/local/tmp/anubee'"))).toBe(false) // not the global
+  })
+})
+
+describe('stopAndWait', () => {
+  it('does not resolve until the watcher process has exited', async () => {
+    // stop() only SIGINTs the device process; the manifest is written by its
+    // sink close during graceful exit. Pulling before exit copies an empty
+    // manifest (observed on device: 296 bytes there, 0 bytes on the host).
+    let exit: (c: number) => void = () => {}
+    const done = new Promise<{ code: number }>(r => { exit = c => r({ code: c }) })
+    const h = { stop: vi.fn(async () => {}), done }
+    let settled = false
+    const p = stopAndWait(h, 1000).then(r => { settled = true; return r })
+    await new Promise(r => setTimeout(r, 20))
+    expect(h.stop).toHaveBeenCalledOnce()
+    expect(settled).toBe(false)
+    exit(0)
+    expect(await p).toBe(true)
+  })
+
+  it('gives up after the timeout and reports it, so teardown cannot hang', async () => {
+    const h = { stop: vi.fn(async () => {}), done: new Promise<{ code: number }>(() => {}) }
+    expect(await stopAndWait(h, 20)).toBe(false)
   })
 })
 
@@ -299,5 +337,40 @@ describe('checkArg / checkByBases', () => {
     // silently lost to the next slice's device-side truncation.
     expect(rs.map(r => r.module)).toEqual(['lib1.so', 'lib2.so'])
     rmSync(d, { recursive: true, force: true })
+  })
+})
+
+describe('onceAsync (shared watcher teardown)', () => {
+  it('runs the body once and every caller awaits that same run', async () => {
+    let calls = 0
+    let release: () => void = () => {}
+    const fin = onceAsync(async () => { calls++; await new Promise<void>(r => { release = r }) })
+    const a = fin()
+    const b = fin()
+    let bDone = false
+    void b.then(() => { bDone = true })
+    await new Promise(r => setTimeout(r, 10))
+    expect(calls).toBe(1)
+    expect(bDone).toBe(false) // the second caller must not run ahead of the first
+    release()
+    await Promise.all([a, b])
+    expect(calls).toBe(1)
+  })
+
+  it('two concurrent teardowns (Stop + stream end) pull once, and only after the watcher exits', async () => {
+    // The real race: Stop and activeLive.done both tear down. Whichever came
+    // second used to skip the wait and pull immediately - an empty manifest.
+    const order: string[] = []
+    let exit: () => void = () => {}
+    const done = new Promise<{ code: number }>(r => { exit = () => { order.push('exit'); r({ code: 0 }) } })
+    const w = { stop: vi.fn(async () => {}), done }
+    const fin = onceAsync(async () => { await stopAndWait(w, 1000); order.push('pull') })
+    const p = Promise.all([fin(), fin()])
+    await new Promise(r => setTimeout(r, 10))
+    expect(order).toEqual([])
+    exit()
+    await p
+    expect(order).toEqual(['exit', 'pull'])
+    expect(w.stop).toHaveBeenCalledOnce()
   })
 })

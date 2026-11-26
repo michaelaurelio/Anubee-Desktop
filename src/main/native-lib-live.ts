@@ -53,13 +53,45 @@ export function startLive(sp: Spawner, adb: Adb, pkg: string, onEvent: (e: LiveE
 // second_stage_resources storage sys system system_dlkm system_ext`: one wrong
 // -l plus six stray positional args that dump.c folds in as extra patterns via
 // ARGP_KEY_ARG, silently, with no error. Quoted, anubee receives the glob intact.
+// --siblings also arms the pid's UID: the first [lib] line's pid is not always
+// the process that survives (observed: it died and the app re-spawned from
+// zygote under a new pid that mapped the target), and plain -p gates on the
+// exact TGID. It must stay AFTER --on-map: stopArgWatch pkills on the
+// "dump -p <pid> --on-map" prefix. anubee never arms uid 0 (uid > 0 check).
 export function watchArg(pid: number, glob: string, dir: string): string {
-  return `su -c '${DEVICE_BIN} dump -p ${pid} --on-map -l '\\''${glob}'\\'' -d ${dir} -o ${dir}/manifest.jsonl'`
+  return `su -c '${DEVICE_BIN} dump -p ${pid} --on-map --siblings -l '\\''${glob}'\\'' -d ${dir} -o ${dir}/manifest.jsonl'`
 }
 
 export function startWatch(sp: Spawner, adb: Adb, pid: number, glob: string, dir: string, onLine: (l: string) => void): RunHandle {
   if (!isSafePattern(glob)) throw new Error(`unsafe on-map glob: ${glob}`)
   return startRun(sp, adb, watchArg(pid, glob, dir), onLine, stopArgWatch(pid))
+}
+
+// Stop the on-map watcher AND wait for its device process to exit, bounded by
+// timeoutMs. RunHandle.stop() only sends SIGINT; the dump manifest is written
+// by the sink close during anubee's graceful exit, so pulling the output dir
+// before exit copies an empty manifest.jsonl and triageDir reports nothing
+// (the .so files themselves are already on disk, written at map time).
+// Resolves true once the process exited, false on timeout - the caller still
+// pulls on false (best effort) rather than hanging teardown forever.
+export async function stopAndWait(handle: RunHandle, timeoutMs = 10_000): Promise<boolean> {
+  await handle.stop()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timedOut = new Promise<false>(r => { timer = setTimeout(() => r(false), timeoutMs) })
+  try {
+    return await Promise.race([handle.done.then(() => true as const), timedOut])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// Memoize an async body: the first call starts it, every later call gets that
+// same promise. A live session has two teardown paths (Stop, and the stream's
+// own exit) that both fire on a Stop click; each must AWAIT the one stop-wait-
+// pull sequence rather than no-op its way past the wait and pull early.
+export function onceAsync(fn: () => Promise<void>): () => Promise<void> {
+  let p: Promise<void> | undefined
+  return () => (p ??= fn())
 }
 
 // Snapshot one module by base, pull the output dir, triage every rebuilt .so.
