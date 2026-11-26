@@ -27,6 +27,17 @@ export function currentFilter(): Filter {
   return f
 }
 
+// A chip as the user would type it; a value with whitespace is quoted so it
+// reads (and re-parses) the same way.
+function chipText(c: OmniToken): string {
+  return c.key + ':' + (/\s/.test(c.value) ? '"' + c.value + '"' : c.value)
+}
+
+// The omni bar as the user sees it: chips, then the free text.
+export function currentFilterText(): string {
+  return [...chips.map(chipText), (input()?.value ?? '').trim()].filter(Boolean).join(' ')
+}
+
 function renderChips(refresh: () => void): void {
   const host = document.getElementById('omni-chips')
   if (!host) return
@@ -181,7 +192,7 @@ export function wireFilterControls(refresh: () => void): void {
     if (k === 'Backspace' && el.value === '' && chips.length) {
       const c = chips.pop()!
       renderChips(refresh)
-      el.value = c.key + ':' + (c.value.includes(' ') ? '"' + c.value + '"' : c.value)
+      el.value = chipText(c)
       ev.preventDefault()
     }
   })

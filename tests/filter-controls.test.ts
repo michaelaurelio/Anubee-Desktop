@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
-import { currentFilter, wireFilterControls, setTagResolver } from '../src/renderer/filter-controls'
+import { currentFilter, currentFilterText, wireFilterControls, setTagResolver } from '../src/renderer/filter-controls'
 
 function setup(): { input: HTMLInputElement; refresh: ReturnType<typeof vi.fn> } {
   document.body.innerHTML =
@@ -207,5 +207,28 @@ describe('autocomplete — dotted keys', () => {
     const rows = [...document.querySelectorAll('#omni-ac .ac-row b')].map(b => b.textContent)
     expect(rows).toContain('java.exist:')
     expect(rows).toContain('java.method:')
+  })
+})
+
+describe('currentFilterText', () => {
+  it('joins chips and free text', () => {
+    const { input } = setup()
+    type(input, 'tid:42')
+    key(input, ' ')
+    type(input, '/proc')
+    expect(currentFilterText()).toBe('tid:42 /proc')
+  })
+
+  it('quotes a chip value containing a space', () => {
+    const { input } = setup()
+    type(input, 'java.method:"a b"')
+    key(input, 'Enter')
+    expect(document.querySelectorAll('#omni-chips .chip')).toHaveLength(1)
+    expect(currentFilterText()).toBe('java.method:"a b"')
+  })
+
+  it('empty bar is empty string', () => {
+    setup()
+    expect(currentFilterText()).toBe('')
   })
 })
