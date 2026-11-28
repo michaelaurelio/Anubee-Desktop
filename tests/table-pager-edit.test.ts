@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { wireRangeEdit, renderPager, flashTableRow } from '../src/renderer/table-pager'
 
-function setup(total = 48213) {
+function setup(total = 48213, current = 1) {
   document.body.innerHTML =
     '<span id="pager-range" class="rng">1–500 / 48213</span>' +
     '<span id="pager-edit" class="hidden"><input id="pager-input" /><span id="pager-total"></span></span>'
@@ -11,7 +11,7 @@ function setup(total = 48213) {
   const input = document.getElementById('pager-input') as HTMLInputElement
   const totalLabel = document.getElementById('pager-total')!
   const onJump = vi.fn()
-  wireRangeEdit({ range, editor, input, totalLabel, total: () => total, onJump })
+  wireRangeEdit({ range, editor, input, totalLabel, total: () => total, current: () => current, onJump })
   return { range, editor, input, totalLabel, onJump }
 }
 
@@ -26,6 +26,13 @@ describe('wireRangeEdit', () => {
     expect(editor.classList.contains('hidden')).toBe(false)
     expect(totalLabel.textContent).toBe('/ 48213')
     expect(document.activeElement).toBe(input)
+  })
+
+  it('opens pre-filled with the current page start, selected', () => {
+    const { range, input } = setup(48213, 20001)
+    range.click()
+    expect(input.value).toBe('20001')
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 5])
   })
 
   it('Enter jumps once', () => {
@@ -80,7 +87,7 @@ describe('wireRangeEdit', () => {
     key(input, 'Enter')
     range.click()
     expect(editor.classList.contains('hidden')).toBe(false)
-    expect(input.value).toBe('')
+    expect(input.value).toBe('1')
   })
 })
 

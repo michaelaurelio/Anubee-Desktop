@@ -33,6 +33,7 @@ export interface RangeEditOpts {
   input: HTMLInputElement
   totalLabel: HTMLElement
   total: () => number
+  current: () => number     // first row of the shown page, pre-filled on open
   onJump: (position: number) => void
 }
 
@@ -54,10 +55,11 @@ export function wireRangeEdit(o: RangeEditOpts): void {
     if (total <= 0) return
     open = true
     o.totalLabel.textContent = `/ ${total}`
-    o.input.value = ''
+    o.input.value = String(o.current())
     o.range.classList.add('hidden')
     o.editor.classList.remove('hidden')
     o.input.focus()
+    o.input.select() // typing replaces the pre-filled position
   }
   o.input.onkeydown = (e) => {
     if (e.key === 'Enter') {

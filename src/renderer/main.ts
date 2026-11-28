@@ -1297,7 +1297,7 @@ async function jumpToPosition(n: number): Promise<void> {
   const input = document.getElementById('pager-input') as HTMLInputElement | null
   const totalLabel = document.getElementById('pager-total')
   if (range && editor && input && totalLabel) {
-    wireRangeEdit({ range, editor, input, totalLabel, total: () => tableTotal, onJump: n => void jumpToPosition(n) })
+    wireRangeEdit({ range, editor, input, totalLabel, total: () => tableTotal, current: () => tableOffset + 1, onJump: n => void jumpToPosition(n) })
   }
 }
 wireFilterControls(() => { tableOffset = 0; void refreshTable(); refreshMiddle() })
