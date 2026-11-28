@@ -25,3 +25,49 @@ export function parsePosition(text: string): number | undefined {
   const s = text.replace(/[,_\s]/g, '')
   return /^-?\d+$/.test(s) ? Number(s) : undefined
 }
+
+export interface RangeEditOpts {
+  range: HTMLElement        // the "1–500 / N" text; click to edit
+  editor: HTMLElement       // wrapper holding the input + total label, hidden when idle
+  input: HTMLInputElement
+  totalLabel: HTMLElement
+  total: () => number
+  onJump: (position: number) => void
+}
+
+// Turn the pager's range text into a jump input. Enter jumps to the typed
+// position; Escape, blur or a non-number cancels. Handlers are assigned (not
+// added) so wiring twice replaces rather than stacks.
+export function wireRangeEdit(o: RangeEditOpts): void {
+  let open = false
+  // Idempotent: hiding the focused input after Enter fires blur, which must not
+  // close (or jump) a second time.
+  const close = (): void => {
+    if (!open) return
+    open = false
+    o.editor.classList.add('hidden')
+    o.range.classList.remove('hidden')
+  }
+  o.range.onclick = () => {
+    const total = o.total()
+    if (total <= 0) return
+    open = true
+    o.totalLabel.textContent = `/ ${total}`
+    o.input.value = ''
+    o.range.classList.add('hidden')
+    o.editor.classList.remove('hidden')
+    o.input.focus()
+  }
+  o.input.onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const n = parsePosition(o.input.value)
+      close()
+      if (n !== undefined) o.onJump(n)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      close()
+    }
+  }
+  o.input.onblur = close
+}
