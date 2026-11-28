@@ -1,6 +1,7 @@
-// Master-table pager: page math for jumping to a typed row position. Positions
-// are 1-based rows of the current (possibly filtered) table, not record ids.
-// Jumping only moves the page window; it never touches the filter or graph.
+// Master-table pager: page math, the jump input, button state and the row
+// flash. Positions are 1-based rows of the current (possibly filtered) table,
+// not record ids. Jumping only moves the page window; it never touches the
+// filter or the graph.
 
 // A position clamped into [1, total]; 0 when the table is empty.
 export function clampPosition(n: number, total: number): number {
@@ -70,4 +71,31 @@ export function wireRangeEdit(o: RangeEditOpts): void {
     }
   }
   o.input.onblur = close
+}
+
+// Paint the table-header pager: range text plus first/prev/next/last state.
+// Missing elements are skipped.
+export function renderPager(offset: number, pageLen: number, total: number, pageSize: number): void {
+  const rng = document.getElementById('pager-range')
+  const btn = (id: string) => document.getElementById(id) as HTMLButtonElement | null
+  if (rng) rng.textContent = total === 0 ? '0 / 0' : `${offset + 1}–${offset + pageLen} / ${total}`
+  const atStart = offset <= 0
+  const atEnd = offset + pageSize >= total
+  const first = btn('pager-first'), prev = btn('pager-prev'), next = btn('pager-next'), last = btn('pager-last')
+  if (first) first.disabled = atStart
+  if (prev) prev.disabled = atStart
+  if (next) next.disabled = atEnd
+  if (last) last.disabled = offset >= lastPageOffset(total, pageSize)
+}
+
+// Scroll the jumped-to row into view and flash it. pageIndex is 0-based within
+// the page; table row 0 is the header (see renderTable). Does not select it.
+export function flashTableRow(host: HTMLElement, pageIndex: number): void {
+  const tr = host.querySelector('table')?.rows[pageIndex + 1]
+  if (pageIndex < 0 || !tr) return
+  tr.scrollIntoView({ block: 'center' })
+  tr.classList.remove('flash')
+  void tr.offsetWidth // reflow so a repeat jump to the same row restarts the animation
+  tr.classList.add('flash')
+  tr.addEventListener('animationend', () => tr.classList.remove('flash'), { once: true })
 }
