@@ -6,6 +6,7 @@ import { runElkLayout } from './elk-layout'
 import { renderTable } from './table'
 import { serializeLayout, parseLayout, columnCatalogue, engineColumnKeys, engineDefaultColumns, type ColumnLayout, type ColumnKey } from './columns'
 import { applyWidths, nextWidth } from './column-resize'
+import { clampPosition, pageOffsetFor, lastPageOffset, wireRangeEdit, renderPager, flashTableRow } from './table-pager'
 import { currentFilter, currentFilterText, wireFilterControls, setTagResolver } from './filter-controls'
 import { buildViewSnapshot } from './view-snapshot'
 import { resolveTagTargets } from '@shared/tag-targets'
@@ -237,6 +238,7 @@ let coverageChip = ''
 const TABLE_PAGE = 500
 
 let tableOffset = 0
+let tableTotal = 0 // row count of the table's current filter, for last-page / jump math
 let selectedRowId: number | undefined // the row whose detail is open, so re-renders can re-highlight it
 
 const NODE_PAGE = 100 // inspector page size; mirrors TABLE_PAGE for the right panel
@@ -256,15 +258,6 @@ let graphDrawn = false // a slice is on the canvas, so graphFilter describes wha
 let tableFilter: Filter = {}
 const selEpoch = makeEpoch() // guards stale-async paints across row-select / node-tap / canvas-clear
 let currentLayout: ColumnLayout = parseLayout(activeEngine, savedColumns(activeEngine))
-
-function renderPager(offset: number, pageLen: number, total: number): void {
-  const rng = document.getElementById('pager-range')
-  const prev = document.getElementById('pager-prev') as HTMLButtonElement | null
-  const next = document.getElementById('pager-next') as HTMLButtonElement | null
-  if (rng) rng.textContent = total === 0 ? '0 / 0' : `${offset + 1}–${offset + pageLen} / ${total}`
-  if (prev) prev.disabled = offset <= 0
-  if (next) next.disabled = offset + TABLE_PAGE >= total
-}
 
 function highlightTableRow(id: number): void {
   for (const tr of document.querySelectorAll('#table tr.sel')) tr.classList.remove('sel')
@@ -286,13 +279,14 @@ async function refreshTable(): Promise<void> {
     window.anubee.count(filter, activeRunId),
   ])
   tableFilter = filter
+  tableTotal = total
   currentLayout = parseLayout(activeEngine, savedColumns(activeEngine))
   const elapsedMax = rows.reduce((m, r) => Math.max(m, r.elapsed ?? 0), 0)
   renderTable(rows, currentLayout.columns, selectRow, tableBadgeFor, elapsedMax)
   const scroll = document.querySelector<HTMLElement>('#table .table-scroll')
   if (scroll) { applyWidths(scroll, currentLayout.widths); wireColGrips(scroll) }
   if (selectedRowId !== undefined) highlightTableRow(selectedRowId) // survive paging/filter/column re-render
-  renderPager(tableOffset, rows.length, total)
+  renderPager(tableOffset, rows.length, total, TABLE_PAGE)
 }
 
 // Wire drag-resize + double-click-to-autofit on each column's grip. Window-level
@@ -1176,6 +1170,7 @@ window.anubee.onLoaded(s => {
   activeRunId = s.runId
   activeEngine = s.kinds.includes('funcs') && !s.kinds.includes('syscall') ? 'func' : 'syscall'
   tableOffset = 0 // a fresh run starts at page 1; a stale offset could land past its row count
+  tableTotal = 0
   selectedRowId = undefined
   currentNode = undefined // a prior run's open node / drawn graph no longer applies
   graphDrawn = false
@@ -1278,6 +1273,33 @@ document.getElementById('pager-next')?.addEventListener('click', () => {
   tableOffset += TABLE_PAGE
   void refreshTable()
 })
+document.getElementById('pager-first')?.addEventListener('click', () => {
+  tableOffset = 0
+  void refreshTable()
+})
+document.getElementById('pager-last')?.addEventListener('click', () => {
+  tableOffset = lastPageOffset(tableTotal, TABLE_PAGE)
+  void refreshTable()
+})
+// Jump the table to the page holding row n and flash it. Only the page window
+// moves: the filter, the drawn graph and the selected row are left alone.
+async function jumpToPosition(n: number): Promise<void> {
+  const pos = clampPosition(n, tableTotal)
+  if (pos === 0) return
+  tableOffset = pageOffsetFor(n, tableTotal, TABLE_PAGE)
+  await refreshTable()
+  const scroll = document.querySelector<HTMLElement>('#table .table-scroll')
+  if (scroll) flashTableRow(scroll, pos - 1 - tableOffset)
+}
+{
+  const range = document.getElementById('pager-range')
+  const editor = document.getElementById('pager-edit')
+  const input = document.getElementById('pager-input') as HTMLInputElement | null
+  const totalLabel = document.getElementById('pager-total')
+  if (range && editor && input && totalLabel) {
+    wireRangeEdit({ range, editor, input, totalLabel, total: () => tableTotal, onJump: n => void jumpToPosition(n) })
+  }
+}
 wireFilterControls(() => { tableOffset = 0; void refreshTable(); refreshMiddle() })
 setTagResolver(cat => resolveTagTargets(tags, cat))
 wireExport()
