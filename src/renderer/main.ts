@@ -272,8 +272,9 @@ function tableBadgeFor(row: TableRow): string {
   return id ? badgeText(tagsByTarget(tags, id)) : ''
 }
 
-async function refreshTable(): Promise<void> {
-  const filter = currentFilter()
+// Paging (prev / next / first / last / jump) passes tableFilter so it only moves
+// the page window: omni-bar text not yet applied must not slip in under a stale total.
+async function refreshTable(filter: Filter = currentFilter()): Promise<void> {
   const [rows, total] = await Promise.all([
     window.anubee.table(filter, { limit: TABLE_PAGE, offset: tableOffset }, activeRunId),
     window.anubee.count(filter, activeRunId),
@@ -1267,19 +1268,19 @@ document.getElementById('mcp-btn')?.addEventListener('click', () => {
 })
 document.getElementById('pager-prev')?.addEventListener('click', () => {
   tableOffset = Math.max(0, tableOffset - TABLE_PAGE)
-  void refreshTable()
+  void refreshTable(tableFilter)
 })
 document.getElementById('pager-next')?.addEventListener('click', () => {
   tableOffset += TABLE_PAGE
-  void refreshTable()
+  void refreshTable(tableFilter)
 })
 document.getElementById('pager-first')?.addEventListener('click', () => {
   tableOffset = 0
-  void refreshTable()
+  void refreshTable(tableFilter)
 })
 document.getElementById('pager-last')?.addEventListener('click', () => {
   tableOffset = lastPageOffset(tableTotal, TABLE_PAGE)
-  void refreshTable()
+  void refreshTable(tableFilter)
 })
 // Jump the table to the page holding row n and flash it. Only the page window
 // moves: the filter, the drawn graph and the selected row are left alone.
@@ -1287,7 +1288,7 @@ async function jumpToPosition(n: number): Promise<void> {
   const pos = clampPosition(n, tableTotal)
   if (pos === 0) return
   tableOffset = pageOffsetFor(n, tableTotal, TABLE_PAGE)
-  await refreshTable()
+  await refreshTable(tableFilter)
   const scroll = document.querySelector<HTMLElement>('#table .table-scroll')
   if (scroll) flashTableRow(scroll, pos - 1 - tableOffset)
 }
